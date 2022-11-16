@@ -9,7 +9,7 @@ class VESC(object):
             uart_tx_pin,
             uart_rx_pin,
             baudrate = 115200, # VESC UART baudrate
-            timeout = 0.05, # assuming 50ms is enough for reading the UART
+            timeout = 0.0015, # 1.5ms is enough for reading the UART
             receiver_buffer_size = 512) # VESC PACKET_MAX_PL_LEN = 512
 
     # code taken from:
@@ -73,5 +73,3 @@ class VESC(object):
         command = bytearray([4])
         response = self.__pack_and_send(command, 512)
         return response
-
-
