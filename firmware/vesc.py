@@ -3,9 +3,14 @@ import board
 
 class VESC(object):
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, baudrate):
+    def __init__(self, uart_tx_pin, uart_rx_pin):
         # configure UART for communications with VESC
-        self.uart_vesc = busio.UART(uart_tx_pin, uart_rx_pin, baudrate = baudrate)
+        self.uart_vesc = busio.UART(
+            uart_tx_pin,
+            uart_rx_pin,
+            baudrate = 115200, # VESC UART baudrate
+            timeout = 0.05, # assuming 50ms is enough for reading the UART
+            receiver_buffer_size = 512) # VESC PACKET_MAX_PL_LEN = 512
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
@@ -32,28 +37,41 @@ class VESC(object):
             0xEF1F, 0xFF3E, 0xCF5D, 0xDF7C, 0xAF9B, 0xBFBA, 0x8FD9, 0x9FF8, 0x6E17, 0x7E36, 0x4E55, 0x5E74, 0x2E93, 0x3EB2, 0x0ED1, 0x1EF0
         ]
         
-        crc = 0xFFFF
+        crc = 0
         for byte in data:
             crc = (crc << 8) ^ table[(crc >> 8) ^ byte]
             crc &= 0xFFFF                                   # important, crc must stay 16bits all the way through
-        
+
         return crc
 
-    def __pack_and_send(self, buf, len):
+    def __pack_and_send(self, buf, response_len):
 
         #start byte + len + data + CRC 16 bits + end byte
-        package_len = 1 + 1 + len + 2 + 1
+        lenght = len(buf)
+        package_len = 1 + 1 + lenght + 2 + 1
         data_array = bytearray(package_len)
 
         data_array[0] = 2 # start byte
-        data_array[1] = len
-        data_array[2: 2 + len] = buf # copy data
+        data_array[1] = lenght
+        data_array[2: 2 + lenght] = buf # copy data
         crc = self.__crc16(buf)
         data_array[package_len - 3] = (crc & 0xff00) >> 8
         data_array[package_len - 2] = crc & 0x00ff
         data_array[package_len - 1] = 3
 
+        # send to UART
         self.uart_vesc.write(data_array)
+        
+        data = self.uart_vesc.read(response_len)  # read up to response_len bytes
+        if data is not None:
+            return data
+        else:
+            return None
 
     def get_motor_data(self):
-        self.__pack_and_send(bytearray([7, 3, 5]), 3)
+        # COMM_GET_VALUES = 4
+        command = bytearray([4])
+        response = self.__pack_and_send(command, 512)
+        return response
+
+

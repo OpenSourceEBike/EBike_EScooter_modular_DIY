@@ -11,7 +11,7 @@ led = digitalio.DigitalInOut(board.LED1)
 led.direction = digitalio.Direction.OUTPUT
 
 # init VESC object
-vesc = vesc.VESC(board.P0_20, board.P0_22, baudrate = 115200)
+vesc = vesc.VESC(board.P0_20, board.P0_22)
 
 # configure UART for communications with display
 uart_display = busio.UART(board.P0_09, board.P0_10, baudrate = 19200)
@@ -29,17 +29,15 @@ io_wheelspeed_sensor = digitalio.DigitalInOut(board.P1_15)
 io_wheelspeed_sensor.pull = Pull.UP
 io_wheelspeed_sensor.direction = digitalio.Direction.INPUT
 
-while True:
-    vesc.get_motor_data()
-
-    time.sleep(1.0)
-
 value = 0
 
 while True:
-    
+
     value += 1
     buf = bytearray([value])
+
+    response = vesc.get_motor_data()
+    print("VESC response: " + str(response))
 
     print("UART values: " + str(value))
     uart_display.write(buf)
@@ -48,8 +46,6 @@ while True:
     print("IO brake sensor: " + str(io_brake_sensor.value))
     print("IO wheelspeed sensor: " + str(io_wheelspeed_sensor.value))
     print(" ")
-
-    vesc.enter()
 
     led.value = True
     time.sleep(0.5)
