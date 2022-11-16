@@ -37,15 +37,17 @@ while True:
     buf = bytearray([value])
 
     response = vesc.get_motor_data()
-    print("VESC response: " + str(response))
-
-    print("UART values: " + str(value))
-    uart_display.write(buf)
-
-    print("ADC throttle: " + str(adc_throttle.value))
-    print("IO brake sensor: " + str(io_brake_sensor.value))
-    print("IO wheelspeed sensor: " + str(io_wheelspeed_sensor.value))
     print(" ")
+    for byte in response:
+        print(byte, end=" ")
+
+    # print("UART values: " + str(value))
+    # uart_display.write(buf)
+
+    # print("ADC throttle: " + str(adc_throttle.value))
+    # print("IO brake sensor: " + str(io_brake_sensor.value))
+    # print("IO wheelspeed sensor: " + str(io_wheelspeed_sensor.value))
+    # print(" ")
 
     led.value = True
     time.sleep(0.5)
