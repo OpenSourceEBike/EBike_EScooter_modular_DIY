@@ -3,7 +3,9 @@ import digitalio
 from digitalio import Pull
 import analogio
 import busio
-import time
+import asyncio
+import simpleio
+
 import vesc
 
 # configure NRF52840 board green LED
@@ -29,27 +31,35 @@ io_wheelspeed_sensor = digitalio.DigitalInOut(board.P1_15)
 io_wheelspeed_sensor.pull = Pull.UP
 io_wheelspeed_sensor.direction = digitalio.Direction.INPUT
 
-value = 0
+async def vesc_heartbeat():
+    while True:
+        vesc.send_heart_beat()
+        await asyncio.sleep(0.75)
 
-while True:
+async def read_sensors_control_motor():
+    while True:
 
-    value += 1
-    buf = bytearray([value])
+        # read throttle and map the value to motor speed value
+        min_throttle_adc = 18000 # checked on my current hardware
+        max_throttle_adc = 65535 # max value of analogio.AnalogIn
+        min_motor_speed_erpm = 0
+        max_motor_speed_erpm = 8500 # max value of the motor speed ERPM
+        motor_speed_erpm = simpleio.map_range(adc_throttle.value, min_throttle_adc, max_throttle_adc, min_motor_speed_erpm, max_motor_speed_erpm)
 
-    response = vesc.get_motor_data()
-    print(" ")
-    for byte in response:
-        print(byte, end=" ")
+        print(motor_speed_erpm)
 
-    # print("UART values: " + str(value))
-    # uart_display.write(buf)
+        await asyncio.sleep(0.5)
 
-    # print("ADC throttle: " + str(adc_throttle.value))
-    # print("IO brake sensor: " + str(io_brake_sensor.value))
-    # print("IO wheelspeed sensor: " + str(io_wheelspeed_sensor.value))
-    # print(" ")
+        # set motor current
 
-    led.value = True
-    time.sleep(0.5)
-    led.value = False
-    time.sleep(0.5)
+        # set motor speed
+
+        # await asyncio.sleep(0.002)
+
+async def main():
+    vesc_heartbeat_task = asyncio.create_task(vesc_heartbeat())
+    read_sensors_control_motor_task = asyncio.create_task(read_sensors_control_motor())
+    await asyncio.gather(vesc_heartbeat_task, read_sensors_control_motor_task)
+    print("done main()")
+
+asyncio.run(main())

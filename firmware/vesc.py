@@ -49,27 +49,41 @@ class VESC(object):
         #start byte + len + data + CRC 16 bits + end byte
         lenght = len(buf)
         package_len = 1 + 1 + lenght + 2 + 1
-        data_array = bytearray(package_len)
+        crc = self.__crc16(buf)
 
+        data_array = bytearray(package_len)
         data_array[0] = 2 # start byte
         data_array[1] = lenght
         data_array[2: 2 + lenght] = buf # copy data
-        crc = self.__crc16(buf)
         data_array[package_len - 3] = (crc & 0xff00) >> 8
         data_array[package_len - 2] = crc & 0x00ff
         data_array[package_len - 1] = 3
 
-        # send to UART
+        # send packet to UART
         self.uart_vesc.write(data_array)
         
-        data = self.uart_vesc.read(response_len)  # read up to response_len bytes
-        if data is not None:
+        # try to read response only if we expect it
+        if response_len is not 0:
+            data = self.uart_vesc.read(response_len)  # read up to response_len bytes
             return data
-        else:
-            return None
-
+            
     def get_motor_data(self):
         # COMM_GET_VALUES = 4; 79 bytes response
         command = bytearray([4])
         response = self.__pack_and_send(command, 79)
         return response
+
+    def send_heart_beat(self):
+        # COMM_ALIVE = 30; no response
+        command = bytearray([30])
+        self.__pack_and_send(command, 0)
+
+    def set_current(self):
+	# int32_t res =	((uint32_t) buffer[*index]) << 24 |
+	# 				((uint32_t) buffer[*index + 1]) << 16 |
+	# 				((uint32_t) buffer[*index + 2]) << 8 |
+	# 				((uint32_t) buffer[*index + 3]);
+
+        # COMM_SET_CURRENT = 6; no response
+        command = bytearray([6])
+        self.__pack_and_send(command, 0)
