@@ -1,5 +1,5 @@
 import busio
-import board
+import struct
 
 class VESC(object):
 
@@ -78,12 +78,27 @@ class VESC(object):
         command = bytearray([30])
         self.__pack_and_send(command, 0)
 
-    def set_current(self):
-	# int32_t res =	((uint32_t) buffer[*index]) << 24 |
-	# 				((uint32_t) buffer[*index + 1]) << 16 |
-	# 				((uint32_t) buffer[*index + 2]) << 8 |
-	# 				((uint32_t) buffer[*index + 3]);
+    def set_current_amps(self, value):
+        value = value * 1000 # current in mA
 
         # COMM_SET_CURRENT = 6; no response
-        command = bytearray([6])
+        command = bytearray(5)
+        command[0] = 6
+        struct.pack_into('>l', command, 1, int(value))
+        self.__pack_and_send(command, 0)
+
+    def set_current_brake_amps(self, value):
+        value = value * 1000 # current in mA
+
+        # COMM_SET_CURRENT_BRAKE = 7; no response
+        command = bytearray(5)
+        command[0] = 7
+        struct.pack_into('>l', command, 1, int(value))
+        self.__pack_and_send(command, 0)
+
+    def set_motor_speed_erpm(self, value):
+        # COMM_SET_RPM = 8; no response
+        command = bytearray(5)
+        command[0] = 8
+        struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)

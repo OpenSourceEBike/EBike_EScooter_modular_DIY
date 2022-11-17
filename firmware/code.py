@@ -34,27 +34,21 @@ io_wheelspeed_sensor.direction = digitalio.Direction.INPUT
 async def vesc_heartbeat():
     while True:
         vesc.send_heart_beat()
+        led.value = not led.value
         await asyncio.sleep(0.75)
 
 async def read_sensors_control_motor():
     while True:
 
-        # read throttle and map the value to motor speed value
+        # read throttle and map to motor current
         min_throttle_adc = 18000 # checked on my current hardware
         max_throttle_adc = 65535 # max value of analogio.AnalogIn
-        min_motor_speed_erpm = 0
-        max_motor_speed_erpm = 8500 # max value of the motor speed ERPM
-        motor_speed_erpm = simpleio.map_range(adc_throttle.value, min_throttle_adc, max_throttle_adc, min_motor_speed_erpm, max_motor_speed_erpm)
+        motor_current = simpleio.map_range(adc_throttle.value, min_throttle_adc, max_throttle_adc, 0, 5.0)
 
-        print(motor_speed_erpm)
+        vesc.set_current_brake_amps(0.0)
+        vesc.set_current_amps(motor_current)
 
-        await asyncio.sleep(0.5)
-
-        # set motor current
-
-        # set motor speed
-
-        # await asyncio.sleep(0.002)
+        await asyncio.sleep(0.002)
 
 async def main():
     vesc_heartbeat_task = asyncio.create_task(vesc_heartbeat())
