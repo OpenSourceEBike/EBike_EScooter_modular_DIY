@@ -3,7 +3,9 @@ import struct
 
 class VESC(object):
 
-    def __init__(self, uart_tx_pin, uart_rx_pin):
+    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_motor_data):
+        self.vesc_motor_data = vesc_motor_data
+
         # configure UART for communications with VESC
         self.uart_vesc = busio.UART(
             uart_tx_pin,
@@ -67,11 +69,14 @@ class VESC(object):
             data = self.uart_vesc.read(response_len)  # read up to response_len bytes
             return data
             
-    def get_motor_data(self):
+    def refresh_motor_data(self):
         # COMM_GET_VALUES = 4; 79 bytes response
         command = bytearray([4])
         response = self.__pack_and_send(command, 79)
-        return response
+
+        # store the motor speed ERPM
+        motor_speed_erpm_tupple = struct.unpack_from('>l', response, 25)
+        self.vesc_motor_data.motor_speed_erpm = motor_speed_erpm_tupple[0]
 
     def send_heart_beat(self):
         # COMM_ALIVE = 30; no response

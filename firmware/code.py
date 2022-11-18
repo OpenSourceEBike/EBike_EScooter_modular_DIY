@@ -5,15 +5,19 @@ import analogio
 import busio
 import asyncio
 import simpleio
+import struct
 
 import vesc
+import vesc_data
 
 # configure NRF52840 board green LED
 led = digitalio.DigitalInOut(board.LED1)
 led.direction = digitalio.Direction.OUTPUT
 
+vesc_motor_data = vesc_data.VESC_data()
+
 # init VESC object
-vesc = vesc.VESC(board.P0_20, board.P0_22)
+vesc = vesc.VESC(board.P0_20, board.P0_22, vesc_motor_data)
 
 # configure UART for communications with display
 uart_display = busio.UART(board.P0_09, board.P0_10, baudrate = 19200)
@@ -35,6 +39,10 @@ async def vesc_heartbeat():
     while True:
         vesc.send_heart_beat()
         led.value = not led.value
+
+        vesc.refresh_motor_data()
+        print(vesc_motor_data.motor_speed_erpm)
+
         await asyncio.sleep(0.75)
 
 async def read_sensors_control_motor():
