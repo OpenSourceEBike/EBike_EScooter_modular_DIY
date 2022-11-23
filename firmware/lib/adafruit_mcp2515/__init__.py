@@ -322,6 +322,10 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
             ),
         ]
 
+    def test(self):
+        status = self._read_register(_CANSTAT)
+        print(status)
+
     def initialize(self):
         """Return the sensor to the default configuration"""
         self._reset()
@@ -631,7 +635,6 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
         return tx_buffer
 
     def _set_baud_rate(self, xtal_mhz = XTAL_MHZ_16):
-
         # ******* set baud rate ***********
         if xtal_mhz is XTAL_MHZ_16:
             baudrate_table = _BAUD_RATES_16MHZ_XTAL
