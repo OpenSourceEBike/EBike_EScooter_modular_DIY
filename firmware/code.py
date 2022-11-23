@@ -7,7 +7,7 @@ from adafruit_mcp2515 import MCP2515 as CAN
 cs = DigitalInOut(board.P0_24)
 cs.switch_to_output()
 spi = busio.SPI(board.P0_17, board.P0_15, board.P0_13)
-can_bus = CAN(spi, cs)
+can_bus = CAN(spi, cs, xtal_frequency = 8000000)
 
 while True:
 
