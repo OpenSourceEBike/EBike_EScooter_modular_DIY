@@ -164,53 +164,6 @@ ReceiveBuffer = namedtuple(
     ["CTRL_REG", "STD_ID_REG", "INT_FLAG_MASK", "LOAD_CMD", "SEND_CMD"],
 )
 
-# # This is magic, don't disturb the dragon
-# # expects a 16Mhz crystal
-# _BAUD_RATES_16MHZ_XTAL = {
-#     # CNF1, CNF2, CNF3
-#     1000000: (0x00, 0xD0, 0x82),
-#     500000: (0x00, 0xF0, 0x86),
-#     250000: (0x41, 0xF1, 0x85),
-#     200000: (0x01, 0xFA, 0x87),
-#     125000: (0x03, 0xF0, 0x86),
-#     100000: (0x03, 0xFA, 0x87),
-#     95000: (0x03, 0xAD, 0x07),
-#     83300: (0x03, 0xBE, 0x07),
-#     80000: (0x03, 0xFF, 0x87),
-#     50000: (0x07, 0xFA, 0x87),
-#     40000: (0x07, 0xFF, 0x87),
-#     33000: (0x09, 0xBE, 0x07),
-#     31250: (0x0F, 0xF1, 0x85),
-#     25000: (0x0F, 0xBA, 0x07),
-#     20000: (0x0F, 0xFF, 0x87),
-#     10000: (0x1F, 0xFF, 0x87),
-#     5000: (0x3F, 0xFF, 0x87),
-#     666000: (0x00, 0xA0, 0x04),
-# }
-
-
-# _BAUD_RATES_8MHZ_XTAL = {
-#     # CNF1, CNF2, CNF3
-#     1000000: (0x00, 0x91, 0x01), # seems it is not possible, so use the previous value of 500000
-#     500000: (0x00, 0x91, 0x01),
-#     250000: (0x40, 0xb5, 0x01),
-#     200000: (0x00, 0xb6, 0x04),
-#     125000: (0x01, 0xac, 0x03),
-#     100000: (0x01, 0xb6, 0x04),
-#     95000: (0x41, 0xbe, 0x04),
-#     83300: (0x02, 0xAC, 0x03),
-#     80000: (0x04, 0x9a, 0x01),
-#     50000: (0x03, 0xb6, 0x04),
-#     40000: (0x04, 0xb6, 0x04),
-#     33000: (0x0a, 0x9a, 0x02),
-#     31250: (0x07, 0xac, 0x03),
-#     25000: (0x07, 0xB6, 0x04),
-#     20000: (0x09, 0xb6, 0x04),
-#     10000: (0x13, 0xb6, 0x04),
-#     5000: (0x27, 0xb6, 0x04),
-#     666000: (0x00, 0x88, 0x01),
-# }
-
 _BAUD_RATES = {
     # This is magic, don't disturb the dragon
     # expects a 16Mhz crystal
@@ -236,10 +189,11 @@ _BAUD_RATES = {
         666000: (0x00, 0xA0, 0x04),
     },
     
-    # Values based on this calculator, for 8MHz, controller MCP2510: https://www.kvaser.com/support/calculators/bit-timing-calculator/
+    # Values based on this calculator, for 8MHz, controller MCP2510:
+    # https://www.kvaser.com/support/calculators/bit-timing-calculator/
     8000000: {
         # CNF1, CNF2, CNF3
-        1000000: (0x00, 0x91, 0x01), # seems it is not possible, so use the previous value of 500000
+        1000000: (0x00, 0x91, 0x01), # seems it is not possible, this values may be wrong
         500000: (0x00, 0x91, 0x01),
         250000: (0x40, 0xb5, 0x01),
         200000: (0x00, 0xb6, 0x04),
@@ -259,6 +213,7 @@ _BAUD_RATES = {
         666000: (0x00, 0x88, 0x01),
     }
 }
+
 
 def _tx_buffer_status_decode(status_byte):
     out_str = "Status: "
@@ -300,7 +255,8 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
         :param ~digitalio.DigitalInOut cs_pin:  SPI bus enable pin
         :param int baudrate: The bit rate of the bus in Hz, using a 16Mhz crystal. All devices on\
             the bus must agree on this value. Defaults to 250000.
-        :param bool xtal_frequency: MCP2515 crystal frequency. Valid values are: 16000000 and 8000000. Defaults to 16000000 (16MHz).\
+        :param bool xtal_frequency: MCP2515 crystal frequency. Valid values are:\
+            16000000 and 8000000. Defaults to 16000000 (16MHz).\
         :param bool loopback: Receive only packets sent from this device, and send only to this\
         device. Requires that `silent` is also set to `True`, but only prevents transmission to\
         other devices. Otherwise the send/receive behavior is normal.
@@ -338,7 +294,6 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
         self._xtal_frequency = xtal_frequency
         self._loopback = loopback
         self._silent = silent
-        self._baudrate = baudrate
 
         self._init_buffers()
         self.initialize()
@@ -368,10 +323,6 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
                 SEND_CMD=_SEND_TX2,
             ),
         ]
-
-    def test(self):
-        status = self._read_register(_CANSTAT)
-        print(status)
 
     def initialize(self):
         """Return the sensor to the default configuration"""
@@ -446,6 +397,23 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
             return None
 
         return self._unread_message_queue.pop(0)
+
+    def read_last_message_and_clean_previous(self):
+        """Read the last available message and clean any previous messages
+
+        Returns:
+            `canio.Message`: The last available message or None if one is not available
+        """
+        if self.unread_message_count == 0:
+            return None
+        
+        last_member = self._unread_message_queue.pop(0)
+
+        # clear queue
+        if len(self._unread_message_queue):
+            self._unread_message_queue.clear()
+
+        return last_member
 
     def _read_rx_buffer(self, read_command):
         for i in range(len(self._buffer)):  # pylint: disable=consider-using-enumerate
@@ -683,16 +651,8 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
 
     def _set_baud_rate(self):
         # ******* set baud rate ***********
-        if self._xtal_frequency is not 16000000 and self._xtal_frequency is not 8000000:
+        if self._xtal_frequency not in (16000000, 8000000):
             raise RuntimeError("Incorrect xtal frequency")
-
-        #     baudrate_table = _BAUD_RATES_16MHZ_XTAL
-        # elif self._xtal_frequency is 8000000:
-        #     baudrate_table = _BAUD_RATES_8MHZ_XTAL
-        # else:
-        #     raise RuntimeError("Incorrect xtal frequency")
-
-        # cnf1, cnf2, cnf3 = baudrate_table[self.baudrate]
 
         cnf1, cnf2, cnf3 = _BAUD_RATES[self._xtal_frequency][self.baudrate]
 

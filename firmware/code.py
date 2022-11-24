@@ -1,24 +1,15 @@
 from time import sleep
-import board
-import busio
-from digitalio import DigitalInOut
-from adafruit_mcp2515 import MCP2515 as CAN
+import throttle
+import torque_sensor
 
-cs = DigitalInOut(board.P0_24)
-cs.switch_to_output()
-spi = busio.SPI(board.P0_17, board.P0_15, board.P0_13)
-can_bus = CAN(spi, cs, xtal_frequency = 8000000)
+torque_sensor = torque_sensor.torque_sensor()
+throttle = throttle.throttle(17500)
 
 while True:
+    torque, cadence = torque_sensor.read()
+    if torque is not None:
+        print("Torque: " + str(torque))
+        print("Cadence: " + str(cadence))
 
-    with can_bus.listen(timeout=1.0) as listener:
-
-        message_count = listener.in_waiting()
-        for _i in range(message_count):
-            msg = listener.receive()
-            print("Message from ", hex(msg.id))
-            message_str = "::".join(["0x{:02X}".format(i) for i in msg.data])
-            print("Message: " + message_str)
-            print(" ")
-
-    sleep(1)
+    # throttle_value = throttle.read()
+    # print(throttle_value)

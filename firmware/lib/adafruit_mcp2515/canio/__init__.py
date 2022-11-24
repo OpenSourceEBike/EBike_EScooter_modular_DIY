@@ -104,6 +104,20 @@ class Listener:
             return self._can_bus_obj.read_message()
         return None
 
+    def receive_and_clean(self):
+        """Receives a message and clean previous ones. If after waiting up to self.timeout seconds if no message is\
+        received, None is returned. Otherwise, a Message is returned."""
+        if self._can_bus_obj is None:
+            raise ValueError(
+                "Object has been deinitialized and can no longer be used. Create a new object."
+            )
+        self._timer.rewind_to(self.timeout)
+        while not self._timer.expired:
+            if self._can_bus_obj.unread_message_count == 0:
+                continue
+            return self._can_bus_obj.read_last_message_and_clean_previous()
+        return None
+
     def in_waiting(self):
         """Returns the number of messages waiting"""
         if self._can_bus_obj is None:
