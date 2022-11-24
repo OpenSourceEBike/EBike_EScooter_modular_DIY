@@ -8,7 +8,7 @@ class torque_sensor(object):
 
     def __init__(self):
         """Torque sensor"""
-        self.cs = DigitalInOut(board.P0_24)
+        self.cs = DigitalInOut(board.P0_20)
         self.cs.switch_to_output()
         self.spi = busio.SPI(board.P0_17, board.P0_15, board.P0_13)
         self.can_bus = CAN(self.spi, self.cs, baudrate=250000, xtal_frequency=8000000)

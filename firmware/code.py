@@ -12,4 +12,7 @@ while True:
         print("Cadence: " + str(cadence))
 
     throttle_value = throttle.read()
-    print(throttle_value)
+    print("Throttle: " + str(throttle_value))
+    print(" ")
+
+    sleep(1)
