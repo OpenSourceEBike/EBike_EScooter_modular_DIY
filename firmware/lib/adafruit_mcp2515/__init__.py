@@ -332,26 +332,28 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
 
         self._set_baud_rate()
 
-        # intialize TX and RX registers
-        for idx in range(14):
-            self._set_register(_TXB0CTRL + idx, 0)
-            self._set_register(_TXB1CTRL + idx, 0)
-            self._set_register(_TXB2CTRL + idx, 0)
+        # NOTE: the following commented code is not needed otherwise, the MCP2515 will not retun any data
 
-        self._set_register(_RXB0CTRL, 0)
-        self._set_register(_RXB1CTRL, 0)
+                # # intialize TX and RX registers
+                # for idx in range(14):
+                #     self._set_register(_TXB0CTRL + idx, 0)
+                #     self._set_register(_TXB1CTRL + idx, 0)
+                #     self._set_register(_TXB2CTRL + idx, 0)
 
-        # # # interrupt mode
-        # TODO: WHAT IS THIS
-        self._set_register(_CANINTE, _RX0IF | _RX1IF)
-        sleep(0.010)
-        self._mod_register(
-            _RXB0CTRL,
-            _RXB_RX_MASK | _RXB_BUKT_MASK,
-            _RXB_RX_STDEXT | _RXB_BUKT_MASK,
-        )
+                # self._set_register(_RXB0CTRL, 0)
+                # self._set_register(_RXB1CTRL, 0)
 
-        self._mod_register(_RXB1CTRL, _RXB_RX_MASK, _RXB_RX_STDEXT)
+                # # # # interrupt mode
+                # # TODO: WHAT IS THIS
+                # self._set_register(_CANINTE, _RX0IF | _RX1IF)
+                # sleep(0.010)
+                # self._mod_register(
+                #     _RXB0CTRL,
+                #     _RXB_RX_MASK | _RXB_BUKT_MASK,
+                #     _RXB_RX_STDEXT | _RXB_BUKT_MASK,
+                # )
+
+        # self._mod_register(_RXB1CTRL, _RXB_RX_MASK, _RXB_RX_STDEXT)
         if self.loopback:
             new_mode = _MODE_LOOPBACK
         elif self.silent:
@@ -398,22 +400,19 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
 
         return self._unread_message_queue.pop(0)
 
-    def read_last_message_and_clean_previous(self):
-        """Read the last available message and clean any previous messages
+    def read_message_and_clean_all_previous(self):
+        """Read the next available message and clean all previous
 
         Returns:
-            `canio.Message`: The last available message or None if one is not available
+            `canio.Message`: The next available message or None if one is not available
         """
         if self.unread_message_count == 0:
             return None
-        
-        last_member = self._unread_message_queue.pop(0)
 
-        # clear queue
-        if len(self._unread_message_queue):
-            self._unread_message_queue.clear()
+        message = self._unread_message_queue.pop(0)
+        self._unread_message_queue.clear()
 
-        return last_member
+        return message
 
     def _read_rx_buffer(self, read_command):
         for i in range(len(self._buffer)):  # pylint: disable=consider-using-enumerate

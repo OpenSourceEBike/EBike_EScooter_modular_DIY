@@ -11,5 +11,5 @@ while True:
         print("Torque: " + str(torque))
         print("Cadence: " + str(cadence))
 
-    # throttle_value = throttle.read()
-    # print(throttle_value)
+    throttle_value = throttle.read()
+    print(throttle_value)

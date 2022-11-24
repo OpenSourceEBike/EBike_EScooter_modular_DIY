@@ -5,7 +5,7 @@ import simpleio
 class throttle(object):
     """Throttle"""
     def __init__(self, min, max = 65535):
-        """Read throttle
+        """Throttle
         :param int min: the min ADC value (should be a little higher than throttle lowest value)
         :param max min: the max ADC value, usually 65535. Defaults to 65535.
         """
@@ -15,7 +15,7 @@ class throttle(object):
         self.max = max
 
     def read_adc(self):
-        """Read the throttle
+        """Read the throttle ADC value
         return: throttle ADC value
         """
         return self.adc_throttle.value
