@@ -3,7 +3,7 @@ import throttle
 import torque_sensor
 
 torque_sensor = torque_sensor.torque_sensor()
-throttle = throttle.throttle(17500)
+throttle = throttle.throttle(min = 17500)
 
 while True:
     torque, cadence = torque_sensor.read()

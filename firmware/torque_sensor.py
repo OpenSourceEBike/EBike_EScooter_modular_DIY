@@ -18,12 +18,12 @@ class torque_sensor(object):
         return: torque, cadence
         """
         with self.can_bus.listen(timeout=1.0) as listener:
-            if (listener.in_waiting()):
+            if listener.in_waiting():
                 msg = listener.receive_and_clean_all_previous()
 
                 # unpack values from the byte array
-                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes
-                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte
+                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes: torque value
+                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte: cadence value
 
                 return torque[0], cadence[0]
             else:

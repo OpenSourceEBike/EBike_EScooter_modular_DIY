@@ -195,7 +195,7 @@ _BAUD_RATES = {
         # CNF1, CNF2, CNF3
         1000000: (0x00, 0x91, 0x01), # seems it is not possible, this values may be wrong
         500000: (0x00, 0x91, 0x01),
-        250000: (0x40, 0xb5, 0x01),
+        250000: (0x00, 0xe5, 0x83),
         200000: (0x00, 0xb6, 0x04),
         125000: (0x01, 0xac, 0x03),
         100000: (0x01, 0xb6, 0x04),
@@ -332,28 +332,34 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
 
         self._set_baud_rate()
 
+
         # NOTE: the following commented code is not needed otherwise, the MCP2515 will not retun any data
+            # # intialize TX and RX registers
+            # for idx in range(14):
+            #     self._set_register(_TXB0CTRL + idx, 0)
+            #     self._set_register(_TXB1CTRL + idx, 0)
+            #     self._set_register(_TXB2CTRL + idx, 0)
 
-                # # intialize TX and RX registers
-                # for idx in range(14):
-                #     self._set_register(_TXB0CTRL + idx, 0)
-                #     self._set_register(_TXB1CTRL + idx, 0)
-                #     self._set_register(_TXB2CTRL + idx, 0)
+            # self._set_register(_RXB0CTRL, 0)
+            # self._set_register(_RXB1CTRL, 0)
 
-                # self._set_register(_RXB0CTRL, 0)
-                # self._set_register(_RXB1CTRL, 0)
+            # # # # interrupt mode
+            # # TODO: WHAT IS THIS
+            # self._set_register(_CANINTE, _RX0IF | _RX1IF)
+            # sleep(0.010)
+            # self._mod_register(
+            #     _RXB0CTRL,
+            #     _RXB_RX_MASK | _RXB_BUKT_MASK,
+            #     _RXB_RX_STDEXT | _RXB_BUKT_MASK,
+            # )
 
-                # # # # interrupt mode
-                # # TODO: WHAT IS THIS
-                # self._set_register(_CANINTE, _RX0IF | _RX1IF)
-                # sleep(0.010)
-                # self._mod_register(
-                #     _RXB0CTRL,
-                #     _RXB_RX_MASK | _RXB_BUKT_MASK,
-                #     _RXB_RX_STDEXT | _RXB_BUKT_MASK,
-                # )
+            # self._mod_register(_RXB1CTRL, _RXB_RX_MASK, _RXB_RX_STDEXT)
 
-        # self._mod_register(_RXB1CTRL, _RXB_RX_MASK, _RXB_RX_STDEXT)
+        # NOTE: tnext 2 lines were added for code to work 
+        self._set_register(_RXB0CTRL, 0x64)
+        self._set_register(_RXB1CTRL, 0x60)
+
+
         if self.loopback:
             new_mode = _MODE_LOOPBACK
         elif self.silent:
@@ -361,7 +367,7 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
         else:
             new_mode = _MODE_NORMAL
 
-        self._set_mode(new_mode)
+        self._set_mode(new_mode)      
 
     def send(self, message_obj):
         """Send a message on the bus with the given data and id. If the message could not be sent
