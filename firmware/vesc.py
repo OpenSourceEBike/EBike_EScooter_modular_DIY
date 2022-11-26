@@ -91,8 +91,7 @@ class vesc(object):
         command = bytearray([30])
         self.__pack_and_send(command, 0)
 
-    @property
-    def current_amps(self, value):
+    def set_current_amps(self, value):
         """Set battery Amps"""
         value = value * 1000 # current in mA
 
@@ -102,8 +101,7 @@ class vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
     
-    @property
-    def current_brake_amps(self, value):
+    def set_current_brake_amps(self, value):
         """Set battery brake / regen Amps"""
         value = value * 1000 # current in mA
 
@@ -113,11 +111,17 @@ class vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
 
-    @property
-    def motor_speed_erpm(self, value):
+    def set_motor_speed_erpm(self, value):
         """Set motor speed in ERPM"""
         # COMM_SET_RPM = 8; no response
         command = bytearray(5)
         command[0] = 8
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
+
+class vesc_data(object):
+
+    def __init__(self):
+        self.battery_voltage = 0
+        self.motor_current = 0
+        self.motor_speed_erpm = 0

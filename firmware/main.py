@@ -45,8 +45,8 @@ async def task_read_sensors_control_motor():
             0, #min current
             5.0) #max current
 
-        vesc.current_brake_amps = 0.0
-        vesc.current_amps = motor_current
+        vesc.set_current_brake_amps(0.0)
+        vesc.set_current_amps(motor_current)
 
         await asyncio.sleep(0.002) # idle 20ms
 
