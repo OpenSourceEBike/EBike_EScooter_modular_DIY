@@ -1,9 +1,15 @@
 import busio
 import struct
 
-class VESC(object):
+class vesc(object):
+    """VESC"""
 
     def __init__(self, uart_tx_pin, uart_rx_pin, vesc_motor_data):
+        """VESC
+        :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to VESC
+        :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
+        :param ~VESC_data vesc_motor_data: VESC motor data object
+        """
         self.vesc_motor_data = vesc_motor_data
 
         # configure UART for communications with VESC
@@ -70,6 +76,7 @@ class VESC(object):
             return data
             
     def refresh_motor_data(self):
+        """Read VESC motor data and update vesc_motor_data"""
         # COMM_GET_VALUES = 4; 79 bytes response
         command = bytearray([4])
         response = self.__pack_and_send(command, 79)
@@ -79,11 +86,14 @@ class VESC(object):
         self.vesc_motor_data.motor_speed_erpm = motor_speed_erpm_tupple[0]
 
     def send_heart_beat(self):
+        """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
         # COMM_ALIVE = 30; no response
         command = bytearray([30])
         self.__pack_and_send(command, 0)
 
-    def set_current_amps(self, value):
+    @property
+    def current_amps(self, value):
+        """Set battery Amps"""
         value = value * 1000 # current in mA
 
         # COMM_SET_CURRENT = 6; no response
@@ -91,8 +101,10 @@ class VESC(object):
         command[0] = 6
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
-
-    def set_current_brake_amps(self, value):
+    
+    @property
+    def current_brake_amps(self, value):
+        """Set battery brake / regen Amps"""
         value = value * 1000 # current in mA
 
         # COMM_SET_CURRENT_BRAKE = 7; no response
@@ -101,7 +113,9 @@ class VESC(object):
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
 
-    def set_motor_speed_erpm(self, value):
+    @property
+    def motor_speed_erpm(self, value):
+        """Set motor speed in ERPM"""
         # COMM_SET_RPM = 8; no response
         command = bytearray(5)
         command[0] = 8

@@ -1,4 +1,3 @@
-import board
 import busio
 from digitalio import DigitalInOut
 from adafruit_mcp2515 import MCP2515 as CAN
@@ -6,15 +5,21 @@ import struct
 
 class torque_sensor(object):
 
-    def __init__(self):
-        """Torque sensor"""
-        self.cs = DigitalInOut(board.P0_20)
+    def __init__(self, cs, clock, mosi, miso):
+        """Torque sensor
+        :param ~microcontroller.Pin CS: the pin to use for the chip select.
+        :param ~microcontroller.Pin clock: the pin to use for the clock.
+        :param ~microcontroller.Pin MOSI: the Main Out Selected In pin.
+        :param ~microcontroller.Pin MISO: the Main In Selected Out pin.
+        """
+        self.cs = DigitalInOut(cs)
         self.cs.switch_to_output()
-        self.spi = busio.SPI(board.P0_17, board.P0_15, board.P0_13)
+        self.spi = busio.SPI(clock, mosi, miso)
         self.can_bus = CAN(self.spi, self.cs, baudrate=250000, xtal_frequency=8000000)
 
-    def read(self):
-        """Read the torque sensor
+    @property
+    def value(self):
+        """Torque sensor value
         return: torque, cadence
         """
         with self.can_bus.listen(timeout=1.0) as listener:
