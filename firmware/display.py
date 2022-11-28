@@ -1,5 +1,4 @@
 import busio
-from enum import Enum
 
 class Display(object):
     """Display"""
@@ -58,23 +57,22 @@ class Display(object):
         xor = 0
         crc = 0xFFFF
         for byte in data:
-            xor = byte ^ crc
+            xor = (byte ^ crc) & 0xff
             crc >>= 8
             crc ^= table[xor]
-            crc &= 0xFFFF                                   # important, crc must stay 16bits all the way through
+            crc &= 0xFFFF # important, crc must stay 16bits all the way through
 
         return crc
 
     def __pack_and_send(self, buf, frame_type):
-
         #start byte + len + frame type + data + CRC 16 bits
         len_buf = len(buf)
-        len = len_buf + 3 #1 type of frame + data bytes + 2 CRC bytes 
-        len_package = len + 1 # len + 1 start byte
+        _len = len_buf + 3 #1 type of frame + data bytes + 2 CRC bytes 
+        len_package = _len + 2 # len + 1 start byte
 
         data_array = bytearray(len_package)
         data_array[0] = 0x43; # start byte
-        data_array[1] = len #frame type + data + CRC 16 bits
+        data_array[1] = _len #frame type + data + CRC 16 bits
         data_array[2] = frame_type
         
         if len_buf > 0:
@@ -87,7 +85,7 @@ class Display(object):
         # send packet to UART
         self.__uart.write(data_array)
 
-class FrameType(Enum):
+class FrameType():
     ALIVE = 0
     STATUS = 1
     PERIODIC = 2
