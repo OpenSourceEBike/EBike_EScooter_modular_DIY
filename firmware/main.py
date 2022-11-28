@@ -6,29 +6,39 @@ import brake_sensor
 import wheel_speed_sensor
 import torque_sensor
 import vesc
-import vesc_data
+from vesc import VescData
+import display
 
-brake_sensor = brake_sensor.brake_sensor(
+brake_sensor = brake_sensor.BrakeSensor(
     board.P0_02) #brake sensor pin
 
-wheel_speed_sensor = wheel_speed_sensor.wheel_speed_sensor(
+wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
     board.P1_15) #wheel speed sensor pin
 
-torque_sensor = torque_sensor.torque_sensor(
+torque_sensor = torque_sensor.TorqueSensor(
     board.P0_20, #SPI CS pin
     board.P0_17, #SPI clock pin
     board.P0_15, #SPI MOSI pin
     board.P0_13) #SPI MISO pin
 
-throttle = throttle.throttle(
+throttle = throttle.Throttle(
     board.P0_29, #ADC pin for throttle
     min = 17500) #min ADC value that throttle reads, plus some margin
 
-vesc_motor_data = vesc_data.VESC_data()
-vesc = vesc.vesc(
+vesc_motor_data = VescData()
+vesc = vesc.Vesc(
     board.P0_22, #UART TX pin that connect to VESC
     board.P0_24, #UART RX pin that connect to VESC
     vesc_motor_data) #VESC motor data object to hold the motor data
+
+display = display.Display(
+    board.P0_09, #UART TX pin that connect to display
+    board.P0_10) #UART RX pin that connect to display
+
+async def task_display_process():
+    while True:
+        display.process_data()
+        await asyncio.sleep(0.05) # idle 50ms
 
 async def task_vesc_heartbeat():
     while True:
@@ -53,7 +63,11 @@ async def task_read_sensors_control_motor():
 async def main():
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
-    await asyncio.gather(vesc_heartbeat_task, read_sensors_control_motor_task)
+    display_process_task = asyncio.create_task(task_display_process())
+    await asyncio.gather(
+        vesc_heartbeat_task,
+        read_sensors_control_motor_task,
+        display_process_task)
     print("done main()")
 
 asyncio.run(main())

@@ -1,7 +1,7 @@
 import busio
 import struct
 
-class vesc(object):
+class Vesc(object):
     """VESC"""
 
     def __init__(self, uart_tx_pin, uart_rx_pin, vesc_motor_data):
@@ -10,10 +10,10 @@ class vesc(object):
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
         :param ~VESC_data vesc_motor_data: VESC motor data object
         """
-        self.vesc_motor_data = vesc_motor_data
+        self.__vesc_motor_data = vesc_motor_data
 
         # configure UART for communications with VESC
-        self.uart_vesc = busio.UART(
+        self.__uart = busio.UART(
             uart_tx_pin,
             uart_rx_pin,
             baudrate = 115200, # VESC UART baudrate
@@ -68,11 +68,11 @@ class vesc(object):
         data_array[package_len - 1] = 3
 
         # send packet to UART
-        self.uart_vesc.write(data_array)
+        self.__uart.write(data_array)
         
         # try to read response only if we expect it
         if response_len is not 0:
-            data = self.uart_vesc.read(response_len)  # read up to response_len bytes
+            data = self.__uart.read(response_len)  # read up to response_len bytes
             return data
             
     def refresh_motor_data(self):
@@ -83,7 +83,7 @@ class vesc(object):
 
         # store the motor speed ERPM
         motor_speed_erpm_tupple = struct.unpack_from('>l', response, 25)
-        self.vesc_motor_data.motor_speed_erpm = motor_speed_erpm_tupple[0]
+        self.__vesc_motor_data.motor_speed_erpm = motor_speed_erpm_tupple[0]
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
@@ -119,7 +119,7 @@ class vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
 
-class vesc_data(object):
+class VescData(object):
 
     def __init__(self):
         self.battery_voltage = 0
