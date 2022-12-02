@@ -13,13 +13,17 @@ class Display(object):
         self.__uart = busio.UART(uart_tx_pin, uart_rx_pin, baudrate=19200, timeout=0.005)
 
         # init variables
-        self.__read_and_pack__state = 0
-        self.__read_and_pack__len = 0
-        self.__read_and_pack__cnt = 0
+        self.__read_and_unpack__state = 0
+        self.__read_and_unpack__len = 0
+        self.__read_and_unpack__cnt = 0
+        self.__rx_package = RXPackage()
+        self.__process_data__error_cnt = 0
+        self.__motor_init_state = MotorInitState.RESET
 
     #every 50ms, read and process UART data
     def process_data(self):
-        self.__read_and_pack()
+        self.__read_and_unpack()
+        self.__process_data()
 
         buf = bytearray(0) #just empty
         self.__pack_and_send(buf, FrameType.ALIVE)
@@ -27,6 +31,9 @@ class Display(object):
     # code taken from:
     # https://github.com/LacobusVentura/MODBUS-CRC16
     def __crc16(self, data):
+
+    # TODO: check how to make table CRC working as it should be faster processing
+
     #     table = [ 
     #         0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
     #         0xC601, 0x06C0, 0x0780, 0xC741, 0x0500, 0xC5C1, 0xC481, 0x0440,
@@ -110,39 +117,89 @@ class Display(object):
         # send packet to UART
         self.__uart.write(data_array)
 
-    def __read_and_pack(self):
-        rx_array = self.__uart.read()
+    def __read_and_unpack(self):
+        # only read next data bytes after we process the previous package
+        if self.__rx_package.received == False:
+            rx_array = self.__uart.read()
+            for data in rx_array:
+                # find start byte
+                if self.__read_and_unpack__state == 0:
+                    if (data == 0x59):
+                        self.__rx_package.data[0] = data
+                        self.__read_and_unpack__state = 1
+                    else:
+                        self.__read_and_unpack__state = 0
 
-        # print(",".join(["0x{:02X}".format(i) for i in rx_array]))
-        
-        data_array = bytearray(256)
-        for data in rx_array:
-            if self.__read_and_pack__state == 0:
-                if (data == 0x59):
-                    data_array[0] = data
-                    self.__read_and_pack__state = 1
-                else:
-                    self.__read_and_pack__state = 0
+                # len byte
+                elif self.__read_and_unpack__state == 1:
+                    self.__rx_package.data[1] = data
+                    self.__read_and_unpack__len = data
+                    self.__read_and_unpack__state = 2
 
-            elif self.__read_and_pack__state == 1:
-                data_array[1] = data
-                self.__read_and_pack__len = data
-                self.__read_and_pack__state = 2
+                # rest of the package
+                elif self.__read_and_unpack__state == 2:
+                    self.__rx_package.data[self.__read_and_unpack__cnt  + 2] = data
+                    self.__read_and_unpack__cnt += 1
 
-            elif self.__read_and_pack__state == 2:
-                data_array[self.__read_and_pack__cnt  + 2] = data
-                self.__read_and_pack__cnt += 1
+                    # end of the package
+                    if self.__read_and_unpack__cnt >= self.__read_and_unpack__len:
+                        # calculate the CRC
+                        crc = self.__crc16(self.__rx_package.data[0: self.__read_and_unpack__len])
+                        # get the original CRC
+                        crc_original = struct.unpack_from('<H', self.__rx_package.data, self.__read_and_unpack__len)[0]
+                        
+                        # check if CRC is ok                    
+                        self.__rx_package.package_received = True if crc == crc_original else False
 
-                if self.__read_and_pack__cnt >= self.__read_and_pack__len:
-                    self.__read_and_pack__cnt = 0
-                    self.__read_and_pack__state = 0
+                        self.__process_data__error_cnt = 0
+                        self.__read_and_unpack__cnt = 0
+                        self.__read_and_unpack__state = 0
+                    else:
+                        # keep increasing error counter
+                        self.__process_data__error_cnt += 1
 
-                    # calculate the CRC of the package
-                    crc = self.__crc16(data_array[0: self.__read_and_pack__len])
-                    crc_original = struct.unpack_from('<H', data_array, self.__read_and_pack__len)[0]
-                    
-                    if crc == crc_original:
-                        print("CRC rx packet ok")
+    def __process_data(self):
+        frame_type_to_send = None
+
+        if self.__motor_init_state == MotorInitState.RESET:
+            frame_type_to_send = FrameType.ALIVE
+
+        if self.__rx_package.package_received == True:
+            # move to next motor init state
+            if self.__motor_init_state == MotorInitState.RESET:
+                self.__motor_init_state = MotorInitState.NO_INIT
+
+            # next package type to send is the one defined by the display
+            frame_type_to_send = self.__rx_package.data[2]
+        else:
+            if self.__process_data__error_cnt > 10:
+                print("__process_data() error")
+                #motor_disable()
+                #ui8_m_system_state |= ERROR_FATAL;
+
+        if frame_type_to_send != None:
+            # process the package
+            # start building the TX package
+            tx_array = bytearray(255)
+            _len = 3; # min package len of 3 bytes (not including the start byte): 1 type of frame + 2 CRC bytes
+            tx_array[0] = 0x43 # start byte
+            tx_array[2] = frame_type_to_send
+
+            # process the RX package data
+            # if self.__rx_package.data[2] == FrameType.STATUS:
+            # if self.__rx_package.data[2] == FrameType.PERIODIC:
+            # if self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
+            # if self.__rx_package.data[2] == FrameType.FIRMWARE_VERSION:
+
+            # final building of the TX package
+            tx_array[1] = _len
+
+            # calculate the CRC
+            crc = self.__crc16(tx_array[0: _len - 1])
+            struct.pack_into('<H', tx_array[_len], 0, crc) # CRC: 2 bytes
+
+            # send packet to UART
+            self.__uart.write(tx_array[0: _len + 2])
 
 class FrameType():
     ALIVE = 0
@@ -150,3 +207,14 @@ class FrameType():
     PERIODIC = 2
     CONFIGURATIONS = 3
     FIRMWARE_VERSION = 4
+
+class MotorInitState():
+    RESET = 0
+    NO_INIT = 1
+    INIT_START_DELAY = 2
+    INIT_WAIT_DELAY = 3
+    OK = 4
+
+class RXPackage():
+    data = bytearray(255)
+    received = False
