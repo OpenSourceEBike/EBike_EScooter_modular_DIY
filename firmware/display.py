@@ -122,6 +122,7 @@ class Display(object):
         if self.__rx_package.received == False:
             rx_array = self.__uart.read()
             for data in rx_array:
+                print("d " + str(data))
                 # find start byte
                 if self.__read_and_unpack__state == 0:
                     if (data == 0x59):
@@ -149,7 +150,7 @@ class Display(object):
                         crc_original = struct.unpack_from('<H', self.__rx_package.data, self.__read_and_unpack__len)[0]
                         
                         # check if CRC is ok                    
-                        self.__rx_package.package_received = True if crc == crc_original else False
+                        self.__rx_package.received = True if crc == crc_original else False
 
                         self.__process_data__error_cnt = 0
                         self.__read_and_unpack__cnt = 0
@@ -164,7 +165,7 @@ class Display(object):
         if self.__motor_init_state == MotorInitState.RESET:
             frame_type_to_send = FrameType.ALIVE
 
-        if self.__rx_package.package_received == True:
+        if self.__rx_package.received == True:
             # move to next motor init state
             if self.__motor_init_state == MotorInitState.RESET:
                 self.__motor_init_state = MotorInitState.NO_INIT
@@ -186,17 +187,39 @@ class Display(object):
             tx_array[2] = frame_type_to_send
 
             # process the RX package data
-            # if self.__rx_package.data[2] == FrameType.STATUS:
-            # if self.__rx_package.data[2] == FrameType.PERIODIC:
-            # if self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
-            # if self.__rx_package.data[2] == FrameType.FIRMWARE_VERSION:
+            if self.__rx_package.data[2] == FrameType.ALIVE:
+                pass # nothing to add on this frame type
+
+            elif self.__rx_package.data[2] == FrameType.STATUS:
+                tx_array[3] = 0 # motor_init_status: for now as a 0, MOTOR_INIT_STATUS_RESET
+                _len += 1
+
+            elif self.__rx_package.data[2] == FrameType.PERIODIC:
+                pass # TODO
+
+            elif self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
+                pass # TODO
+
+            elif self.__rx_package.data[2] == FrameType.FIRMWARE_VERSION:
+                tx_array[3] = 1 # system_state: for now as a 1, ERROR_NOT_INIT
+                # firmware version: 2.0.0
+                tx_array[4] = 2
+                tx_array[5] = 0
+                tx_array[6] = 0
+                _len += 4
+            
+            else:
+                return # this should not happen
 
             # final building of the TX package
             tx_array[1] = _len
 
             # calculate the CRC
             crc = self.__crc16(tx_array[0: _len - 1])
-            struct.pack_into('<H', tx_array[_len], 0, crc) # CRC: 2 bytes
+            struct.pack_into('<H', tx_array, _len, crc) # CRC: 2 bytes
+
+            print("frame_type_to_send " + str(frame_type_to_send))
+            print("data to send: " + str(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]])))
 
             # send packet to UART
             self.__uart.write(tx_array[0: _len + 2])
