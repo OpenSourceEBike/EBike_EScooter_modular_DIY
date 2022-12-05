@@ -19,6 +19,8 @@ class Display(object):
         self.__rx_package = RXPackage()
         self.__process_data__error_cnt = 0
         self.__motor_init_state = MotorInitState.RESET
+        self.__motor_status = MotorStatus.RESET
+        self.__motor_status_cnt = 0
 
     #every 50ms, read and process UART data
     def process_data(self):
@@ -116,6 +118,25 @@ class Display(object):
                         self.__process_data__error_cnt += 1
 
     def __process_data(self):
+        
+        # print("f " + str(self.__rx_package.data[2]))
+
+        ###### Motor status
+        if self.__rx_package.received == True:
+            # if we receive CONFIGURATIONS, then update put MotorStatus.GOT_CONFIG
+            if self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
+                self.__motor_status = MotorStatus.GOT_CONFIG # signal that we got the config
+                self.__motor_status_cnt = 10
+
+        # give some timeout after MotorStatus.GOT_CONFIG to be changed to MotorStatus.INIT_OK
+        if self.__motor_status == MotorStatus.GOT_CONFIG and self.__motor_status_cnt > 0:
+            self.__motor_status_cnt -= 1
+        elif self.__motor_status == MotorStatus.GOT_CONFIG:
+            self.__motor_status = MotorStatus.INIT_OK
+            print("OK: init motor for display")
+        ######
+
+        ###### process frame
         frame_type_to_send = None
 
         if self.__motor_init_state == MotorInitState.RESET:
@@ -128,7 +149,6 @@ class Display(object):
 
             # next package type to send is the one defined by the display
             frame_type_to_send = self.__rx_package.data[2]
-            print("rx pack " + str(self.__rx_package.data[2]))
         else:
             if self.__process_data__error_cnt > 10:
                 print("__process_data() error")
@@ -150,7 +170,7 @@ class Display(object):
                 pass # nothing to add on this frame type
 
             elif self.__rx_package.data[2] == FrameType.STATUS:
-                tx_array[3] = 0 # motor_init_status: for now as a 0, MOTOR_INIT_STATUS_RESET
+                tx_array[3] = self.__motor_status
                 _len += 1
 
             elif self.__rx_package.data[2] == FrameType.PERIODIC:
@@ -180,6 +200,9 @@ class Display(object):
             # send packet to UART
             self.__uart.write(tx_array[0: _len + 2])
 
+            # print("t " + str(tx_array[2]))
+            # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
+
             # signal that next package can be received and processed
             self.__rx_package.received = False
 
@@ -197,6 +220,18 @@ class MotorInitState():
     INIT_WAIT_DELAY = 3
     OK = 4
 
+class MotorStatus():
+    RESET = 0
+    GOT_CONFIG = 1
+    INIT_OK = 2
+
 class RXPackage():
     data = bytearray(255)
     received = False
+
+class VescData(object):
+
+    def __init__(self):
+        self.battery_voltage = 0
+        self.motor_current = 0
+        self.motor_speed_erpm = 0

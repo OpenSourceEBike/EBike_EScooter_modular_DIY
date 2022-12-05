@@ -25,11 +25,11 @@ throttle = throttle.Throttle(
     board.P0_29, #ADC pin for throttle
     min = 17500) #min ADC value that throttle reads, plus some margin
 
-vesc_motor_data = VescData()
+vesc_data = VescData()
 vesc = vesc.Vesc(
     board.P0_22, #UART TX pin that connect to VESC
     board.P0_24, #UART RX pin that connect to VESC
-    vesc_motor_data) #VESC motor data object to hold the motor data
+    vesc_data) #VESC data object to hold the VESC data
 
 display = display.Display(
     board.P0_09, #UART TX pin that connect to display
@@ -38,11 +38,20 @@ display = display.Display(
 async def task_display_process():
     while True:
         display.process_data()
-        await asyncio.sleep(0.05) # idle 50ms
+        await asyncio.sleep(0.02) # idle 20ms, fine tunned
 
 async def task_vesc_heartbeat():
     while True:
         vesc.send_heart_beat()
+
+        # print(" ")
+        # print("VESC data")
+        # vesc.refresh_motor_data()
+        # print(vesc_data.battery_voltage)
+        # print(vesc_data.battery_current)
+        # print(int(vesc_data.battery_voltage * vesc_data.battery_current))
+        # print(vesc_data.motor_speed_erpm)
+
         await asyncio.sleep(0.8) # idle 800ms
 
 async def task_read_sensors_control_motor():
@@ -56,7 +65,9 @@ async def task_read_sensors_control_motor():
             5.0) #max current
 
         vesc.set_current_brake_amps(0.0)
-        vesc.set_current_amps(motor_current)
+        # vesc.set_current_amps(motor_current)
+
+        vesc.set_current_amps(0)
 
         await asyncio.sleep(0.002) # idle 20ms
 
