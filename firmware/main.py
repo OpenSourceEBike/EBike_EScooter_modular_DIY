@@ -1,4 +1,5 @@
 import board
+import time
 import simpleio
 import asyncio
 import throttle
@@ -33,7 +34,8 @@ vesc = vesc.Vesc(
 
 display = display.Display(
     board.P0_09, #UART TX pin that connect to display
-    board.P0_10) #UART RX pin that connect to display
+    board.P0_10, #UART RX pin that connect to display
+    vesc_data)
 
 async def task_display_process():
     while True:
@@ -42,15 +44,11 @@ async def task_display_process():
 
 async def task_vesc_heartbeat():
     while True:
-        vesc.send_heart_beat()
+        # VESC heart beat must be sent more frequently than 1 second, otherwise the motor will stop
+        vesc.send_heart_beat() 
 
-        # print(" ")
-        # print("VESC data")
-        # vesc.refresh_motor_data()
-        # print(vesc_data.battery_voltage)
-        # print(vesc_data.battery_current)
-        # print(int(vesc_data.battery_voltage * vesc_data.battery_current))
-        # print(vesc_data.motor_speed_erpm)
+        # ask for VESC latest data
+        vesc.refresh_data()
 
         await asyncio.sleep(0.8) # idle 800ms
 
@@ -65,13 +63,14 @@ async def task_read_sensors_control_motor():
             5.0) #max current
 
         vesc.set_current_brake_amps(0.0)
-        # vesc.set_current_amps(motor_current)
-
-        vesc.set_current_amps(0)
+        vesc.set_current_amps(motor_current)
 
         await asyncio.sleep(0.002) # idle 20ms
 
 async def main():
+
+    time.sleep(2) # boot init delay time so the display will be ready
+
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
     display_process_task = asyncio.create_task(task_display_process())

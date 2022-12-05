@@ -4,13 +4,13 @@ import struct
 class Vesc(object):
     """VESC"""
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_motor_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_data):
         """VESC
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to VESC
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
         :param ~VESC_data vesc_motor_data: VESC motor data object
         """
-        self.__vesc_data = vesc_motor_data
+        self.__vesc_data = vesc_data
 
         # configure UART for communications with VESC
         self.__uart = busio.UART(
@@ -75,7 +75,7 @@ class Vesc(object):
             data = self.__uart.read(response_len)  # read up to response_len bytes
             return data
             
-    def refresh_motor_data(self):
+    def refresh_data(self):
         """Read VESC motor data and update vesc_motor_data"""
         # COMM_GET_VALUES = 4; 79 bytes response
         command = bytearray([4])

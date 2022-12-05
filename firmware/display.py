@@ -3,7 +3,7 @@ import struct
 
 class Display(object):
     """Display"""
-    def __init__(self, uart_tx_pin, uart_rx_pin):
+    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_data):
         """Display
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to display
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to display
@@ -21,6 +21,8 @@ class Display(object):
         self.__motor_init_state = MotorInitState.RESET
         self.__motor_status = MotorStatus.RESET
         self.__motor_status_cnt = 0
+
+        self.__vesc_data = vesc_data
 
     #every 50ms, read and process UART data
     def process_data(self):
@@ -174,7 +176,14 @@ class Display(object):
                 _len += 1
 
             elif self.__rx_package.data[2] == FrameType.PERIODIC:
-                pass # TODO
+                for i in range(3, 26):
+                    tx_array[i] = 0
+                
+                struct.pack_into('<H', tx_array, 3, int(self.__vesc_data.battery_voltage * 100))
+                tx_array[5] = int(self.__vesc_data.battery_current * 5)
+
+                _len += 24
+                pass
 
             elif self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
                 pass # TODO
