@@ -82,42 +82,43 @@ class Display(object):
         # only read next data bytes after we process the previous package
         if self.__rx_package.received == False:
             rx_array = self.__uart.read()
-            for data in rx_array:
-                # find start byte
-                if self.__read_and_unpack__state == 0:
-                    if (data == 0x59):
-                        self.__rx_package.data[0] = data
-                        self.__read_and_unpack__state = 1
-                    else:
-                        self.__read_and_unpack__state = 0
+            if rx_array is not None:
+                for data in rx_array:
+                    # find start byte
+                    if self.__read_and_unpack__state == 0:
+                        if (data == 0x59):
+                            self.__rx_package.data[0] = data
+                            self.__read_and_unpack__state = 1
+                        else:
+                            self.__read_and_unpack__state = 0
 
-                # len byte
-                elif self.__read_and_unpack__state == 1:
-                    self.__rx_package.data[1] = data
-                    self.__read_and_unpack__len = data
-                    self.__read_and_unpack__state = 2
+                    # len byte
+                    elif self.__read_and_unpack__state == 1:
+                        self.__rx_package.data[1] = data
+                        self.__read_and_unpack__len = data
+                        self.__read_and_unpack__state = 2
 
-                # rest of the package
-                elif self.__read_and_unpack__state == 2:
-                    self.__rx_package.data[self.__read_and_unpack__cnt  + 2] = data
-                    self.__read_and_unpack__cnt += 1
+                    # rest of the package
+                    elif self.__read_and_unpack__state == 2:
+                        self.__rx_package.data[self.__read_and_unpack__cnt  + 2] = data
+                        self.__read_and_unpack__cnt += 1
 
-                    # end of the package
-                    if self.__read_and_unpack__cnt >= self.__read_and_unpack__len:
-                        # calculate the CRC
-                        crc = self.__crc16(self.__rx_package.data[0: self.__read_and_unpack__len])
-                        # get the original CRC
-                        crc_original = struct.unpack_from('<H', self.__rx_package.data, self.__read_and_unpack__len)[0]
-                        
-                        # check if CRC is ok                    
-                        self.__rx_package.received = True if crc == crc_original else False
+                        # end of the package
+                        if self.__read_and_unpack__cnt >= self.__read_and_unpack__len:
+                            # calculate the CRC
+                            crc = self.__crc16(self.__rx_package.data[0: self.__read_and_unpack__len])
+                            # get the original CRC
+                            crc_original = struct.unpack_from('<H', self.__rx_package.data, self.__read_and_unpack__len)[0]
+                            
+                            # check if CRC is ok                    
+                            self.__rx_package.received = True if crc == crc_original else False
 
-                        self.__process_data__error_cnt = 0
-                        self.__read_and_unpack__cnt = 0
-                        self.__read_and_unpack__state = 0
-                    else:
-                        # keep increasing error counter
-                        self.__process_data__error_cnt += 1
+                            self.__process_data__error_cnt = 0
+                            self.__read_and_unpack__cnt = 0
+                            self.__read_and_unpack__state = 0
+                        else:
+                            # keep increasing error counter
+                            self.__process_data__error_cnt += 1
 
     def __process_data(self):
         

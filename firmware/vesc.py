@@ -74,6 +74,8 @@ class Vesc(object):
         if response_len is not 0:
             data = self.__uart.read(response_len)  # read up to response_len bytes
             return data
+        else:
+            return None
             
     def refresh_data(self):
         """Read VESC motor data and update vesc_motor_data"""
@@ -81,14 +83,15 @@ class Vesc(object):
         command = bytearray([4])
         response = self.__pack_and_send(command, 79)
 
-        # print(",".join(["{}".format(i) for i in response]))
-        # for index, data in enumerate(response):
-        #     print(str(index) + ": " + str(data))
+        if response is not None:
+            # print(",".join(["{}".format(i) for i in response]))
+            # for index, data in enumerate(response):
+            #     print(str(index) + ": " + str(data))
 
-        # store the motor controller data
-        self.__vesc_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
-        self.__vesc_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-        self.__vesc_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
+            # store the motor controller data
+            self.__vesc_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
+            self.__vesc_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self.__vesc_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""

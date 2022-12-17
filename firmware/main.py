@@ -10,31 +10,33 @@ import vesc
 from vesc import VescData
 import display
 
+# Tested on a ESP32-S3-DevKitC-1-N8R2
+
 brake_sensor = brake_sensor.BrakeSensor(
-    board.P0_02) #brake sensor pin
+    board.IO1) #brake sensor pin
 
 wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
-    board.P1_15) #wheel speed sensor pin
+    board.IO42) #wheel speed sensor pin
 
 torque_sensor = torque_sensor.TorqueSensor(
-    board.P0_20, #SPI CS pin
-    board.P0_17, #SPI clock pin
-    board.P0_15, #SPI MOSI pin
-    board.P0_13) #SPI MISO pin
+    board.IO0, #SPI CS pin
+    board.IO35, #SPI clock pin
+    board.IO36, #SPI MOSI pin
+    board.IO37) #SPI MISO pin
 
 throttle = throttle.Throttle(
-    board.P0_29, #ADC pin for throttle
+    board.IO2, #ADC pin for throttle
     min = 17500) #min ADC value that throttle reads, plus some margin
 
 vesc_data = VescData()
 vesc = vesc.Vesc(
-    board.P0_22, #UART TX pin that connect to VESC
-    board.P0_24, #UART RX pin that connect to VESC
+    board.IO21, #UART TX pin that connect to VESC
+    board.IO47, #UART RX pin that connect to VESC
     vesc_data) #VESC data object to hold the VESC data
 
 display = display.Display(
-    board.P0_09, #UART TX pin that connect to display
-    board.P0_10, #UART RX pin that connect to display
+    board.IO48, #UART TX pin that connect to display
+    board.IO45, #UART RX pin that connect to display
     vesc_data)
 
 async def task_display_process():
