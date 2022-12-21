@@ -12,22 +12,23 @@ import display
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
-# brake_sensor = brake_sensor.BrakeSensor(
-#     board.IO1) #brake sensor pin
+brake_sensor = brake_sensor.BrakeSensor(
+   board.IO10) #brake sensor pin
 
+# NOTE: for some reason, the usage here of IO46, makes the board reseting in a loop
 # wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
-#     board.IO42) #wheel speed sensor pin
+#    board.IO46) #wheel speed sensor pin
 
-# torque_sensor = torque_sensor.TorqueSensor(
-#     board.IO0, #SPI CS pin
-#     board.IO35, #SPI clock pin
-#     board.IO36, #SPI MOSI pin
-#     board.IO37) #SPI MISO pin
+torque_sensor = torque_sensor.TorqueSensor(
+    board.IO4, #SPI CS pin
+    board.IO5, #SPI clock pin
+    board.IO6, #SPI MOSI pin
+    board.IO7) #SPI MISO pin
 
 throttle = throttle.Throttle(
     board.IO9, # ADC pin for throttle
-    min = 16000, # min ADC value that throttle reads, plus some margin
-    max = 37500) # max ADC value that throttle reads, minus some margin
+    min = 17000, # min ADC value that throttle reads, plus some margin
+    max = 50000) # max ADC value that throttle reads, minus some margin
 
 vesc_data = VescData()
 vesc = vesc.Vesc(
@@ -71,10 +72,9 @@ async def task_read_sensors_control_motor():
         await asyncio.sleep(0.02) # idle 20ms
 
 async def main():
-
+  
     print("starting")
-
-    time.sleep(2) # boot init delay time so the display will be read
+    time.sleep(2) # boot init delay time so the display will be ready
 
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
