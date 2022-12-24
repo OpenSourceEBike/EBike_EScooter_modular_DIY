@@ -8,9 +8,9 @@ class BrakeSensor(object):
         """
         # configure IO input
         self.__brake = digitalio.DigitalInOut(pin)
-        self.__brake.pull = digitalio.Pull.UP
+        # self.__brake.pull = digitalio.Pull.UP // external pull up
         self.__brake.direction = digitalio.Direction.INPUT
 
     @property
     def value(self):
-        return self.__brake.value
+        return not self.__brake.value # brake signal is inverted

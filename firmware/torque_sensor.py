@@ -33,3 +33,22 @@ class TorqueSensor(object):
                 return torque[0], cadence[0]
             else:
                 return None, None
+
+    @property
+    def weight_value(self):
+        """Torque sensor weight value
+        return: torque weight, cadence
+        """
+        with self.__can_bus.listen(timeout=1.0) as listener:
+            if listener.in_waiting():
+                msg = listener.receive_and_clean_all_previous()
+
+                # unpack values from the byte array
+                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes: torque value
+                torque = (torque[0] - 750) / 61 # convert to kgs
+                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte: cadence value
+
+                return torque, cadence[0]
+            else:
+                return None, None
+              
