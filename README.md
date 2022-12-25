@@ -1,7 +1,8 @@
 # Python EBike EScooter board
 Python EBike/EScooter board + VESC, to replace the original EBike/EScooters original motor controller.
 
-Find the schematic on the Hardware folder.
+# Tested schematic for DIY EBike board:
+![Schematic](./hardware/schematic.png)
 
 Find the CircuitPython firmware on Firmware folder.
 
