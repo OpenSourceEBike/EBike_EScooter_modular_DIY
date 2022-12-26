@@ -4,13 +4,13 @@ import struct
 class Vesc(object):
     """VESC"""
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, ebike_app_data):
         """VESC
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to VESC
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
-        :param ~VESC_data vesc_motor_data: VESC motor data object
+        :param ~EBikeAppData ebike_app_data: Ebike app data object
         """
-        self.__vesc_data = vesc_data
+        self.__ebike_app_data = ebike_app_data
 
         # configure UART for communications with VESC
         self.__uart = busio.UART(
@@ -92,9 +92,9 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
-            self.__vesc_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
-            self.__vesc_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self.__vesc_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
+            self.__ebike_app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
+            self.__ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self.__ebike_app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
@@ -129,13 +129,3 @@ class Vesc(object):
         command[0] = 8
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
-
-class VescData(object):
-
-    def __init__(self):
-        self.battery_voltage = 0
-        self.battery_current = 0
-        self.motor_current = 0
-        self.motor_speed_erpm = 0
-        self.previous_current = True
-        self.current_brake = True

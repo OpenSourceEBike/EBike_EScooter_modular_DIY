@@ -7,8 +7,8 @@ class BrakeSensor(object):
         :param ~microcontroller.Pin pin: IO pin used to read brake sensor
         """
         # configure IO input
+        # NOTE about pull up: the ESP32 internal pullups are weak and are not enough for the brake sensor
         self.__brake = digitalio.DigitalInOut(pin)
-        # self.__brake.pull = digitalio.Pull.UP // external pull up
         self.__brake.direction = digitalio.Direction.INPUT
 
     @property
