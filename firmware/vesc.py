@@ -21,7 +21,7 @@ class Vesc(object):
             receiver_buffer_size = 512) # VESC PACKET_MAX_PL_LEN = 512
         
         #  let's initialize with no brake current as this is a mid drive motor
-        self.set_current_brake_amps(0)
+        self.set_motor_current_brake_amps(0)
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
@@ -103,7 +103,7 @@ class Vesc(object):
         command = bytearray([30])
         self.__pack_and_send(command, 0)
 
-    def set_current_amps(self, value):
+    def set_motor_current_amps(self, value):
         """Set battery Amps"""
         value = value * 1000 # current in mA
 
@@ -113,7 +113,7 @@ class Vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self.__pack_and_send(command, 0)
     
-    def set_current_brake_amps(self, value):
+    def set_motor_current_brake_amps(self, value):
         """Set battery brake / regen Amps"""
         value = value * 1000 # current in mA
 

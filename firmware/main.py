@@ -13,6 +13,24 @@ import display
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
+###############################################
+# OPTIONS
+
+# Increase or decrease this value to have higher or lower motor assistance
+# Default value: 1.0
+assist_level_factor = 1.0
+
+torque_sensor_weight_min_to_start = 4.0 # (value in kgs) let's avoid any false startup, we will need this minimum weight on the pedals to start
+torque_sensor_weight_max = 40.0 # torque sensor max value is 40 kgs. Let's use the max range up to 40 kgs
+motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 20.0 # max value, be carefull to not burn your motor
+
+# debug options
+enable_print_ebike_data_to_terminal = False
+enable_debug_log_cvs = False
+
+###############################################
+
 # open file for log data
 log = open("/log_csv.txt", "w")
 
@@ -48,7 +66,7 @@ def check_brakes():
     """Check the brakes and if they are active, set the motor current to 0
     """
     if brake_sensor.value == True:
-        vesc.set_current_amps(0) # set the motor current to 0 will efectivly stop the motor
+        vesc.set_motor_current_amps(0) # set the motor current to 0 will efectively coast the motor
         ebike_data.motor_current_target = 0
         ebike_data.brakes_are_active = True
     else:
@@ -57,32 +75,34 @@ def check_brakes():
 def print_ebike_data_to_terminal():
     """Print EBike data to terminal
     """
-    # print(" ")
-    # print(f"tor {ebike_data.torque_weight}")
-    # print(f"cad {ebike_data.cadence}")
+    print(" ")
+    print(f"tor {ebike_data.torque_weight}")
+    print(f"cad {ebike_data.cadence}")
     
-    # if brake_sensor.value:
-    #     print("brk 1")
-    # else:
-    #     print("brk 0")
+    if brake_sensor.value:
+        print("brk 1")
+    else:
+        print("brk 0")
 
-    # print(f"bat curr {ebike_data.battery_current:.1f}")
-    # print(f"mot curr {ebike_data.motor_current:.1f}")
+    print(f"bat curr {ebike_data.battery_current:.1f}")
+    print(f"mot curr {ebike_data.motor_current:.1f}")
 
-def utils_step_towards(current_value, goal, step):
+def utils_step_towards(current_value, target_value, step):
+    """ Move current_value towards the target_value, by increasing / decreasing by step
+    """
     value = current_value
 
-    if current_value < goal:
-        if (current_value + step) < goal:
+    if current_value < target_value:
+        if (current_value + step) < target_value:
             value += step
         else:
-            value = goal
+            value = target_value
     
-    elif current_value > goal:
-        if (current_value - step) > goal:
+    elif current_value > target_value:
+        if (current_value - step) > target_value:
             value -= step
         else:
-            value = goal
+            value = target_value
 
     return value
 
@@ -124,10 +144,13 @@ async def task_vesc_heartbeat():
         
         # ask for VESC latest data
         vesc.refresh_data()
-        
-        print_ebike_data_to_terminal()
-        
-        await asyncio.sleep(0.5) # idle 500ms
+
+        # should we print EBike data to terminal?
+        if enable_print_ebike_data_to_terminal == True:
+            print_ebike_data_to_terminal()
+
+        # idle 500ms
+        await asyncio.sleep(0.5) 
 
 async def task_read_sensors_control_motor():
     while True:
@@ -137,25 +160,28 @@ async def task_read_sensors_control_motor():
         # read torque sensor data and map to motor current
         torque_weight, cadence = torque_sensor.weight_value
         if torque_weight is not None:
-            # letues
+            # store torque sensor data
             ebike_data.torque_weight = torque_weight
             ebike_data.cadence = cadence
 
-            current_max_limit = 10.0
-
             # map torque value to motor current
-            motor_current = simpleio.map_range(
+            motor_current_target = simpleio.map_range(
                 torque_weight,
-                1.0, #min
-                8.0, #max
-                0, #min current
-                current_max_limit) #max current
+                torque_sensor_weight_min_to_start, # min input
+                torque_sensor_weight_max, # max input
+                0, # min output
+                motor_max_current_limit) # max output
 
-            if motor_current < 1.0:
-                motor_current = 0
+            # apply the assist level
+            motor_current_target *= (assist_level_factor * \
+                    2.0)  # to keep assist_level_factor default value as 1.0, let's multiply by 2 as the default value should be in reality 2.0 for my taste
 
-            # apply ramp up / down
-            if motor_current > ebike_data.motor_current_target:
+            # impose a min motor current value, as to much lower value will make the motor vibrate and not run (??)
+            if motor_current_target < motor_min_current_start:
+                motor_current_target = 0
+
+            # apply ramp up / down factor: faster when ramp down
+            if motor_current_target > ebike_data.motor_current_target:
                 ramp_time = 0.2
             else:
                 ramp_time = 0.1
@@ -163,15 +189,17 @@ async def task_read_sensors_control_motor():
             time_now = time.monotonic_ns()
             ramp_step = (time.monotonic_ns() - ebike_data.ramp_up_last_time) / (ramp_time * 1000000000)
             ebike_data.ramp_up_last_time = time_now
-            ebike_data.motor_current_target = utils_step_towards(ebike_data.motor_current_target, motor_current, ramp_step)
+            ebike_data.motor_current_target = utils_step_towards(ebike_data.motor_current_target, motor_current_target, ramp_step)
 
-            if ebike_data.motor_current_target > current_max_limit:
-                ebike_data.motor_current_target = current_max_limit
+            # let's make sure it is not over the limit
+            if ebike_data.motor_current_target > motor_max_current_limit:
+                ebike_data.motor_current_target = motor_max_current_limit
        
             # let's update the motor current, only if the target value changed and brakes are not active
-            if motor_current != ebike_data.previous_motor_current and ebike_data.brakes_are_active == False:
-                ebike_data.previous_motor_current = ebike_data.motor_current_target
-                vesc.set_current_amps(ebike_data.motor_current_target)
+            if ebike_data.motor_current_target != ebike_data.previous_motor_current_target and \
+                    ebike_data.brakes_are_active == False:
+                ebike_data.previous_motor_current_target = ebike_data.motor_current_target
+                vesc.set_motor_current_amps(ebike_data.motor_current_target)
 
         # idle 20ms
         await asyncio.sleep(0.02)
@@ -184,12 +212,21 @@ async def main():
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
     display_process_task = asyncio.create_task(task_display_process())
-    log_data_task = asyncio.create_task(task_log_data())
-    await asyncio.gather(
-        vesc_heartbeat_task,
-        read_sensors_control_motor_task,
-        display_process_task,
-        log_data_task)
+
+    # Start the tasks. Note that log_data_task may be disabled as a configuration
+    if enable_debug_log_cvs == False:
+        await asyncio.gather(
+            vesc_heartbeat_task,
+            read_sensors_control_motor_task,
+            display_process_task)
+    else:
+        log_data_task = asyncio.create_task(task_log_data())
+        await asyncio.gather(
+            vesc_heartbeat_task,
+            read_sensors_control_motor_task,
+            display_process_task,
+            log_data_task)
+  
     print("done main()")
 
 asyncio.run(main())
