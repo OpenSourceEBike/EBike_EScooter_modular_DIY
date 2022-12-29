@@ -24,7 +24,7 @@ class Display(object):
 
         self.__vesc_data = vesc_data
 
-    #every 50ms, read and process UART data
+    # read and process UART data
     def process_data(self):
         self.__read_and_unpack()
         self.__process_data()

@@ -7,7 +7,7 @@ class EBikeAppData(object):
         self.battery_current = 0
         self.motor_current = 0
         self.motor_speed_erpm = 0
-        self.previous_motor_current = True
+        self.previous_motor_current_target = True
         self.brakes_are_active = True
         self.torque_weight = 0
         self.cadence = 0
