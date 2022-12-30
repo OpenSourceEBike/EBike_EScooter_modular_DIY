@@ -26,7 +26,7 @@ motor_min_current_start = 1.5 # to much lower value will make the motor vibrate 
 motor_max_current_limit = 20.0 # max value, be carefull to not burn your motor
 
 # debug options
-enable_print_ebike_data_to_terminal = False
+enable_print_ebike_data_to_terminal = True
 enable_debug_log_cvs = False
 
 ###############################################
@@ -65,28 +65,27 @@ display = display.Display(
 def check_brakes():
     """Check the brakes and if they are active, set the motor current to 0
     """
-    if brake_sensor.value == True:
+    if ebike_data.brakes_are_active == False and brake_sensor.value == True:
         vesc.set_motor_current_amps(0) # set the motor current to 0 will efectively coast the motor
         ebike_data.motor_current_target = 0
         ebike_data.brakes_are_active = True
-    else:
+
+        ebike_data.brakes_counter += 1
+      
+    elif ebike_data.brakes_are_active == True and brake_sensor.value == False:
         ebike_data.brakes_are_active = False
 
 def print_ebike_data_to_terminal():
     """Print EBike data to terminal
     """
-    print(" ")
-    print(f"tor {ebike_data.torque_weight}")
-    print(f"cad {ebike_data.cadence}")
+    if ebike_data.battery_current < 0:
+       ebike_data.battery_current = 0
+
+    if ebike_data.motor_current < 0:
+       ebike_data.motor_current = 0
+  
+    print(f" {ebike_data.brakes_counter: 4} | {ebike_data.motor_current_target:2.1f} | {ebike_data.motor_current:2.1f} | {ebike_data.battery_current:2.1f}", end='\r')
     
-    if brake_sensor.value:
-        print("brk 1")
-    else:
-        print("brk 0")
-
-    print(f"bat curr {ebike_data.battery_current:.1f}")
-    print(f"mot curr {ebike_data.motor_current:.1f}")
-
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
     """
@@ -184,10 +183,10 @@ async def task_read_sensors_control_motor():
             if motor_current_target > ebike_data.motor_current_target:
                 ramp_time = 0.2
             else:
-                ramp_time = 0.1
+                ramp_time = 0.05
               
             time_now = time.monotonic_ns()
-            ramp_step = (time.monotonic_ns() - ebike_data.ramp_up_last_time) / (ramp_time * 1000000000)
+            ramp_step = (time_now - ebike_data.ramp_up_last_time) / (ramp_time * 1000000000)
             ebike_data.ramp_up_last_time = time_now
             ebike_data.motor_current_target = utils_step_towards(ebike_data.motor_current_target, motor_current_target, ramp_step)
 
@@ -205,7 +204,7 @@ async def task_read_sensors_control_motor():
         await asyncio.sleep(0.02)
 
 async def main():
-  
+
     print("starting")
     time.sleep(2) # boot init delay time so the display will be ready
 

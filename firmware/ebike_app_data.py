@@ -13,3 +13,4 @@ class EBikeAppData(object):
         self.cadence = 0
         self.ramp_up_last_time = time.monotonic_ns()
         self.motor_current_target = 0
+        self.brakes_counter = 0
