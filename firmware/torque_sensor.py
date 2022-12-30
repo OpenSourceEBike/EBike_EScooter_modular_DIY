@@ -18,6 +18,24 @@ class TorqueSensor(object):
         self.__can_bus = CAN(self.__spi, self.__cs, baudrate=250000, xtal_frequency=8000000)
 
     @property
+    def value_raw(self):
+        """Torque sensor raw values
+        return: torque, cadence and progressive_byte
+        """
+        with self.__can_bus.listen(timeout=1.0) as listener:
+            if listener.in_waiting():
+                msg = listener.receive_and_clean_all_previous()
+
+                # unpack values from the byte array
+                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes: torque value
+                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte: cadence value
+                progressive_byte = msg.data[3] # last byte should be a value that increases on each package
+
+                return torque[0], cadence[0], progressive_byte
+            else:
+                return None, None
+
+    @property
     def value(self):
         """Torque sensor value
         return: torque, cadence
