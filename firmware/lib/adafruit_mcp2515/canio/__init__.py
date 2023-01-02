@@ -118,6 +118,14 @@ class Listener:
             return self._can_bus_obj.read_message_and_clean_all_previous()
         return None
 
+    def clean_existing_messages(self):
+        if self._can_bus_obj is None:
+            raise ValueError(
+                "Object has been deinitialized and can no longer be used. Create a new object."
+            )
+            
+        self._can_bus_obj.clean_existing_messages()
+
     def in_waiting(self):
         """Returns the number of messages waiting"""
         if self._can_bus_obj is None:

@@ -3,7 +3,7 @@ import time
 import supervisor
 import simpleio
 import asyncio
-import ebike_app_data
+import ebike_data
 import throttle
 import brake_sensor
 import wheel_speed_sensor
@@ -51,40 +51,41 @@ torque_sensor = torque_sensor.TorqueSensor(
 #     min = 17000, # min ADC value that throttle reads, plus some margin
 #     max = 50000) # max ADC value that throttle reads, minus some margin
 
-ebike_data = ebike_app_data.EBikeAppData()
+ebike = ebike_data.EBike()
 vesc = vesc.Vesc(
-    board.IO14, #UART TX pin that connect to VESC
+    board.IO14, #UART TX pin tebike_app_datahat connect to VESC
     board.IO13, #UART RX pin that connect to VESC
-    ebike_data) #VESC data object to hold the VESC data
+    ebike) #VESC data object to hold the VESC data
 
 display = display.Display(
     board.IO12, #UART TX pin that connect to display
     board.IO11, #UART RX pin that connect to display
-    ebike_data)
+    ebike)
 
 def check_brakes():
     """Check the brakes and if they are active, set the motor current to 0
     """
-    if ebike_data.brakes_are_active == False and brake_sensor.value == True:
+    if ebike.brakes_are_active == False and brake_sensor.value == True:
         vesc.set_motor_current_amps(0) # set the motor current to 0 will efectively coast the motor
-        ebike_data.motor_current_target = 0
-        ebike_data.brakes_are_active = True
+        ebike.motor_current_target = 0
+        ebike.brakes_are_active = True
 
-        ebike_data.brakes_counter += 1
+        ebike.brakes_counter += 1
       
-    elif ebike_data.brakes_are_active == True and brake_sensor.value == False:
-        ebike_data.brakes_are_active = False
+    elif ebike.brakes_are_active == True and brake_sensor.value == False:
+        ebike.brakes_are_active = False
 
 def print_ebike_data_to_terminal():
     """Print EBike data to terminal
     """
-    if ebike_data.battery_current < 0:
-       ebike_data.battery_current = 0
+    if ebike.battery_current < 0:
+       ebike.battery_current = 0
 
-    if ebike_data.motor_current < 0:
-       ebike_data.motor_current = 0
+    if ebike.motor_current < 0:
+       ebike.motor_current = 0
   
-    print(f" {ebike_data.brakes_counter: 4} | {ebike_data.motor_current_target:2.1f} | {ebike_data.motor_current:2.1f} | {ebike_data.battery_current:2.1f}", end='\r')
+    # print(f" {ebike.brakes_counter: 4} | {ebike.motor_current_target: 2.1f} | {ebike.motor_current: 2.1f} | {ebike.battery_current: 2.1f}", end='\r')
+    print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
     
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -111,12 +112,12 @@ async def task_log_data():
         brake = 0
         if brake_sensor.value:
             brake = 1
-        log.write(f"{ebike_data.torque_weight:.1f},{ebike_data.cadence},{brake},{ebike_data.battery_current:.1f},{ebike_data.motor_current:.1f}\n")
+        log.write(f"{ebike.torque_weight:.1f},{ebike.cadence},{brake},{ebike.battery_current:.1f},{ebike.motor_current:.1f}\n")
         print(supervisor.ticks_ms())
 
-        ebike_data.log_flush_cnt += 1
-        if ebike_data.log_flush_cnt > 200:
-            ebike_data.log_flush_cnt = 0
+        ebike.log_flush_cnt += 1
+        if ebike.log_flush_cnt > 200:
+            ebike.log_flush_cnt = 0
             log.flush()
 
         # idle 25ms, fine tunned
@@ -157,11 +158,13 @@ async def task_read_sensors_control_motor():
         check_brakes()
 
         # read torque sensor data and map to motor current
-        torque_weight, cadence = torque_sensor.weight_value
+        torque_weight, cadence = torque_sensor.weight_value_cadence_filtered
+        # store cadence
+        ebike.cadence = cadence
+
         if torque_weight is not None:
-            # store torque sensor data
-            ebike_data.torque_weight = torque_weight
-            ebike_data.cadence = cadence
+            # store torque
+            ebike.torque_weight = torque_weight
 
             # map torque value to motor current
             motor_current_target = simpleio.map_range(
@@ -180,25 +183,25 @@ async def task_read_sensors_control_motor():
                 motor_current_target = 0
 
             # apply ramp up / down factor: faster when ramp down
-            if motor_current_target > ebike_data.motor_current_target:
-                ramp_time = 0.2
+            if motor_current_target > ebike.motor_current_target:
+                ramp_time = 0.2 # ram up time for each 1A
             else:
-                ramp_time = 0.05
+                ramp_time = 0.05 # ram down time for each 1A
               
             time_now = time.monotonic_ns()
-            ramp_step = (time_now - ebike_data.ramp_up_last_time) / (ramp_time * 1000000000)
-            ebike_data.ramp_up_last_time = time_now
-            ebike_data.motor_current_target = utils_step_towards(ebike_data.motor_current_target, motor_current_target, ramp_step)
+            ramp_step = (time_now - ebike.ramp_last_time) / (ramp_time * 1000000000)
+            ebike.ramp_last_time = time_now
+            ebike.motor_current_target = utils_step_towards(ebike.motor_current_target, motor_current_target, ramp_step)
 
             # let's make sure it is not over the limit
-            if ebike_data.motor_current_target > motor_max_current_limit:
-                ebike_data.motor_current_target = motor_max_current_limit
+            if ebike.motor_current_target > motor_max_current_limit:
+                ebike.motor_current_target = motor_max_current_limit
        
             # let's update the motor current, only if the target value changed and brakes are not active
-            if ebike_data.motor_current_target != ebike_data.previous_motor_current_target and \
-                    ebike_data.brakes_are_active == False:
-                ebike_data.previous_motor_current_target = ebike_data.motor_current_target
-                vesc.set_motor_current_amps(ebike_data.motor_current_target)
+            if ebike.motor_current_target != ebike.previous_motor_current_target and \
+                    ebike.brakes_are_active == False:
+                ebike.previous_motor_current_target = ebike.motor_current_target
+                vesc.set_motor_current_amps(ebike.motor_current_target)
 
         # idle 20ms
         await asyncio.sleep(0.02)

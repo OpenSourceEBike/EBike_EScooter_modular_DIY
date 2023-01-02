@@ -1,6 +1,6 @@
 import time
 
-class EBikeAppData(object):
+class EBike(object):
 
     def __init__(self):
         self.battery_voltage = 0
@@ -11,6 +11,6 @@ class EBikeAppData(object):
         self.brakes_are_active = True
         self.torque_weight = 0
         self.cadence = 0
-        self.ramp_up_last_time = time.monotonic_ns()
+        self.ramp_last_time = time.monotonic_ns()
         self.motor_current_target = 0
         self.brakes_counter = 0
