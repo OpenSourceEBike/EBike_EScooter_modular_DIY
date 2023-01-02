@@ -18,12 +18,16 @@ import display
 
 # Increase or decrease this value to have higher or lower motor assistance
 # Default value: 1.0
-assist_level_factor = 1.0
+assist_level_factor = 3.0
 
 torque_sensor_weight_min_to_start = 4.0 # (value in kgs) let's avoid any false startup, we will need this minimum weight on the pedals to start
 torque_sensor_weight_max = 40.0 # torque sensor max value is 40 kgs. Let's use the max range up to 40 kgs
+
 motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 20.0 # max value, be carefull to not burn your motor
+motor_max_current_limit = 15.0 # max value, be carefull to not burn your motor
+
+ramp_up_time = 0.1 # ram up time for each 1A
+ramp_down_time = 0.05 # ram down time for each 1A
 
 # debug options
 enable_print_ebike_data_to_terminal = True
@@ -84,8 +88,8 @@ def print_ebike_data_to_terminal():
     if ebike.motor_current < 0:
        ebike.motor_current = 0
   
-    # print(f" {ebike.brakes_counter: 4} | {ebike.motor_current_target: 2.1f} | {ebike.motor_current: 2.1f} | {ebike.battery_current: 2.1f}", end='\r')
-    print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
+    print(f" {ebike.brakes_counter:3} | {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
+    # print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
     
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -184,9 +188,9 @@ async def task_read_sensors_control_motor():
 
             # apply ramp up / down factor: faster when ramp down
             if motor_current_target > ebike.motor_current_target:
-                ramp_time = 0.2 # ram up time for each 1A
+                ramp_time = ramp_up_time
             else:
-                ramp_time = 0.05 # ram down time for each 1A
+                ramp_time = ramp_down_time
               
             time_now = time.monotonic_ns()
             ramp_step = (time_now - ebike.ramp_last_time) / (ramp_time * 1000000000)
@@ -196,6 +200,11 @@ async def task_read_sensors_control_motor():
             # let's make sure it is not over the limit
             if ebike.motor_current_target > motor_max_current_limit:
                 ebike.motor_current_target = motor_max_current_limit
+
+            # if brakes are active, reset motor_current_target
+            if ebike.brakes_are_active == True:
+               ebike.motor_current_target = 0
+               ebike.previous_motor_current_target = 0
        
             # let's update the motor current, only if the target value changed and brakes are not active
             if ebike.motor_current_target != ebike.previous_motor_current_target and \
