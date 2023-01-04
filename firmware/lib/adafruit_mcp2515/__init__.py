@@ -411,6 +411,20 @@ class MCP2515:  # pylint:disable=too-many-instance-attributes
         """
         self._unread_message_queue.clear()
 
+    def read_message_and_clean_all_previous(self):
+        """Read the next available message and clean all previous
+
+        Returns:
+            `canio.Message`: The next available message or None if one is not available
+        """
+        if self.unread_message_count == 0:
+            return None
+
+        message = self._unread_message_queue.pop(0)
+        self._unread_message_queue.clear()
+
+        return message
+
     def _read_rx_buffer(self, read_command):
         for i in range(len(self._buffer)):  # pylint: disable=consider-using-enumerate
             self._buffer[i] = 0
