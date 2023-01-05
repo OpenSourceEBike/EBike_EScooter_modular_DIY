@@ -24,9 +24,9 @@
      inkscape:pagecheckerboard="0"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="0.15990811"
-     inkscape:cx="1407.0581"
-     inkscape:cy="1131.9001"
+     inkscape:zoom="0.19807665"
+     inkscape:cx="307.96159"
+     inkscape:cy="706.7971"
      inkscape:window-width="1536"
      inkscape:window-height="827"
      inkscape:window-x="0"
@@ -184,6 +184,25 @@
        height="3.8243451"
        x="-22.275028"
        y="265.85965" />
+    <text
+       xml:space="preserve"
+       style="font-style:normal;font-weight:normal;font-size:33.3955px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.83489"
+       x="-316.4794"
+       y="319.28622"
+       id="text10209-3-5-9-3-5-5"><tspan
+         sodipodi:role="line"
+         style="fill:#ff0000;stroke-width:0.83489"
+         x="-316.4794"
+         y="319.28622"
+         id="tspan4149-3-3">THROTTLE +3.3V</tspan></text>
+    <rect
+       style="fill:#ff0000;stroke-width:0"
+       id="rect72701-7-5-5"
+       width="142.77101"
+       height="4.0171461"
+       x="-72.825867"
+       y="297.49374"
+       transform="matrix(0.98951367,-0.14443927,0.1419572,0.9898728,0,0)" />
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:33.3955px;line-height:1.25;font-family:sans-serif;fill:#000000;fill-opacity:1;stroke:none;stroke-width:0.83489"
