@@ -1,3 +1,4 @@
 (sym_lib_table
   (lib (name "Espressif")(type "KiCad")(uri "${PROJECT}/Espressif.kicad_sym")(options "")(descr ""))
+  (lib (name "TJA1050")(type "KiCad")(uri "${PROJECT}/TJA1050.kicad_sym")(options "")(descr ""))
 )
