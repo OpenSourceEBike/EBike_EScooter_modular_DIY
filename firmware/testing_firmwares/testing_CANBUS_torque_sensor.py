@@ -5,8 +5,6 @@
 
 # Set bellow the CAN_TX_PIN and CAN_RX_PIN, depending on the connections you did to your ESP32 board
 
-# NOTE: make sure the Bafang torque sensor has 5V power supply, because it needs at least like 4.7 vols, otherwise it will not work.
-
 #############################
 
 import board
@@ -22,7 +20,7 @@ CAN_RX_PIN = board.IO5
 # Bafang torque sensor CAN baudrate is 250khz, so use 250000
 CAN_BAUDRATE = 250000
 
-can = canio.CAN(CAN_TX_PIN, CAN_RX_PIN, baudrate = CAN_BAUDRATE, loopback=True)
+can = canio.CAN(CAN_TX_PIN, CAN_RX_PIN, baudrate = CAN_BAUDRATE)
 
 while True:
     with can.listen(timeout=1.0) as listener:
