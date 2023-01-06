@@ -1,23 +1,17 @@
-import busio
+import canio
 import time
-from digitalio import DigitalInOut
-from adafruit_mcp2515 import MCP2515 as CAN
 import struct
 
 class TorqueSensor(object):
 
-    def __init__(self, cs, clock, mosi, miso, cadence_timeout = 1.0):
+    def __init__(self, can_tx_pin, can_rx_pin, cadence_timeout = 1.0):
         """Torque sensor
-        :param ~microcontroller.Pin CS: the pin to use for the chip select.
-        :param ~microcontroller.Pin clock: the pin to use for the clock.
-        :param ~microcontroller.Pin MOSI: the Main Out Selected In pin.
-        :param ~microcontroller.Pin MISO: the Main In Selected Out pin.
+        :param ~microcontroller.Pin can_tx_pin: the pin to use for the can_tx_pin.
+        :param ~microcontroller.Pin can_rx_pin: the pin to use for the can_rx_pin.
         :param float cadence_timeout: timeout in seconds, to reset cadence value if no new value higher than 0 is read
         """
-        self._cs = DigitalInOut(cs)
-        self._cs.switch_to_output()
-        self._spi = busio.SPI(clock, mosi, miso)
-        self._can_bus = CAN(self._spi, self._cs, baudrate=250000, xtal_frequency=8000000)
+
+        self._can_bus = canio.CAN(can_tx_pin, can_rx_pin, baudrate = 250000)
         self.cadence_timeout = cadence_timeout
         self.cadence_previous_time = 0
         self.cadence_previous = 0
@@ -94,45 +88,47 @@ class TorqueSensor(object):
                 if listener.in_waiting():
                     msg = listener.receive()
 
-                    cadence = struct.unpack_from('<B', msg.data, 2)[0] # 1 byte: cadence value
+                    cadence = msg.data[2]
                     if cadence > 0:
                         # we got a new cadence value
                         self.cadence_previous_time = now
                         self.cadence_previous = cadence
 
-                        torque = struct.unpack_from('<H', msg.data, 0)[0] # 2 bytes: torque value
+                        torque = (msg.data[1] * 256) + msg.data[0]
                         torque = (torque - 750) / 61 # convert to kgs
 
                         # ignore previous messages, just clean them
-                        listener.clean_existing_messages()
+                        while listener.in_waiting():
+                            listener.receive()
 
                         return torque, cadence
                     
                     else:
-                       # cadence is 0
+                        # cadence is 0
                       
-                       counter += 1
-                       # check if previous 5 messages are always 0, if so, stop here
-                       if counter > 5:
-                           # check for cadence timeout
-                           timeout = True if now > (self.cadence_previous_time + self.cadence_timeout) else False
-                           if timeout:
-                               self.cadence_previous = 0
-                               self.cadence_previous_time = now
-                           else:
-                               # keep cadence with previous value
-                               cadence = self.cadence_previous
+                        counter += 1
+                        # check if previous 5 messages are always 0, if so, stop here
+                        if counter > 5:
+                            # check for cadence timeout
+                            timeout = True if now > (self.cadence_previous_time + self.cadence_timeout) else False
+                            if timeout:
+                                self.cadence_previous = 0
+                                self.cadence_previous_time = now
+                            else:
+                                # keep cadence with previous value
+                                cadence = self.cadence_previous
 
-                           torque = struct.unpack_from('<H', msg.data, 0)[0] # 2 bytes: torque value
-                           torque = (torque - 750) / 61 # convert to kgs
-                         
-                           # ignore previous messages, just clean them
-                           listener.clean_existing_messages()
+                            torque = (msg.data[1] * 256) + msg.data[0]
+                            torque = (torque - 750) / 61 # convert to kgs
+                            
+                            # ignore previous messages, just clean them
+                            while listener.in_waiting():
+                                listener.receive()
 
-                           return torque, cadence
+                            return torque, cadence
                           
                 else:
-                    # check for cadence timeout
+                # check for cadence timeout
                     timeout = True if now > (self.cadence_previous_time + self.cadence_timeout) else False
                     if cadence == 0:
                         # we got cadence = 0
@@ -143,7 +139,7 @@ class TorqueSensor(object):
                             # keep cadence with previous value
                             cadence = self.cadence_previous
 
-                        torque = struct.unpack_from('<H', msg.data, 0)[0] # 2 bytes: torque value
+                        torque = (msg.data[1] * 256) + msg.data[0]
                         torque = (torque - 750) / 61 # convert to kgs
 
                     else:
