@@ -10,8 +10,6 @@
 import board
 import canio
 import time
-from canio import Message
-import struct
 
 # make sure you set here the correct pins you did connect to your ESP32 board
 CAN_TX_PIN = board.IO4
@@ -23,21 +21,22 @@ CAN_BAUDRATE = 250000
 can = canio.CAN(CAN_TX_PIN, CAN_RX_PIN, baudrate = CAN_BAUDRATE)
 
 while True:
-    with can.listen(timeout=1.0) as listener:
+    with can.listen(timeout = 1.0) as listener:
         print(" ")
+
         message_count = listener.in_waiting()
-        print(f"CAN messages available: {message_count}")
+        print("CAN messages available:", message_count)
         
-        for _i in range(message_count):
-            msg = listener.receive()
-            print(f"Message from: {hex(msg.id)}")
+        while message_count > 0:
+            message_count = message_count - 1
 
-            if isinstance(msg, Message):
-                print(f"Message data:", "::".join(["0x{:02X}".format(i) for i in msg.data]))
+            can_message = listener.receive()
+            print("Message from ID:", hex(can_message.id)) # torque sensor ID is: 0x1f83100
 
-                torque = struct.unpack_from('<H', msg.data, 0)[0]
-                print(f"Torque raw value: {torque}")
-                cadence = msg.data[2]
-                print(f"Cadence: {cadence}")
+            torque = (can_message.data[1] * 256) + can_message.data[0]
+            print("Torque raw value:", torque)
+
+            cadence = can_message.data[2]
+            print("Cadence:", cadence)
 
     time.sleep(1)
