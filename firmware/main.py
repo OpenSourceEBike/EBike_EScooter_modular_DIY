@@ -45,11 +45,9 @@ brake_sensor = brake_sensor.BrakeSensor(
 #    board.IO46) #wheel speed sensor pin
 
 torque_sensor = torque_sensor.TorqueSensor(
-    board.IO4, #SPI CS pin
-    board.IO5, #SPI clock pin
-    board.IO6, #SPI MOSI pin
-    board.IO7) #SPI MISO pin
-
+    board.IO4, # CAN tx pin
+    board.IO5) # CAN rx pin
+  
 # throttle = throttle.Throttle(
 #     board.IO9, # ADC pin for throttle
 #     min = 17000, # min ADC value that throttle reads, plus some margin
@@ -57,13 +55,13 @@ torque_sensor = torque_sensor.TorqueSensor(
 
 ebike = ebike_data.EBike()
 vesc = vesc.Vesc(
-    board.IO14, #UART TX pin tebike_app_datahat connect to VESC
-    board.IO13, #UART RX pin that connect to VESC
+    board.IO14, # UART TX pin tebike_app_datahat connect to VESC
+    board.IO13, # UART RX pin that connect to VESC
     ebike) #VESC data object to hold the VESC data
 
 display = display.Display(
-    board.IO12, #UART TX pin that connect to display
-    board.IO11, #UART RX pin that connect to display
+    board.IO12, # UART TX pin that connect to display UART RX pin
+    board.IO11, # UART RX pin that connect to display UART TX pin
     ebike)
 
 def check_brakes():
