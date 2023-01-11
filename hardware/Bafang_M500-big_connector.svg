@@ -8,7 +8,7 @@
    version="1.1"
    id="svg5"
    inkscape:version="1.1.2 (0a00cf5339, 2022-02-04)"
-   sodipodi:docname="drawing-big_connector.svg"
+   sodipodi:docname="Bafang_M500-big_connector.svg"
    xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
    xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
    xmlns:xlink="http://www.w3.org/1999/xlink"
@@ -24,9 +24,9 @@
      inkscape:pagecheckerboard="0"
      inkscape:document-units="mm"
      showgrid="false"
-     inkscape:zoom="0.21064321"
-     inkscape:cx="135.29988"
-     inkscape:cy="-163.78406"
+     inkscape:zoom="0.42128642"
+     inkscape:cx="461.68115"
+     inkscape:cy="98.507804"
      inkscape:window-width="2279"
      inkscape:window-height="890"
      inkscape:window-x="1536"
@@ -202,14 +202,14 @@
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:20.6636px;line-height:1.25;font-family:sans-serif;fill:#00ff00;fill-opacity:1;stroke:none;stroke-width:0.516591"
-       x="175.84677"
-       y="200.83847"
+       x="176.19412"
+       y="199.12378"
        id="text10209-3-5-9-3-5-5-5-5"
        transform="scale(1.0740011,0.93109775)"><tspan
          sodipodi:role="line"
          style="fill:#00ff00;stroke-width:0.516591"
-         x="175.84677"
-         y="200.83847"
+         x="176.19412"
+         y="199.12378"
          id="tspan4149-3-3-3-6">(pin 1)</tspan></text>
     <text
        xml:space="preserve"
@@ -222,7 +222,7 @@
          style="fill:#00ff00;stroke-width:0.516591"
          x="212.6954"
          y="-39.604107"
-         id="tspan4149-3-3-3-6-9">(pin 11)</tspan></text>
+         id="tspan4149-3-3-3-6-9">(pin 21)</tspan></text>
     <rect
        style="fill:#ff0000;stroke-width:0"
        id="rect72701-7-5-5"
@@ -253,14 +253,14 @@
     <text
        xml:space="preserve"
        style="font-style:normal;font-weight:normal;font-size:20.6636px;line-height:1.25;font-family:sans-serif;fill:#00ff00;fill-opacity:1;stroke:none;stroke-width:0.516591"
-       x="77.740746"
-       y="195.30064"
+       x="88.506905"
+       y="191.30368"
        id="text10209-3-5-9-3-5-5-5"
        transform="scale(1.0740011,0.93109775)"><tspan
          sodipodi:role="line"
          style="fill:#00ff00;stroke-width:0.516591"
-         x="77.740746"
-         y="195.30064"
-         id="tspan4149-3-3-3">(pin 12)</tspan></text>
+         x="88.506905"
+         y="191.30368"
+         id="tspan4149-3-3-3">(pin 2)</tspan></text>
   </g>
 </svg>
