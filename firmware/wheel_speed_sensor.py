@@ -7,11 +7,10 @@ class WheelSpeedSensor(object):
         :param ~microcontroller.Pin pin: IO pin used to read wheel speed sensor
         """
         # configure IO input
-        self.__wheel_speed = digitalio.DigitalInOut(pin)
-        self.__wheel_speed.pull = digitalio.Pull.UP
-        self.__wheel_speed.direction = digitalio.Direction.INPUT
+        self._wheel_speed = digitalio.DigitalInOut(pin)
+        self._wheel_speed.pull = digitalio.Pull.UP
+        self._wheel_speed.direction = digitalio.Direction.INPUT
 
     @property
     def value(self):
-        return self.__wheel_speed.value
-
+        return not self._wheel_speed.value

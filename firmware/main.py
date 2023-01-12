@@ -8,6 +8,7 @@ import throttle
 import brake_sensor
 import wheel_speed_sensor
 import torque_sensor
+import motor_temperature_sensor
 import vesc
 import display
 
@@ -39,19 +40,22 @@ enable_debug_log_cvs = False
 log = open("/log_csv.txt", "w")
 
 brake_sensor = brake_sensor.BrakeSensor(
-   board.IO10) #brake sensor pin
+   board.IO10) # brake sensor pin
 
-# wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
-#    board.IO46) #wheel speed sensor pin
+wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
+   board.IO46) # wheel speed sensor pin
 
 torque_sensor = torque_sensor.TorqueSensor(
     board.IO4, # CAN tx pin
     board.IO5) # CAN rx pin
   
-# throttle = throttle.Throttle(
-#     board.IO9, # ADC pin for throttle
-#     min = 17000, # min ADC value that throttle reads, plus some margin
-#     max = 50000) # max ADC value that throttle reads, minus some margin
+throttle = throttle.Throttle(
+    board.IO18, # ADC pin for throttle
+    min = 17000, # min ADC value that throttle reads, plus some margin
+    max = 50000) # max ADC value that throttle reads, minus some margin
+
+motor_temperature_sensor = motor_temperature_sensor.MotorTemperatureSensor(
+   board.IO3) # motor temperature sensor pin                    
 
 ebike = ebike_data.EBike()
 vesc = vesc.Vesc(

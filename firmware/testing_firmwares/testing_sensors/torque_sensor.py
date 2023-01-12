@@ -12,11 +12,11 @@ class TorqueSensor(object):
         """
 
         self._can_bus = canio.CAN(can_tx_pin, can_rx_pin, baudrate = 250000)
-        self.cadence_timeout = cadence_timeout
-        self.cadence_previous_time = 0
-        self.cadence_previous = 0
-        self.cadence = 0
-        self.torque_weight = 0
+        self._cadence_timeout = cadence_timeout
+        self._cadence_previous_time = 0
+        self._cadence_previous = 0
+        self._cadence = 0
+        self._torque_weight = 0
 
     @property
     def value_raw(self):
@@ -91,8 +91,8 @@ class TorqueSensor(object):
                     cadence = msg.data[2]
                     if cadence > 0:
                         # we got a new cadence value
-                        self.cadence_previous_time = now
-                        self.cadence_previous = cadence
+                        self._cadence_previous_time = now
+                        self._cadence_previous = cadence
 
                         torque = (msg.data[1] * 256) + msg.data[0]
                         torque = (torque - 750) / 61 # convert to kgs
@@ -110,13 +110,13 @@ class TorqueSensor(object):
                         # check if previous 5 messages are always 0, if so, stop here
                         if counter > 5:
                             # check for cadence timeout
-                            timeout = True if now > (self.cadence_previous_time + self.cadence_timeout) else False
+                            timeout = True if now > (self._cadence_previous_time + self._cadence_timeout) else False
                             if timeout:
-                                self.cadence_previous = 0
-                                self.cadence_previous_time = now
+                                self._cadence_previous = 0
+                                self._cadence_previous_time = now
                             else:
                                 # keep cadence with previous value
-                                cadence = self.cadence_previous
+                                cadence = self._cadence_previous
 
                             torque = (msg.data[1] * 256) + msg.data[0]
                             torque = (torque - 750) / 61 # convert to kgs
@@ -129,15 +129,15 @@ class TorqueSensor(object):
                           
                 else:
                 # check for cadence timeout
-                    timeout = True if now > (self.cadence_previous_time + self.cadence_timeout) else False
+                    timeout = True if now > (self._cadence_previous_time + self._cadence_timeout) else False
                     if cadence == 0:
                         # we got cadence = 0
                         if timeout:
-                            self.cadence_previous = 0
-                            self.cadence_previous_time = now
+                            self._cadence_previous = 0
+                            self._cadence_previous_time = now
                         else:
                             # keep cadence with previous value
-                            cadence = self.cadence_previous
+                            cadence = self._cadence_previous
 
                         torque = (msg.data[1] * 256) + msg.data[0]
                         torque = (torque - 750) / 61 # convert to kgs
@@ -145,9 +145,9 @@ class TorqueSensor(object):
                     else:
                         # we got no new values from torque sensor
                         if timeout:
-                            self.cadence_previous = 0
-                            self.cadence_previous_time = now
+                            self._cadence_previous = 0
+                            self._cadence_previous_time = now
                         else:
-                            cadence = self.cadence_previous
+                            cadence = self._cadence_previous
 
                     return torque, cadence

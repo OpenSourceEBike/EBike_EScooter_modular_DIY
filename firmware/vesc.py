@@ -10,10 +10,10 @@ class Vesc(object):
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
         :param ~EBikeAppData ebike_app_data: Ebike app data object
         """
-        self.__ebike_app_data = ebike_app_data
+        self._ebike_app_data = ebike_app_data
 
         # configure UART for communications with VESC
-        self.__uart = busio.UART(
+        self._uart = busio.UART(
             uart_tx_pin,
             uart_rx_pin,
             baudrate = 115200, # VESC UART baudrate
@@ -25,7 +25,7 @@ class Vesc(object):
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
-    def __crc16(self, data):
+    def _crc16(self, data):
         '''
         CRC-16 (CCITT) implemented with a precomputed lookup table
         '''
@@ -55,12 +55,12 @@ class Vesc(object):
 
         return crc
 
-    def __pack_and_send(self, buf, response_len):
+    def _pack_and_send(self, buf, response_len):
 
         #start byte + len + data + CRC 16 bits + end byte
         lenght = len(buf)
         package_len = 1 + 1 + lenght + 2 + 1
-        crc = self.__crc16(buf)
+        crc = self._crc16(buf)
 
         data_array = bytearray(package_len)
         data_array[0] = 2 # start byte
@@ -71,11 +71,11 @@ class Vesc(object):
         data_array[package_len - 1] = 3
 
         # send packet to UART
-        self.__uart.write(data_array)
+        self._uart.write(data_array)
         
         # try to read response only if we expect it
         if response_len is not 0:
-            data = self.__uart.read(response_len)  # read up to response_len bytes
+            data = self._uart.read(response_len)  # read up to response_len bytes
             return data
         else:
             return None
@@ -84,7 +84,7 @@ class Vesc(object):
         """Read VESC motor data and update vesc_motor_data"""
         # COMM_GET_VALUES = 4; 79 bytes response
         command = bytearray([4])
-        response = self.__pack_and_send(command, 79)
+        response = self._pack_and_send(command, 79)
 
         if response is not None:
             # print(",".join(["{}".format(i) for i in response]))
@@ -92,16 +92,16 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
-            self.__ebike_app_data.motor_current = struct.unpack_from('>l', response, 11)[0] / 100.0
-            self.__ebike_app_data.battery_current = struct.unpack_from('>l', response, 15)[0] / 100.0
-            self.__ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self.__ebike_app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
+            self._ebike_app_data.motor_current = struct.unpack_from('>l', response, 11)[0] / 100.0
+            self._ebike_app_data.battery_current = struct.unpack_from('>l', response, 15)[0] / 100.0
+            self._ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self._ebike_app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
         # COMM_ALIVE = 30; no response
         command = bytearray([30])
-        self.__pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
 
     def set_motor_current_amps(self, value):
         """Set battery Amps"""
@@ -111,7 +111,7 @@ class Vesc(object):
         command = bytearray(5)
         command[0] = 6
         struct.pack_into('>l', command, 1, int(value))
-        self.__pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
     
     def set_motor_current_brake_amps(self, value):
         """Set battery brake / regen Amps"""
@@ -121,7 +121,7 @@ class Vesc(object):
         command = bytearray(5)
         command[0] = 7
         struct.pack_into('>l', command, 1, int(value))
-        self.__pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
 
     def set_motor_speed_erpm(self, value):
         """Set motor speed in ERPM"""
@@ -129,4 +129,4 @@ class Vesc(object):
         command = bytearray(5)
         command[0] = 8
         struct.pack_into('>l', command, 1, int(value))
-        self.__pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
