@@ -10,28 +10,28 @@ class Display(object):
         """
 
         # configure UART for communications with display
-        self.__uart = busio.UART(uart_tx_pin, uart_rx_pin, baudrate=19200, timeout=0.005)
+        self._uart = busio.UART(uart_tx_pin, uart_rx_pin, baudrate=19200, timeout=0.005)
 
         # init variables
-        self.__read_and_unpack__state = 0
-        self.__read_and_unpack__len = 0
-        self.__read_and_unpack__cnt = 0
-        self.__rx_package = RXPackage()
-        self.__process_data__error_cnt = 0
-        self.__motor_init_state = MotorInitState.RESET
-        self.__motor_status = MotorStatus.RESET
-        self.__motor_status_cnt = 0
+        self._read_and_unpack__state = 0
+        self._read_and_unpack__len = 0
+        self._read_and_unpack__cnt = 0
+        self._rx_package = RXPackage()
+        self._process_data__error_cnt = 0
+        self._motor_init_state = MotorInitState.RESET
+        self._motor_status = MotorStatus.RESET
+        self._motor_status_cnt = 0
 
         self.__vesc_data = vesc_data
 
     # read and process UART data
     def process_data(self):
-        self.__read_and_unpack()
-        self.__process_data()
+        self._read_and_unpack()
+        self._process_data()
 
     # code taken from:
     # https://github.com/LacobusVentura/MODBUS-CRC16
-    def __crc16(self, data):
+    def _crc16(self, data):
 
         table = [ 
             0x0000, 0xC0C1, 0xC181, 0x0140, 0xC301, 0x03C0, 0x0280, 0xC241,
@@ -78,82 +78,82 @@ class Display(object):
 
         return crc
 
-    def __read_and_unpack(self):
+    def _read_and_unpack(self):
         # only read next data bytes after we process the previous package
-        if self.__rx_package.received == False:
-            rx_array = self.__uart.read()
+        if self._rx_package.received == False:
+            rx_array = self._uart.read()
             if rx_array is not None:
                 for data in rx_array:
                     # find start byte
-                    if self.__read_and_unpack__state == 0:
+                    if self._read_and_unpack__state == 0:
                         if (data == 0x59):
-                            self.__rx_package.data[0] = data
-                            self.__read_and_unpack__state = 1
+                            self._rx_package.data[0] = data
+                            self._read_and_unpack__state = 1
                         else:
-                            self.__read_and_unpack__state = 0
+                            self._read_and_unpack__state = 0
 
                     # len byte
-                    elif self.__read_and_unpack__state == 1:
-                        self.__rx_package.data[1] = data
-                        self.__read_and_unpack__len = data
-                        self.__read_and_unpack__state = 2
+                    elif self._read_and_unpack__state == 1:
+                        self._rx_package.data[1] = data
+                        self._read_and_unpack__len = data
+                        self._read_and_unpack__state = 2
 
                     # rest of the package
-                    elif self.__read_and_unpack__state == 2:
-                        self.__rx_package.data[self.__read_and_unpack__cnt  + 2] = data
-                        self.__read_and_unpack__cnt += 1
+                    elif self._read_and_unpack__state == 2:
+                        self._rx_package.data[self._read_and_unpack__cnt  + 2] = data
+                        self._read_and_unpack__cnt += 1
 
                         # end of the package
-                        if self.__read_and_unpack__cnt >= self.__read_and_unpack__len:
+                        if self._read_and_unpack__cnt >= self._read_and_unpack__len:
                             # calculate the CRC
-                            crc = self.__crc16(self.__rx_package.data[0: self.__read_and_unpack__len])
+                            crc = self._crc16(self._rx_package.data[0: self._read_and_unpack__len])
                             # get the original CRC
-                            crc_original = struct.unpack_from('<H', self.__rx_package.data, self.__read_and_unpack__len)[0]
+                            crc_original = struct.unpack_from('<H', self._rx_package.data, self._read_and_unpack__len)[0]
                             
                             # check if CRC is ok                    
-                            self.__rx_package.received = True if crc == crc_original else False
+                            self._rx_package.received = True if crc == crc_original else False
 
-                            self.__process_data__error_cnt = 0
-                            self.__read_and_unpack__cnt = 0
-                            self.__read_and_unpack__state = 0
+                            self._process_data__error_cnt = 0
+                            self._read_and_unpack__cnt = 0
+                            self._read_and_unpack__state = 0
                         else:
                             # keep increasing error counter
-                            self.__process_data__error_cnt += 1
+                            self._process_data__error_cnt += 1
 
-    def __process_data(self):
+    def _process_data(self):
         
         # print("f " + str(self.__rx_package.data[2]))
 
         ###### Motor status
-        if self.__rx_package.received == True:
+        if self._rx_package.received == True:
             # if we receive CONFIGURATIONS, then update put MotorStatus.GOT_CONFIG
-            if self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
-                self.__motor_status = MotorStatus.GOT_CONFIG # signal that we got the config
-                self.__motor_status_cnt = 10
+            if self._rx_package.data[2] == FrameType.CONFIGURATIONS:
+                self._motor_status = MotorStatus.GOT_CONFIG # signal that we got the config
+                self._motor_status_cnt = 10
 
         # give some timeout after MotorStatus.GOT_CONFIG to be changed to MotorStatus.INIT_OK
-        if self.__motor_status == MotorStatus.GOT_CONFIG and self.__motor_status_cnt > 0:
-            self.__motor_status_cnt -= 1
-        elif self.__motor_status == MotorStatus.GOT_CONFIG:
-            self.__motor_status = MotorStatus.INIT_OK
+        if self._motor_status == MotorStatus.GOT_CONFIG and self._motor_status_cnt > 0:
+            self._motor_status_cnt -= 1
+        elif self._motor_status == MotorStatus.GOT_CONFIG:
+            self._motor_status = MotorStatus.INIT_OK
             print("OK: init motor for display")
         ######
 
         ###### process frame
         frame_type_to_send = None
 
-        if self.__motor_init_state == MotorInitState.RESET:
+        if self._motor_init_state == MotorInitState.RESET:
             frame_type_to_send = FrameType.ALIVE
 
-        if self.__rx_package.received == True:
+        if self._rx_package.received == True:
             # move to next motor init state
-            if self.__motor_init_state == MotorInitState.RESET:
-                self.__motor_init_state = MotorInitState.NO_INIT
+            if self._motor_init_state == MotorInitState.RESET:
+                self._motor_init_state = MotorInitState.NO_INIT
 
             # next package type to send is the one defined by the display
-            frame_type_to_send = self.__rx_package.data[2]
+            frame_type_to_send = self._rx_package.data[2]
         else:
-            if self.__process_data__error_cnt > 10:
+            if self._process_data__error_cnt > 10:
                 print("__process_data() error")
                 #motor_disable()
                 #ui8_m_system_state |= ERROR_FATAL;
@@ -169,14 +169,14 @@ class Display(object):
             tx_array[2] = frame_type_to_send
 
             # process the RX package data
-            if self.__rx_package.data[2] == FrameType.ALIVE:
+            if self._rx_package.data[2] == FrameType.ALIVE:
                 pass # nothing to add on this frame type
 
-            elif self.__rx_package.data[2] == FrameType.STATUS:
-                tx_array[3] = self.__motor_status
+            elif self._rx_package.data[2] == FrameType.STATUS:
+                tx_array[3] = self._motor_status
                 _len += 1
 
-            elif self.__rx_package.data[2] == FrameType.PERIODIC:
+            elif self._rx_package.data[2] == FrameType.PERIODIC:
                 for i in range(3, 26):
                     tx_array[i] = 0
                 
@@ -186,10 +186,10 @@ class Display(object):
                 _len += 24
                 pass
 
-            elif self.__rx_package.data[2] == FrameType.CONFIGURATIONS:
+            elif self._rx_package.data[2] == FrameType.CONFIGURATIONS:
                 pass # TODO
 
-            elif self.__rx_package.data[2] == FrameType.FIRMWARE_VERSION:
+            elif self._rx_package.data[2] == FrameType.FIRMWARE_VERSION:
                 tx_array[3] = 1 # system_state: for now as a 1, ERROR_NOT_INIT
                 # firmware version: 2.0.0
                 tx_array[4] = 1
@@ -204,17 +204,17 @@ class Display(object):
             tx_array[1] = _len
 
             # calculate the CRC
-            crc = self.__crc16(tx_array[0: _len])
+            crc = self._crc16(tx_array[0: _len])
             struct.pack_into('<H', tx_array, _len, crc) # CRC: 2 bytes
 
             # send packet to UART
-            self.__uart.write(tx_array[0: _len + 2])
+            self._uart.write(tx_array[0: _len + 2])
 
             # print("t " + str(tx_array[2]))
             # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
 
             # signal that next package can be received and processed
-            self.__rx_package.received = False
+            self._rx_package.received = False
 
 class FrameType():
     ALIVE = 0

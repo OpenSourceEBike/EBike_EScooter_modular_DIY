@@ -8,9 +8,9 @@ class BrakeSensor(object):
         """
         # configure IO input
         # NOTE about pull up: the ESP32 internal pullups are weak and are not enough for the brake sensor
-        self.__brake = digitalio.DigitalInOut(pin)
-        self.__brake.direction = digitalio.Direction.INPUT
+        self._brake = digitalio.DigitalInOut(pin)
+        self._brake.direction = digitalio.Direction.INPUT
 
     @property
     def value(self):
-        return not self.__brake.value # brake signal is inverted
+        return not self._brake.value # brake signal is inverted
