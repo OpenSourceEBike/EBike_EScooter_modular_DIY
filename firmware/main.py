@@ -17,9 +17,29 @@ import display
 ###############################################
 # OPTIONS
 
-# Increase or decrease this value to have higher or lower motor assistance
-# Default value: 1.0
-assist_level_factor = 3.0
+assist_level_factor_table = [
+    0,
+    0.13,
+    0.16,
+    0.20,
+    0.24,
+    0.31,
+    0.38,
+    0.48,
+    0.60,
+    0.75,
+    0.93,
+    1.16,
+    1.46,
+    1.82,
+    2.27,
+    2.84,
+    3.55,
+    4.44,
+    5.55,
+    6.94,
+    8.67
+]
 
 torque_sensor_weight_min_to_start = 4.0 # (value in kgs) let's avoid any false startup, we will need this minimum weight on the pedals to start
 torque_sensor_weight_max = 40.0 # torque sensor max value is 40 kgs. Let's use the max range up to 40 kgs
@@ -30,14 +50,17 @@ motor_max_current_limit = 15.0 # max value, be carefull to not burn your motor
 ramp_up_time = 0.1 # ram up time for each 1A
 ramp_down_time = 0.05 # ram down time for each 1A
 
+throttle_enable = False # should throttle be used?
+
 # debug options
-enable_print_ebike_data_to_terminal = True
+enable_print_ebike_data_to_terminal = False
 enable_debug_log_cvs = False
 
 ###############################################
 
 # open file for log data
-log = open("/log_csv.txt", "w")
+if enable_debug_log_cvs:
+    log = open("/log_csv.txt", "w")
 
 brake_sensor = brake_sensor.BrakeSensor(
    board.IO10) # brake sensor pin
@@ -51,7 +74,7 @@ torque_sensor = torque_sensor.TorqueSensor(
   
 throttle = throttle.Throttle(
     board.IO18, # ADC pin for throttle
-    min = 17000, # min ADC value that throttle reads, plus some margin
+    min = 19000, # min ADC value that throttle reads, plus some margin
     max = 50000) # max ADC value that throttle reads, minus some margin
 
 motor_temperature_sensor = motor_temperature_sensor.MotorTemperatureSensor(
@@ -90,8 +113,10 @@ def print_ebike_data_to_terminal():
     if ebike.motor_current < 0:
        ebike.motor_current = 0
   
-    print(f" {ebike.brakes_counter:3} | {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
+    # print(f" {ebike.brakes_counter:3} | {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
     # print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
+    # print(f"{throttle.adc_value:6} | {(throttle.value / 10.0):2.1f} %", end='\r')
+    print(f" {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f} | {ebike.battery_voltage:2.1f} | {int(ebike.motor_power)}")
     
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -137,8 +162,8 @@ async def task_display_process():
         # need to process display data periodically
         display.process_data()
 
-        # idle 20ms, fine tunned
-        await asyncio.sleep(0.02)
+        # idle 100ms
+        await asyncio.sleep(0.1)
 
 async def task_vesc_heartbeat():
     while True:
@@ -167,13 +192,13 @@ async def task_read_sensors_control_motor():
         torque_weight, cadence = torque_sensor.weight_value_cadence_filtered
         # store cadence
         ebike.cadence = cadence
-
+        
         if torque_weight is not None:
             # store torque
             ebike.torque_weight = torque_weight
 
             # map torque value to motor current
-            motor_current_target = simpleio.map_range(
+            motor_current_target__torque_sensor = simpleio.map_range(
                 torque_weight,
                 torque_sensor_weight_min_to_start, # min input
                 torque_sensor_weight_max, # max input
@@ -181,9 +206,24 @@ async def task_read_sensors_control_motor():
                 motor_max_current_limit) # max output
 
             # apply the assist level
-            motor_current_target *= (assist_level_factor * \
-                    2.0)  # to keep assist_level_factor default value as 1.0, let's multiply by 2 as the default value should be in reality 2.0 for my taste
+            assist_level_factor = assist_level_factor_table[ebike.assist_level]
+            motor_current_target__torque_sensor *= assist_level_factor
 
+            # map throttle value to motor current
+            if throttle_enable == True:
+                # map torque value to motor current
+                motor_current_target__throttle = simpleio.map_range(
+                    throttle.value,
+                    0, # min input
+                    1000, # max input
+                    0, # min output
+                    motor_max_current_limit) # max output
+
+                # use the max value from either torque sensor or throttle
+                motor_current_target = max(motor_current_target__torque_sensor, motor_current_target__throttle)
+            else:
+                motor_current_target = motor_current_target__torque_sensor
+          
             # impose a min motor current value, as to much lower value will make the motor vibrate and not run (??)
             if motor_current_target < motor_min_current_start:
                 motor_current_target = 0

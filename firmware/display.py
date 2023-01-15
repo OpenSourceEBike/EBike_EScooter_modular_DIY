@@ -3,7 +3,7 @@ import struct
 
 class Display(object):
     """Display"""
-    def __init__(self, uart_tx_pin, uart_rx_pin, vesc_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, ebike_data):
         """Display
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to display
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to display
@@ -18,16 +18,13 @@ class Display(object):
         self._read_and_unpack__cnt = 0
         self._rx_package = RXPackage()
         self._process_data__error_cnt = 0
-        self._motor_init_state = MotorInitState.RESET
-        self._motor_status = MotorStatus.RESET
-        self._motor_status_cnt = 0
-
-        self.__vesc_data = vesc_data
+        self._ebike_data = ebike_data
 
     # read and process UART data
     def process_data(self):
         self._read_and_unpack()
         self._process_data()
+        self._send_data()
 
     # code taken from:
     # https://github.com/LacobusVentura/MODBUS-CRC16
@@ -121,119 +118,35 @@ class Display(object):
                             self._process_data__error_cnt += 1
 
     def _process_data(self):
-        
-        # print("f " + str(self.__rx_package.data[2]))
-
-        ###### Motor status
         if self._rx_package.received == True:
-            # if we receive CONFIGURATIONS, then update put MotorStatus.GOT_CONFIG
-            if self._rx_package.data[2] == FrameType.CONFIGURATIONS:
-                self._motor_status = MotorStatus.GOT_CONFIG # signal that we got the config
-                self._motor_status_cnt = 10
-
-        # give some timeout after MotorStatus.GOT_CONFIG to be changed to MotorStatus.INIT_OK
-        if self._motor_status == MotorStatus.GOT_CONFIG and self._motor_status_cnt > 0:
-            self._motor_status_cnt -= 1
-        elif self._motor_status == MotorStatus.GOT_CONFIG:
-            self._motor_status = MotorStatus.INIT_OK
-            print("OK: init motor for display")
-        ######
-
-        ###### process frame
-        frame_type_to_send = None
-
-        if self._motor_init_state == MotorInitState.RESET:
-            frame_type_to_send = FrameType.ALIVE
-
-        if self._rx_package.received == True:
-            # move to next motor init state
-            if self._motor_init_state == MotorInitState.RESET:
-                self._motor_init_state = MotorInitState.NO_INIT
-
-            # next package type to send is the one defined by the display
-            frame_type_to_send = self._rx_package.data[2]
-        else:
-            if self._process_data__error_cnt > 10:
-                print("__process_data() error")
-                #motor_disable()
-                #ui8_m_system_state |= ERROR_FATAL;
-
-        if frame_type_to_send != None:
-            # process the package
-            # start building the TX package
-            # start byte + len byte + [package type + xx data bytes] + CRC 2 bytes
-            # len = count([package type + xx data bytes] + CRC 2 bytes)
-            tx_array = bytearray(255)
-            _len = 3; # min package len of 3 bytes (not including the start byte): 1 type of frame + 2 CRC bytes
-            tx_array[0] = 0x43 # start byte
-            tx_array[2] = frame_type_to_send
-
-            # process the RX package data
-            if self._rx_package.data[2] == FrameType.ALIVE:
-                pass # nothing to add on this frame type
-
-            elif self._rx_package.data[2] == FrameType.STATUS:
-                tx_array[3] = self._motor_status
-                _len += 1
-
-            elif self._rx_package.data[2] == FrameType.PERIODIC:
-                for i in range(3, 26):
-                    tx_array[i] = 0
-                
-                struct.pack_into('<H', tx_array, 3, int(self.__vesc_data.battery_voltage * 100))
-                tx_array[5] = int(self.__vesc_data.battery_current * 5)
-
-                _len += 24
-                pass
-
-            elif self._rx_package.data[2] == FrameType.CONFIGURATIONS:
-                pass # TODO
-
-            elif self._rx_package.data[2] == FrameType.FIRMWARE_VERSION:
-                tx_array[3] = 1 # system_state: for now as a 1, ERROR_NOT_INIT
-                # firmware version: 2.0.0
-                tx_array[4] = 1
-                tx_array[5] = 1
-                tx_array[6] = 0
-                _len += 4
-            
-            else:
-                return # this should not happen
-
-            # final building of the TX package
-            tx_array[1] = _len
-
-            # calculate the CRC
-            crc = self._crc16(tx_array[0: _len])
-            struct.pack_into('<H', tx_array, _len, crc) # CRC: 2 bytes
-
-            # send packet to UART
-            self._uart.write(tx_array[0: _len + 2])
-
-            # print("t " + str(tx_array[2]))
-            # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
-
-            # signal that next package can be received and processed
+            self._ebike_data.assist_level = self._rx_package.data[2]
             self._rx_package.received = False
+            
+    def _send_data(self):
+        # start building the TX package
+        # start byte + len byte + [package type + xx data bytes] + CRC 2 bytes
+        # len = count([package type + xx data bytes] + CRC 2 bytes)
+        tx_array = bytearray(255)
+        tx_array[0] = 0x59
+        _len = 2 # start byte + len byte
 
-class FrameType():
-    ALIVE = 0
-    STATUS = 1
-    PERIODIC = 2
-    CONFIGURATIONS = 3
-    FIRMWARE_VERSION = 4
+        struct.pack_into('<H', tx_array, _len, int(self._ebike_data.battery_voltage * 100))
+        tx_array[4] = int(self._ebike_data.battery_current * 5)
+        struct.pack_into('<H', tx_array, 5, int(self._ebike_data.motor_power))
 
-class MotorInitState():
-    RESET = 0
-    NO_INIT = 1
-    INIT_START_DELAY = 2
-    INIT_WAIT_DELAY = 3
-    OK = 4
+        _len += 5
 
-class MotorStatus():
-    RESET = 0
-    GOT_CONFIG = 1
-    INIT_OK = 2
+        # final building of the TX package
+        tx_array[1] = _len
+
+        # calculate the CRC
+        crc = self._crc16(tx_array[0: _len])
+        struct.pack_into('<H', tx_array, _len, crc) # CRC: 2 bytes
+
+        # send packet to UART
+        self._uart.write(tx_array[0: _len + 2])
+
+        # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
 
 class RXPackage():
     data = bytearray(255)
