@@ -17,6 +17,23 @@ import display
 ###############################################
 # OPTIONS
 
+torque_sensor_weight_min_to_start = 4.0 # (value in kgs) let's avoid any false startup, we will need this minimum weight on the pedals to start
+torque_sensor_weight_max = 40.0 # torque sensor max value is 40 kgs. Let's use the max range up to 40 kgs
+
+motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 15.0 # max value, be carefull to not burn your motor
+
+ramp_up_time = 0.1 # ram up time for each 1A
+ramp_down_time = 0.05 # ram down time for each 1A
+
+throttle_enable = False # should throttle be used?
+
+# debug options
+enable_print_ebike_data_to_terminal = False
+enable_debug_log_cvs = False
+
+###############################################
+
 assist_level_factor_table = [
     0,
     0.13,
@@ -40,23 +57,6 @@ assist_level_factor_table = [
     6.94,
     8.67
 ]
-
-torque_sensor_weight_min_to_start = 4.0 # (value in kgs) let's avoid any false startup, we will need this minimum weight on the pedals to start
-torque_sensor_weight_max = 40.0 # torque sensor max value is 40 kgs. Let's use the max range up to 40 kgs
-
-motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 15.0 # max value, be carefull to not burn your motor
-
-ramp_up_time = 0.1 # ram up time for each 1A
-ramp_down_time = 0.05 # ram down time for each 1A
-
-throttle_enable = False # should throttle be used?
-
-# debug options
-enable_print_ebike_data_to_terminal = False
-enable_debug_log_cvs = False
-
-###############################################
 
 # open file for log data
 if enable_debug_log_cvs:
@@ -175,6 +175,9 @@ async def task_vesc_heartbeat():
         
         # ask for VESC latest data
         vesc.refresh_data()
+
+        # let's calculate here this:
+        ebike.motor_power = ebike.battery_voltage * ebike.battery_current
 
         # should we print EBike data to terminal?
         if enable_print_ebike_data_to_terminal == True:

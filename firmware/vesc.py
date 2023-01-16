@@ -97,9 +97,6 @@ class Vesc(object):
             self._ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
             self._ebike_app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
 
-            # let's calculate here this:
-            self._ebike_app_data.motor_power = self._ebike_app_data.battery_voltage * self._ebike_app_data.battery_current
-
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
         # COMM_ALIVE = 30; no response
