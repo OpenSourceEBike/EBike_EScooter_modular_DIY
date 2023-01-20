@@ -82,8 +82,8 @@ motor_temperature_sensor = motor_temperature_sensor.MotorTemperatureSensor(
 
 ebike = ebike_data.EBike()
 vesc = vesc.Vesc(
-    board.IO14, # UART TX pin tebike_app_datahat connect to VESC
-    board.IO13, # UART RX pin that connect to VESC
+    board.IO13, # UART TX pin tebike_app_datahat connect to VESC
+    board.IO14, # UART RX pin that connect to VESC
     ebike) #VESC data object to hold the VESC data
 
 display = display.Display(
