@@ -92,6 +92,7 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
+            self._ebike_app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0] - 110 # # found experimentaly that this value has a positive offset of 11 degrees - 2023.01.27
             self._ebike_app_data.motor_current = struct.unpack_from('>l', response, 7)[0] / 100.0
             self._ebike_app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
             self._ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
