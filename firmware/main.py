@@ -11,6 +11,7 @@ import torque_sensor
 import motor_temperature_sensor
 import vesc
 import display
+import esp32
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -78,7 +79,9 @@ throttle = throttle.Throttle(
     max = 50000) # max ADC value that throttle reads, minus some margin
 
 motor_temperature_sensor = motor_temperature_sensor.MotorTemperatureSensor(
-   board.IO3) # motor temperature sensor pin                    
+   board.IO3) # motor temperature sensor pin
+
+esp32 = esp32.ESP32()
 
 ebike = ebike_data.EBike()
 vesc = vesc.Vesc(
@@ -116,7 +119,8 @@ def print_ebike_data_to_terminal():
     # print(f" {ebike.brakes_counter:3} | {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
     # print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
     # print(f"{throttle.adc_value:6} | {(throttle.value / 10.0):2.1f} %", end='\r')
-    print(f" {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f} | {ebike.battery_voltage:2.1f} | {int(ebike.motor_power)}")
+    # print(f" {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f} | {ebike.battery_voltage:2.1f} | {int(ebike.motor_power)}")
+    print(f"{(esp32.temperature_x10 / 10.0):3.1f} | {(ebike.vesc_temperature_x10 / 10.0):3.1f} | {(motor_temperature_sensor.value_x10  / 10.0):3.1f}")
     
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step

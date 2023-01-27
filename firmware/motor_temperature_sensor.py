@@ -1,7 +1,7 @@
 import adafruit_thermistor
 
 class MotorTemperatureSensor(object):
-    def __init__(self, motor_temeprature_sensor_pin):
+    def __init__(self, motor_temperature_sensor_pin):
 
         resistor = 1000
         resistance = 1000
@@ -9,12 +9,12 @@ class MotorTemperatureSensor(object):
         b_coefficient = 3950
 
         self._thermistor = adafruit_thermistor.Thermistor(
-            motor_temeprature_sensor_pin,
+            motor_temperature_sensor_pin,
             resistor,
             resistance,
             nominal_temp,
             b_coefficient)
 
     @property
-    def value(self):
-        return self._thermistor.temperature
+    def value_x10(self):
+        return int(self._thermistor.temperature * 10) - 160 # found experimentaly that this value has a positive offset of 16 degrees - 2023.01.27

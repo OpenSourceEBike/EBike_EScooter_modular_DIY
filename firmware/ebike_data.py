@@ -3,6 +3,7 @@ import time
 class EBike(object):
 
     def __init__(self):
+        self.vesc_temperature_x10 = 0
         self.battery_voltage = 0
         self.battery_current = 0
         self.motor_current = 0
