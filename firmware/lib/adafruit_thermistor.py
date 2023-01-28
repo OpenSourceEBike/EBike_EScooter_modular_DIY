@@ -123,7 +123,7 @@ class Thermistor:
     @property
     def temperature(self) -> float:
         """The temperature of the thermistor in Celsius"""
-        steinhart = self.series_resistor / self.nominal_resistance  # (R/Ro)
+        steinhart = self.resistance / self.nominal_resistance  # (R/Ro)
         steinhart = math.log(steinhart)  # ln(R/Ro)
         steinhart /= self.b_coefficient  # 1/B * ln(R/Ro)
         steinhart += 1.0 / (self.nominal_temperature + 273.15)  # + (1/To)
