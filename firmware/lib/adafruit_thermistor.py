@@ -46,7 +46,7 @@ try:
 except ImportError:
     pass
 
-__version__ = "0.0.0+auto.0"
+__version__ = "3.4.7"
 __repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_Thermistor.git"
 
 
@@ -123,7 +123,7 @@ class Thermistor:
     @property
     def temperature(self) -> float:
         """The temperature of the thermistor in Celsius"""
-        steinhart = self.resistance / self.nominal_resistance  # (R/Ro)
+        steinhart = self.series_resistor / self.nominal_resistance  # (R/Ro)
         steinhart = math.log(steinhart)  # ln(R/Ro)
         steinhart /= self.b_coefficient  # 1/B * ln(R/Ro)
         steinhart += 1.0 / (self.nominal_temperature + 273.15)  # + (1/To)
@@ -131,4 +131,3 @@ class Thermistor:
         steinhart -= 273.15  # convert to C
 
         return steinhart
-

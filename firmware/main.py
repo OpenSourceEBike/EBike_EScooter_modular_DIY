@@ -254,10 +254,9 @@ def motor_control():
         # store values for later usage if needed
         ebike.torque_weight_x10 = torque_weight_x10
         ebike.cadence = cadence
-        ebike.human_pedal_power = calculate_human_pedal_power(ebike.torque_weight_x10, ebike.cadence, cranck_lenght_mm)
-
+        # ebike.human_pedal_power = calculate_human_pedal_power(ebike.torque_weight_x10, ebike.cadence, cranck_lenght_mm)
+        
         # map torque value to motor current
-        print(torque_weight_x10)
         motor_current_target__torque_sensor = simpleio.map_range(
             torque_weight_x10,
             torque_sensor_weight_min_to_start_x10, # min input
