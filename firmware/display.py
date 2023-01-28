@@ -133,8 +133,10 @@ class Display(object):
         struct.pack_into('<H', tx_array, _len, int(self._ebike_data.battery_voltage * 100))
         tx_array[4] = int(self._ebike_data.battery_current * 5)
         struct.pack_into('<H', tx_array, 5, int(self._ebike_data.motor_power))
+        struct.pack_into('<H', tx_array, 7, int(self._ebike_data.vesc_temperature_x10))
+        struct.pack_into('<H', tx_array, 9, int(self._ebike_data.motor_temperature_sensor_x10))
 
-        _len += 5
+        _len += 9
 
         # final building of the TX package
         tx_array[1] = _len

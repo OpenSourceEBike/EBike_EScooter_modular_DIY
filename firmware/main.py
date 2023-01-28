@@ -194,7 +194,6 @@ async def task_vesc_heartbeat():
         await asyncio.sleep(0.5)
 
 
-
 # to keep time for a timeout count
 pedal_human_power__time = 0
 pedal_human_power__torque_weight_array_x10 = array.array('I', (0 for _ in range(255)))
@@ -286,6 +285,9 @@ def motor_control():
 
     # use the max value from either torque sensor or throttle
     motor_current_target = max(motor_current_target__torque_sensor, motor_current_target__throttle)
+
+    # save motor temperature sensor for later usage
+    ebike.motor_temperature_sensor_x10 = motor_temperature_sensor.value_x10
 
     # impose a min motor current value, as to much lower value will make the motor vibrate and not run (??)
     if motor_current_target < motor_min_current_start:

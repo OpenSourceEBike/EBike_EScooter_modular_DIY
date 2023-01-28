@@ -10,6 +10,7 @@ class EBike(object):
         self.motor_current = 0
         self.motor_power = 0
         self.motor_speed_erpm = 0
+        self.motor_temperature_sensor_x10 = 0
         self.previous_motor_current_target = True
         self.brakes_are_active = True
         self.torque_weight_x10 = 0
