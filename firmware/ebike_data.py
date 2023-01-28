@@ -12,8 +12,9 @@ class EBike(object):
         self.motor_speed_erpm = 0
         self.previous_motor_current_target = True
         self.brakes_are_active = True
-        self.torque_weight = 0
+        self.torque_weight_x10 = 0
         self.cadence = 0
+        self.pedal_human_power = 0
         self.ramp_last_time = time.monotonic_ns()
         self.motor_current_target = 0
         self.brakes_counter = 0
