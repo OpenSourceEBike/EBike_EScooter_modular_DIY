@@ -34,47 +34,12 @@ class TorqueSensor(object):
 
                 return torque[0], cadence[0], progressive_byte
             else:
-                return None, None
-
+                return None, None, None
+            
     @property
     def value(self):
-        """Torque sensor value
-        return: torque, cadence
-        """
-        with self._can_bus.listen(timeout=1.0) as listener:
-            if listener.in_waiting():
-                msg = listener.receive()
-
-                # unpack values from the byte array
-                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes: torque value
-                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte: cadence value
-
-                return torque[0], cadence[0]
-            else:
-                return None, None
-
-    @property
-    def weight_value(self):
-        """Torque sensor weight value
-        return: torque weight, cadence
-        """
-        with self._can_bus.listen(timeout=1.0) as listener:
-            if listener.in_waiting():
-                msg = listener.receive()
-
-                # unpack values from the byte array
-                torque = struct.unpack_from('<H', msg.data, 0) # 2 bytes: torque value
-                torque = (torque[0] - 750) / 61 # convert to kgs
-                cadence = struct.unpack_from('<B', msg.data, 2) # 1 byte: cadence value
-
-                return torque, cadence[0]
-            else:
-                return None, None
-              
-    @property
-    def weight_value_cadence_filtered(self):
-        """Torque sensor weight value with cadence filtered
-        return: torque weight, cadence
+        """Torque sensor weight value and cadence
+        return: torque weight and cadence
         """
         with self._can_bus.listen(timeout=1.0) as listener:
             
@@ -94,14 +59,14 @@ class TorqueSensor(object):
                         self._cadence_previous_time = now
                         self._cadence_previous = cadence
 
-                        torque = (msg.data[1] * 256) + msg.data[0]
-                        torque = (torque - 750) / 61 # convert to kgs
+                        torque_x10 = (msg.data[1] * 256) + msg.data[0]
+                        torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
 
                         # ignore previous messages, just clean them
                         while listener.in_waiting():
                             listener.receive()
 
-                        return torque, cadence
+                        return torque_x10, cadence
                     
                     else:
                         # cadence is 0
@@ -118,14 +83,14 @@ class TorqueSensor(object):
                                 # keep cadence with previous value
                                 cadence = self._cadence_previous
 
-                            torque = (msg.data[1] * 256) + msg.data[0]
-                            torque = (torque - 750) / 61 # convert to kgs
+                            torque_x10 = (msg.data[1] * 256) + msg.data[0]
+                            torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
                             
                             # ignore previous messages, just clean them
                             while listener.in_waiting():
                                 listener.receive()
 
-                            return torque, cadence
+                            return torque_x10, cadence
                           
                 else:
                 # check for cadence timeout
@@ -139,8 +104,8 @@ class TorqueSensor(object):
                             # keep cadence with previous value
                             cadence = self._cadence_previous
 
-                        torque = (msg.data[1] * 256) + msg.data[0]
-                        torque = (torque - 750) / 61 # convert to kgs
+                        torque_x10 = (msg.data[1] * 256) + msg.data[0]
+                        torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
 
                     else:
                         # we got no new values from torque sensor
@@ -150,4 +115,4 @@ class TorqueSensor(object):
                         else:
                             cadence = self._cadence_previous
 
-                    return torque, cadence
+                    return torque_x10, cadence
