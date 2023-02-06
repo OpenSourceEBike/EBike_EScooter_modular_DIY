@@ -32,7 +32,7 @@ while True:
     print(" ")
 
     # read torque sensor data and print
-    torque, cadence = torque_sensor.value
+    torque, cadence = torque_sensor.torque_value
     if torque is not None:
         print(f"torque sensor raw value: {torque}")
         print(f"torque sensor cadence: {cadence} rpm")
