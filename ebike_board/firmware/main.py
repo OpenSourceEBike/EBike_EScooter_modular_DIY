@@ -168,8 +168,8 @@ async def task_display_process_data():
         # need to process display data periodically
         display.process_data()
 
-        # idle 100ms
-        await asyncio.sleep(0.1)
+        # idle 10ms
+        await asyncio.sleep(0.01)
 
 async def task_display_send_data():
     while True:
@@ -179,8 +179,8 @@ async def task_display_send_data():
         # need to process display data periodically
         display.send_data()
 
-        # idle 10ms
-        await asyncio.sleep(0.01)
+        # idle 100ms
+        await asyncio.sleep(0.1)
 
 async def task_vesc_heartbeat():
     while True:
