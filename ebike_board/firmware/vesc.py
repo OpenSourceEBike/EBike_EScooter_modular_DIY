@@ -132,3 +132,15 @@ class Vesc(object):
         command[0] = 8
         struct.pack_into('>l', command, 1, int(value))
         self._pack_and_send(command, 0)
+
+    def brake(self):
+        """ Brake: will set the motor current to 0 amps, efectivly coasting"""
+        # COMM_SET_CURRENT_BRAKE = 7; no response
+        command = bytearray(5)
+        command[0] = 7
+        struct.pack_into('>l', command, 1, 0)
+
+        # send 3x to avoid possibility of VESC missing receiving this command
+        self._pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
+        self._pack_and_send(command, 0)
