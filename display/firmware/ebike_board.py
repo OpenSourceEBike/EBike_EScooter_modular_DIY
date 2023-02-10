@@ -113,6 +113,7 @@ class EBikeBoard(object):
                         else:
                             # keep increasing error counter
                             self._process_data__error_cnt += 1
+                            self._uart.reset_input_buffer() # let's clear the UART RX buffer
 
     def _process_data(self):
         if self._rx_package.received == True:
@@ -125,6 +126,7 @@ class EBikeBoard(object):
             self._ebike_data.brakes_are_active = self._rx_package.data[12]
 
             self._rx_package.received = False # signal that next package can be processed
+            self._uart.reset_input_buffer() # let's clear the UART RX buffer
                 
     def _send_data(self):
         # start building the TX package
@@ -149,10 +151,15 @@ class EBikeBoard(object):
 
         # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
 
-    # read and process UART data
     def process_data(self):
+        """Receive and process periodically data.
+        Can be called fast but probably no point to do it faster than 10ms"""
         self._read_and_unpack()
         self._process_data()
+
+    def send_data(self):
+        """Send periodically data.
+        Should be called at no less than 100ms"""
         self._send_data()
 
 class RXPackage():

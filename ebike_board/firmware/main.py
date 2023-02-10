@@ -101,11 +101,10 @@ def check_brakes():
     """Check the brakes and if they are active, set the motor current to 0
     """
     if ebike.brakes_are_active == False and brake_sensor.value == True:
-        vesc.set_motor_current_amps(0) # set the motor current to 0 will efectively coast the motor
+        # brake / coast the motor
+        vesc.brake()
         ebike.motor_current_target = 0
         ebike.brakes_are_active = True
-
-        ebike.brakes_counter += 1
       
     elif ebike.brakes_are_active == True and brake_sensor.value == False:
         ebike.brakes_are_active = False
@@ -119,7 +118,7 @@ def print_ebike_data_to_terminal():
     if ebike.motor_current < 0:
        ebike.motor_current = 0
   
-    # print(f" {ebike.brakes_counter:3} | {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
+    # print(f" {ebike.motor_current_target:2.1f} | {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f}", end='\r')
     # print(f" {ebike.torque_weight: 2.1f} | {ebike.cadence: 3}", end='\r')
     # print(f"{throttle.adc_value:6} | {(throttle.value / 10.0):2.1f} %", end='\r')
     # print(f" {ebike.motor_current:2.1f} | {ebike.battery_current:2.1f} | {ebike.battery_voltage:2.1f} | {int(ebike.motor_power)}")
@@ -161,7 +160,7 @@ async def task_log_data():
         # idle 25ms, fine tunned
         await asyncio.sleep(0.025)
 
-async def task_display_process():
+async def task_display_process_data():
     while True:
         # are breaks active and we should disable the motor?
         check_brakes()
@@ -171,6 +170,17 @@ async def task_display_process():
 
         # idle 100ms
         await asyncio.sleep(0.1)
+
+async def task_display_send_data():
+    while True:
+        # are breaks active and we should disable the motor?
+        check_brakes()
+
+        # need to process display data periodically
+        display.send_data()
+
+        # idle 10ms
+        await asyncio.sleep(0.01)
 
 async def task_vesc_heartbeat():
     while True:
@@ -337,20 +347,23 @@ async def main():
 
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
-    display_process_task = asyncio.create_task(task_display_process())
+    display_process_data_task = asyncio.create_task(task_display_process_data())
+    display_send_data_task = asyncio.create_task(task_display_send_data())
 
     # Start the tasks. Note that log_data_task may be disabled as a configuration
     if enable_debug_log_cvs == False:
         await asyncio.gather(
             vesc_heartbeat_task,
             read_sensors_control_motor_task,
-            display_process_task)
+            display_process_data_task,
+            display_send_data_task)
     else:
         log_data_task = asyncio.create_task(task_log_data())
         await asyncio.gather(
             vesc_heartbeat_task,
             read_sensors_control_motor_task,
-            display_process_task,
+            display_process_data_task,
+            display_send_data_task,
             log_data_task)
   
     print("done main()")

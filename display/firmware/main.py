@@ -100,6 +100,8 @@ assist_level_state = 0
 now = time.monotonic()
 assist_level_time_previous = now
 display_time_previous = now
+ebike_receive_data_time_previous = now
+ebike_send_data_time_previous = now
 
 battery_voltage_previous = 9999
 motor_power_previous = 9999
@@ -130,7 +132,15 @@ while True:
             vesc_temperature_x10_previous = ebike_data.vesc_temperature_x10  
             label_3.text = str(f"{(ebike_data.vesc_temperature_x10 / 10.0): 2.1f}")    
 
-    ebike.process_data()
+    now = time.monotonic()
+    if (now - ebike_receive_data_time_previous) > 0.01:
+        ebike_receive_data_time_previous = now
+        ebike.process_data()
+
+    now = time.monotonic()
+    if (now - ebike_send_data_time_previous) > 0.1:
+        ebike_send_data_time_previous = now
+        ebike.send_data()
 
     if brakes_are_active_previous != ebike_data.brakes_are_active:
         brakes_are_active_previous = ebike_data.brakes_are_active

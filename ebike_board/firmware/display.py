@@ -22,8 +22,14 @@ class Display(object):
 
     # read and process UART data
     def process_data(self):
+        """Receive and process periodically data.
+        Can be called fast but probably no point to do it faster than 10ms"""
         self._read_and_unpack()
         self._process_data()
+
+    def send_data(self):
+        """Send periodically data.
+        Should be called at no less than 100ms"""
         self._send_data()
 
     # code taken from:
@@ -116,11 +122,13 @@ class Display(object):
                         else:
                             # keep increasing error counter
                             self._process_data__error_cnt += 1
+                            self._uart.reset_input_buffer() # let's clear the UART RX buffer
 
     def _process_data(self):
         if self._rx_package.received == True:
             self._ebike_data.assist_level = self._rx_package.data[2]
             self._rx_package.received = False
+            self._uart.reset_input_buffer() # let's clear the UART RX buffer
             
     def _send_data(self):
         # start building the TX package

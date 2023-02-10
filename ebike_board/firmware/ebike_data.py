@@ -18,5 +18,4 @@ class EBike(object):
         self.pedal_human_power = 0
         self.ramp_last_time = time.monotonic_ns()
         self.motor_current_target = 0
-        self.brakes_counter = 0
         self.assist_level = 0
