@@ -75,23 +75,31 @@ class EBikeBoard(object):
             rx_array = self._uart.read()
             if rx_array is not None:
                 for data in rx_array:
-                    # find start byte
+                    # find start byte 1
                     if self._read_and_unpack__state == 0:
-                        if (data == 0x59):
+                        if (data == 0):
                             self._rx_package.data[0] = data
                             self._read_and_unpack__state = 1
                         else:
                             self._read_and_unpack__state = 0
 
+                    # find start byte 2
+                    if self._read_and_unpack__state == 1:
+                        if (data == 0):
+                            self._rx_package.data[1] = data
+                            self._read_and_unpack__state = 2
+                        else:
+                            self._read_and_unpack__state = 0
+
                     # len byte
-                    elif self._read_and_unpack__state == 1:
-                        self._rx_package.data[1] = data
+                    elif self._read_and_unpack__state == 2:
+                        self._rx_package.data[2] = data
                         self._read_and_unpack__len = data
-                        self._read_and_unpack__state = 2
+                        self._read_and_unpack__state = 3
 
                     # rest of the package
-                    elif self._read_and_unpack__state == 2:
-                        self._rx_package.data[self._read_and_unpack__cnt  + 2] = data
+                    elif self._read_and_unpack__state == 3:
+                        self._rx_package.data[self._read_and_unpack__cnt  + 3] = data
                         self._read_and_unpack__cnt += 1
 
                         # end of the package
@@ -117,13 +125,14 @@ class EBikeBoard(object):
 
     def _process_data(self):
         if self._rx_package.received == True:
-            self._ebike_data.battery_voltage = struct.unpack_from('<H', self._rx_package.data, 2)[0] / 100.0
-            self._ebike_data.battery_current = self._rx_package.data[4] / 5.0
-            self._ebike_data.motor_power = struct.unpack_from('<H', self._rx_package.data, 5)[0]
-            self._ebike_data.vesc_temperature_x10 = struct.unpack_from('<H', self._rx_package.data, 7)[0]
-            self._ebike_data.motor_temperature_sensor_x10 = struct.unpack_from('<H', self._rx_package.data, 9)[0]
-            self._ebike_data.vesc_fault_code = self._rx_package.data[11]
-            self._ebike_data.brakes_are_active = self._rx_package.data[12]
+            data_pack_offset = 1
+            self._ebike_data.battery_voltage = (struct.unpack_from('<H', self._rx_package.data, 3)[0] - data_pack_offset) / 100.0
+            self._ebike_data.battery_current = (self._rx_package.data[5] - data_pack_offset) / 5.0
+            self._ebike_data.motor_power = (struct.unpack_from('<H', self._rx_package.data, 6)[0] - data_pack_offset)
+            self._ebike_data.vesc_temperature_x10 = (struct.unpack_from('<H', self._rx_package.data, 8)[0] - data_pack_offset)
+            self._ebike_data.motor_temperature_sensor_x10 = (struct.unpack_from('<H', self._rx_package.data, 10)[0] - data_pack_offset)
+            self._ebike_data.vesc_fault_code = (self._rx_package.data[12] - data_pack_offset)
+            self._ebike_data.brakes_are_active = (self._rx_package.data[13] - data_pack_offset)
 
             self._rx_package.received = False # signal that next package can be processed
             self._uart.reset_input_buffer() # let's clear the UART RX buffer

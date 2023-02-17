@@ -134,22 +134,23 @@ class Display(object):
         # start building the TX package
         # start byte + len byte + [package type + xx data bytes] + CRC 2 bytes
         # len = count([package type + xx data bytes] + CRC 2 bytes)
-        tx_array = bytearray(255)
-        tx_array[0] = 0x59
-        _len = 2 # start byte + len byte
+        tx_array = bytearray(32) # 32 bytes will be more than enough
+        tx_array[0] = 0 # start byte 1 = 0
+        tx_array[1] = 0 # start byte 2 = 0
+        # tx_array[2] - this is the lenght byte
+        _len = 3 # start bytes + len byte
 
-        struct.pack_into('<H', tx_array, _len, int(self._ebike_data.battery_voltage * 100))
-        tx_array[4] = int(self._ebike_data.battery_current * 5)
-        struct.pack_into('<H', tx_array, 5, int(self._ebike_data.motor_power))
-        struct.pack_into('<H', tx_array, 7, int(self._ebike_data.vesc_temperature_x10))
-        struct.pack_into('<H', tx_array, 9, int(self._ebike_data.motor_temperature_sensor_x10))
-        tx_array[11] = self._ebike_data.vesc_fault_code
-        tx_array[12] = self._ebike_data.brakes_are_active
+        data_pack_offset = 1
+        struct.pack_into('<H', tx_array, 3, data_pack_offset + int(self._ebike_data.battery_voltage * 100))
+        tx_array[5] = data_pack_offset + int(self._ebike_data.battery_current * 5)
+        struct.pack_into('<H', tx_array, 6, data_pack_offset + int(self._ebike_data.motor_power))
+        struct.pack_into('<H', tx_array, 8, data_pack_offset + int(self._ebike_data.vesc_temperature_x10))
+        struct.pack_into('<H', tx_array, 10, data_pack_offset + int(self._ebike_data.motor_temperature_sensor_x10))
+        tx_array[12] = data_pack_offset + self._ebike_data.vesc_fault_code
+        tx_array[13] = data_pack_offset + self._ebike_data.brakes_are_active
         
-        _len += 11
-
-        # final building of the TX package
-        tx_array[1] = _len
+        _len += 11 # add the number of previous added bytes
+        tx_array[2] = _len
 
         # calculate the CRC
         crc = self._crc16(tx_array[0: _len])

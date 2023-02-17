@@ -314,18 +314,19 @@ def motor_control():
     ebike.ramp_last_time = time_now
     ebike.motor_current_target = utils_step_towards(ebike.motor_current_target, motor_current_target, ramp_step)
 
-    # let's make sure it is not over the limit
+    # let's limit the value
     if ebike.motor_current_target > motor_max_current_limit:
         ebike.motor_current_target = motor_max_current_limit
+
+    if ebike.motor_current_target < 0.0:
+        ebike.motor_current_target = 0
 
     # if brakes are active, reset motor_current_target
     if ebike.brakes_are_active == True:
         ebike.motor_current_target = 0
-        ebike.previous_motor_current_target = 0
 
-    # let's update the motor current, only if the target value changed and brakes are not active
-    if ebike.motor_current_target != ebike.previous_motor_current_target and \
-            ebike.brakes_are_active == False:
+    # let's update the motor current, only if the target value changed
+    if ebike.motor_current_target != ebike.previous_motor_current_target:
         ebike.previous_motor_current_target = ebike.motor_current_target
         vesc.set_motor_current_amps(ebike.motor_current_target)
 

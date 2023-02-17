@@ -61,20 +61,21 @@ battery_voltage_area.anchored_position = (34, 0)
 battery_voltage_area.scale = 1
 
 label_x = 1
-label_y = 22
+label_y = 22 + 16
 label_y_offset = 32
 label_1 = label.Label(terminalio.FONT, text=TEXT)
 label_1.anchor_point = (0.0, 0.0)
 label_1.anchored_position = (label_x, label_y)
 label_1.scale = 2
 
-label_y += label_y_offset
-label_2 = label.Label(terminalio.FONT, text=TEXT)
-label_2.anchor_point = (0.0, 0.0)
-label_2.anchored_position = (label_x, label_y)
-label_2.scale = 2
+# label_y += label_y_offset
+# label_2 = label.Label(terminalio.FONT, text=TEXT)
+# label_2.anchor_point = (0.0, 0.0)
+# label_2.anchored_position = (label_x, label_y)
+# label_2.scale = 2
 
-label_y += label_y_offset
+# label_y += label_y_offset
+label_y += (label_y_offset + 16)
 label_3 = label.Label(terminalio.FONT, text=TEXT)
 label_3.anchor_point = (0.0, 0.0)
 label_3.anchored_position = (label_x, label_y)
@@ -89,7 +90,7 @@ text_group = displayio.Group()
 text_group.append(assist_level_area)
 text_group.append(battery_voltage_area)
 text_group.append(label_1)
-text_group.append(label_2)
+# text_group.append(label_2)
 text_group.append(label_3)
 text_group.append(warning_area)
 
@@ -124,9 +125,9 @@ while True:
             motor_power = motor_power_round(ebike_data.motor_power)
             label_1.text = str(f"{ebike_data.motor_power:5}")
         
-        if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
-            motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
-            label_2.text = str(f"{(ebike_data.motor_temperature_sensor_x10 / 10.0): 2.1f}")
+        # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
+        #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
+        #     label_2.text = str(f"{(ebike_data.motor_temperature_sensor_x10 / 10.0): 2.1f}")
 
         if vesc_temperature_x10_previous != ebike_data.vesc_temperature_x10:
             vesc_temperature_x10_previous = ebike_data.vesc_temperature_x10  
