@@ -17,8 +17,8 @@ class Display(object):
         self._read_and_unpack__len = 0
         self._read_and_unpack__cnt = 0
         self._rx_package = RXPackage()
-        self._process_data__error_cnt = 0
         self._ebike_data = ebike_data
+        self._tx_array = bytearray(32) # 32 bytes will be more than enough
 
     # read and process UART data
     def process_data(self):
@@ -87,27 +87,46 @@ class Display(object):
             rx_array = self._uart.read()
             if rx_array is not None:
                 for data in rx_array:
-                    # find start byte
+                    # find start byte 1
                     if self._read_and_unpack__state == 0:
-                        if (data == 0x59):
+                        if (data == 0):
                             self._rx_package.data[0] = data
                             self._read_and_unpack__state = 1
                         else:
                             self._read_and_unpack__state = 0
 
-                    # len byte
+                    # find start byte 2
                     elif self._read_and_unpack__state == 1:
-                        self._rx_package.data[1] = data
+                        if (data == 1):
+                            self._rx_package.data[1] = data
+                            self._read_and_unpack__state = 2
+                        else:
+                            self._read_and_unpack__state = 0
+
+                    # find start byte 3
+                    elif self._read_and_unpack__state == 2:
+                        if (data == 2):
+                            self._rx_package.data[2] = data
+                            self._read_and_unpack__state = 3
+                        else:
+                            self._read_and_unpack__state = 0
+
+                    # len byte
+                    elif self._read_and_unpack__state == 3:
+                        self._rx_package.data[3] = data
                         self._read_and_unpack__len = data
-                        self._read_and_unpack__state = 2
+                        self._read_and_unpack__state = 4
 
                     # rest of the package
-                    elif self._read_and_unpack__state == 2:
-                        self._rx_package.data[self._read_and_unpack__cnt  + 2] = data
+                    elif self._read_and_unpack__state == 4:
+                        self._rx_package.data[self._read_and_unpack__cnt  + 4] = data
                         self._read_and_unpack__cnt += 1
 
                         # end of the package
                         if self._read_and_unpack__cnt >= self._read_and_unpack__len:
+                            
+                            # print(",".join(["0x{:02X}".format(i) for i in self._rx_package.data[0: self._read_and_unpack__len]]))
+
                             # calculate the CRC
                             crc = self._crc16(self._rx_package.data[0: self._read_and_unpack__len])
                             # get the original CRC
@@ -116,49 +135,44 @@ class Display(object):
                             # check if CRC is ok                    
                             self._rx_package.received = True if crc == crc_original else False
 
-                            self._process_data__error_cnt = 0
                             self._read_and_unpack__cnt = 0
                             self._read_and_unpack__state = 0
-                        else:
-                            # keep increasing error counter
-                            self._process_data__error_cnt += 1
-                            #self._uart.reset_input_buffer() # let's clear the UART RX buffer
 
     def _process_data(self):
         if self._rx_package.received == True:
-            self._ebike_data.assist_level = self._rx_package.data[2]
+            data_pack_offset = 3 # this offset means the data bytes will never be lower than this value. And this value is then only used on the start bytes (may be on the CRC)
+            self._ebike_data.assist_level = (self._rx_package.data[4] - data_pack_offset)
             self._rx_package.received = False
-            #self._uart.reset_input_buffer() # let's clear the UART RX buffer
             
     def _send_data(self):
         # start building the TX package
-        # start byte + len byte + [package type + xx data bytes] + CRC 2 bytes
-        # len = count([package type + xx data bytes] + CRC 2 bytes)
-        tx_array = bytearray(32) # 32 bytes will be more than enough
-        tx_array[0] = 0 # start byte 1 = 0
-        # tx_array[1] - this is the lenght byte
-        _len = 2 # start byte + len byte
+        # start bytes + len byte + xx data bytes + CRC 2 bytes
+        self._tx_array[0] = 0 # start byte 1 = 0
+        self._tx_array[1] = 1 # start byte 2 = 1
+        self._tx_array[2] = 2 # start byte 3 = 3
+        # self._tx_array[3] - this is the lenght byte
+        _len = 4 # start bytes + len byte
 
-        data_pack_offset = 1
-        struct.pack_into('<H', tx_array, 2, data_pack_offset + int(self._ebike_data.battery_voltage * 100))
-        tx_array[4] = data_pack_offset + int(self._ebike_data.battery_current * 5)
-        struct.pack_into('<H', tx_array, 5, data_pack_offset + int(self._ebike_data.motor_power))
-        struct.pack_into('<H', tx_array, 7, data_pack_offset + int(self._ebike_data.vesc_temperature_x10))
-        struct.pack_into('<H', tx_array, 9, data_pack_offset + int(self._ebike_data.motor_temperature_sensor_x10))
-        tx_array[11] = data_pack_offset + self._ebike_data.vesc_fault_code
-        tx_array[12] = data_pack_offset + self._ebike_data.brakes_are_active
+        data_pack_offset = 3 # this offset means the data bytes will never be lower than this value. And this value is then only used on the start bytes (may be on the CRC)
+        struct.pack_into('<H', self._tx_array, 4, data_pack_offset + int(self._ebike_data.battery_voltage * 100))
+        self._tx_array[6] = data_pack_offset + int(self._ebike_data.battery_current * 5)
+        struct.pack_into('<H', self._tx_array, 7, data_pack_offset + int(self._ebike_data.motor_power))
+        struct.pack_into('<H', self._tx_array, 9, data_pack_offset + int(self._ebike_data.vesc_temperature_x10))
+        struct.pack_into('<H', self._tx_array, 11, data_pack_offset + int(self._ebike_data.motor_temperature_sensor_x10))
+        self._tx_array[13] = data_pack_offset + self._ebike_data.vesc_fault_code
+        self._tx_array[14] = data_pack_offset + self._ebike_data.brakes_are_active
         
         _len += 11 # add the number of previous added bytes
-        tx_array[2] = _len
+        self._tx_array[3] = _len
 
         # calculate the CRC
-        crc = self._crc16(tx_array[0: _len])
-        struct.pack_into('<H', tx_array, _len, crc) # CRC: 2 bytes
+        crc = self._crc16(self._tx_array[0: _len])
+        struct.pack_into('<H', self._tx_array, _len, crc) # CRC: 2 bytes
 
         # send packet to UART
-        self._uart.write(tx_array[0: _len + 2])
+        self._uart.write(self._tx_array[0: _len + 2])
 
-        # print(",".join(["0x{:02X}".format(i) for i in tx_array[0: _len + 2]]))
+        # print(",".join(["0x{:02X}".format(i) for i in self._tx_array[0: _len + 2]]))
 
 class RXPackage():
     data = bytearray(255)

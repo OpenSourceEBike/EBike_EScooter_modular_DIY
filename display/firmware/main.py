@@ -1,6 +1,6 @@
 import board
 import buttons
-import display_sh1106
+import display
 import ebike_board
 import ebike_data
 import time
@@ -8,13 +8,12 @@ import displayio
 from adafruit_display_text import label
 import terminalio
 
-
 buttons = buttons.Buttons(
         board.IO33, # POWER
         board.IO37, # UP
         board.IO35) # DOWN
 
-displayObject = display_sh1106.Display(
+displayObject = display.Display(
         board.IO7, # CLK pin
         board.IO9, # MOSI pin
         board.IO5, # chip select pin, not used but for some reason there is an error if chip_select is None

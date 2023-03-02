@@ -344,7 +344,6 @@ async def task_read_sensors_control_motor():
 async def main():
 
     print("starting")
-    time.sleep(2) # boot init delay time so the display will be ready
 
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
