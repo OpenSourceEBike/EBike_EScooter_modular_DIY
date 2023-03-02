@@ -8,7 +8,6 @@ import displayio
 from adafruit_display_text import label
 import terminalio
 
-
 buttons = buttons.Buttons(
         board.IO33, # POWER
         board.IO37, # UP
