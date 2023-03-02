@@ -17,7 +17,6 @@ class EBikeBoard(object):
         self._read_and_unpack__len = 0
         self._read_and_unpack__cnt = 0
         self._rx_package = RXPackage()
-        self._process_data__error_cnt = 0
         self._ebike_data = ebike_data
         self._tx_array = bytearray(32) # 32 bytes will be more than enough
 
@@ -85,7 +84,7 @@ class EBikeBoard(object):
                             self._read_and_unpack__state = 0
 
                     # find start byte 2
-                    if self._read_and_unpack__state == 1:
+                    elif self._read_and_unpack__state == 1:
                         if (data == 1):
                             self._rx_package.data[1] = data
                             self._read_and_unpack__state = 2
@@ -93,7 +92,7 @@ class EBikeBoard(object):
                             self._read_and_unpack__state = 0
 
                     # find start byte 3
-                    if self._read_and_unpack__state == 2:
+                    elif self._read_and_unpack__state == 2:
                         if (data == 2):
                             self._rx_package.data[2] = data
                             self._read_and_unpack__state = 3
@@ -124,12 +123,8 @@ class EBikeBoard(object):
                             # check if CRC is ok                    
                             self._rx_package.received = True if crc == crc_original else False
 
-                            self._process_data__error_cnt = 0
                             self._read_and_unpack__cnt = 0
                             self._read_and_unpack__state = 0
-                        else:
-                            # keep increasing error counter
-                            self._process_data__error_cnt += 1
 
     def _process_data(self):
         if self._rx_package.received == True:
@@ -146,15 +141,19 @@ class EBikeBoard(object):
                 
     def _send_data(self):
         # start building the TX package
-        # start byte + len byte + xx data bytes] + CRC 2 bytes
-        self._tx_array[0] = 0x59
-        _len = 2 # start byte + len byte
+        # start bytes + len byte + xx data bytes + CRC 2 bytes
+        self._tx_array[0] = 0 # start byte 1 = 0
+        self._tx_array[1] = 1 # start byte 2 = 1
+        self._tx_array[2] = 2 # start byte 3 = 3
+        # self._tx_array[3] - this is the lenght byte
+        _len = 4 # start bytes + len byte
 
-        self._tx_array[2] = int(self._ebike_data.assist_level)
+        data_pack_offset = 3 # this offset means the data bytes will never be lower than this value. And this value is then only used on the start bytes (may be on the CRC)
+        self._tx_array[4] = int(data_pack_offset + self._ebike_data.assist_level)
         _len += 1
 
         # final building of the TX package
-        self._tx_array[1] = _len
+        self._tx_array[3] = _len
 
         # calculate the CRC
         crc = self._crc16(self._tx_array[0: _len])

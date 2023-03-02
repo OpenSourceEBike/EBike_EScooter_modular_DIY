@@ -17,7 +17,6 @@ class Display(object):
         self._read_and_unpack__len = 0
         self._read_and_unpack__cnt = 0
         self._rx_package = RXPackage()
-        self._process_data__error_cnt = 0
         self._ebike_data = ebike_data
         self._tx_array = bytearray(32) # 32 bytes will be more than enough
 
@@ -88,27 +87,46 @@ class Display(object):
             rx_array = self._uart.read()
             if rx_array is not None:
                 for data in rx_array:
-                    # find start byte
+                    # find start byte 1
                     if self._read_and_unpack__state == 0:
-                        if (data == 0x59):
+                        if (data == 0):
                             self._rx_package.data[0] = data
                             self._read_and_unpack__state = 1
                         else:
                             self._read_and_unpack__state = 0
 
-                    # len byte
+                    # find start byte 2
                     elif self._read_and_unpack__state == 1:
-                        self._rx_package.data[1] = data
+                        if (data == 1):
+                            self._rx_package.data[1] = data
+                            self._read_and_unpack__state = 2
+                        else:
+                            self._read_and_unpack__state = 0
+
+                    # find start byte 3
+                    elif self._read_and_unpack__state == 2:
+                        if (data == 2):
+                            self._rx_package.data[2] = data
+                            self._read_and_unpack__state = 3
+                        else:
+                            self._read_and_unpack__state = 0
+
+                    # len byte
+                    elif self._read_and_unpack__state == 3:
+                        self._rx_package.data[3] = data
                         self._read_and_unpack__len = data
-                        self._read_and_unpack__state = 2
+                        self._read_and_unpack__state = 4
 
                     # rest of the package
-                    elif self._read_and_unpack__state == 2:
-                        self._rx_package.data[self._read_and_unpack__cnt  + 2] = data
+                    elif self._read_and_unpack__state == 4:
+                        self._rx_package.data[self._read_and_unpack__cnt  + 4] = data
                         self._read_and_unpack__cnt += 1
 
                         # end of the package
                         if self._read_and_unpack__cnt >= self._read_and_unpack__len:
+                            
+                            # print(",".join(["0x{:02X}".format(i) for i in self._rx_package.data[0: self._read_and_unpack__len]]))
+
                             # calculate the CRC
                             crc = self._crc16(self._rx_package.data[0: self._read_and_unpack__len])
                             # get the original CRC
@@ -117,16 +135,13 @@ class Display(object):
                             # check if CRC is ok                    
                             self._rx_package.received = True if crc == crc_original else False
 
-                            self._process_data__error_cnt = 0
                             self._read_and_unpack__cnt = 0
                             self._read_and_unpack__state = 0
-                        else:
-                            # keep increasing error counter
-                            self._process_data__error_cnt += 1
 
     def _process_data(self):
         if self._rx_package.received == True:
-            self._ebike_data.assist_level = self._rx_package.data[2]
+            data_pack_offset = 3 # this offset means the data bytes will never be lower than this value. And this value is then only used on the start bytes (may be on the CRC)
+            self._ebike_data.assist_level = (self._rx_package.data[4] - data_pack_offset)
             self._rx_package.received = False
             
     def _send_data(self):
