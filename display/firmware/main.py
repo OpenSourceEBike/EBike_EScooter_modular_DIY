@@ -32,22 +32,20 @@ DISPLAY_WIDTH = 64
 DISPLAY_HEIGHT = 128
 TEXT = "0"
 
-def motor_power_round(motor_power):
+def filter_motor_power(motor_power):
 
     if motor_power < 10:
         motor_power = 0
+    elif motor_power < 25:
+        pass
+    elif motor_power < 50:
+        motor_power = round(motor_power / 2) * 2 
     elif motor_power < 100:
-        motor_power = motor_power - (motor_power % 5)
-    elif motor_power < 200:
-        motor_power = motor_power - (motor_power % 10)
-    elif motor_power < 300:
-        motor_power = motor_power - (motor_power % 15)
-    elif motor_power < 400:
-        motor_power = motor_power - (motor_power % 20)
+        motor_power = round(motor_power / 5) * 5
     else:
-        motor_power = motor_power - (motor_power % 25)
+        motor_power = round(motor_power / 10) * 10
 
-    return int(motor_power)
+    return motor_power
 
 assist_level_area = label.Label(terminalio.FONT, text=TEXT)
 assist_level_area.anchor_point = (0.0, 0.0)
@@ -121,7 +119,7 @@ while True:
 
         if motor_power_previous != ebike_data.motor_power:
             motor_power_previous = ebike_data.motor_power
-            motor_power = motor_power_round(ebike_data.motor_power)
+            motor_power = filter_motor_power(ebike_data.motor_power)
             label_1.text = str(f"{ebike_data.motor_power:5}")
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
