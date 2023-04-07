@@ -1,2 +1,4 @@
 import storage
-storage.remount("/", False)
+storage.disable_usb_drive()
+storage.remount("/", readonly=False)
+storage.enable_usb_drive()

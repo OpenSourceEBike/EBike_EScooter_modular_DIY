@@ -19,9 +19,6 @@ class Vesc(object):
             baudrate = 115200, # VESC UART baudrate
             timeout = 0.005, # 5ms is enough for reading the UART
             receiver_buffer_size = 512) # VESC PACKET_MAX_PL_LEN = 512
-        
-        #  let's initialize with no brake current as this is a mid drive motor
-        self.set_motor_current_brake_amps(0)
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
