@@ -19,3 +19,5 @@ class EBike(object):
         self.ramp_last_time = time.monotonic_ns()
         self.motor_current_target = 0
         self.assist_level = 0
+        self.throttle_value = 0
+        self.brakes_value = 0
