@@ -11,21 +11,29 @@ import m365_dashboard
 import simpleio
 
 import supervisor
-supervisor.runtime.autoreload = False
+# supervisor.runtime.autoreload = False
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
 ###############################################
 # OPTIONS
 
-throttle_max = 175
+throttle_max = 190
 throttle_min = 45
 
-motor_min_current_start = 0.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 30.0 # max value, be carefull to not burn your motor
+motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 25.0 # max value, be carefull to not burn your motor
 
-ramp_up_time = 0.005 # ram up time for each 1A
-ramp_down_time = 0.005 # ram down time for each 1A
+# motor_control_scheme = 'current'
+motor_control_scheme = 'speed'
+
+# ramp up and down constants
+if motor_control_scheme == 'current':
+    ramp_up_time = 0.05 # ram up time for each 1A
+    ramp_down_time = 0.05 # ram down time for each 1A
+elif motor_control_scheme == 'speed':
+    ramp_up_time = 0.0001 # ram up time for each 1 erpm
+    ramp_down_time = 0.0001 # ram down time for each 1 erpm
 
 ###############################################
 
@@ -77,25 +85,43 @@ async def task_dashboard():
 
         await asyncio.sleep(0.02)
 
-motor_current_target__torque_sensor = 0
+motor_max_target_accumulated = 0
 def motor_control():
     ##########################################################################################
     # Throttle
-    # map torque value to motor current
-    motor_current_target = simpleio.map_range(
+    # map torque value
+    if motor_control_scheme == 'current':
+        motor_max_target = motor_max_current_limit
+    elif motor_control_scheme == 'speed':
+        # 37v --> 8000 erpm
+        # ~225 erpm per volt
+
+        # low pass motor_max_target
+        global motor_max_target_accumulated
+        erpm_target = int((ebike.battery_voltage - 0.5) * 225) # this motor has near 10k erpm on max battery voltage 36V
+      
+        motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
+        motor_max_target_accumulated += erpm_target
+        motor_max_target = (int(motor_max_target_accumulated)) >> 7
+      
+    motor_target = simpleio.map_range(
         ebike.throttle_value,
         throttle_min, # min input
         throttle_max, # max input
         0, # min output
-        motor_max_current_limit) # max output
+        motor_max_target) # max output
     ##########################################################################################
 
-    # impose a min motor current value, as to much lower value will make the motor vibrate and not run (??)
-    if motor_current_target < motor_min_current_start:
-        motor_current_target = 0
-
+    # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
+    if motor_control_scheme == 'current':
+        if motor_target < motor_min_current_start:
+            motor_target = 0
+    elif motor_control_scheme == 'speed':
+        if motor_target < 900: # about 2.5 km/h
+            motor_target = 0
+  
     # apply ramp up / down factor: faster when ramp down
-    if motor_current_target > ebike.motor_current_target:
+    if motor_target > ebike.motor_target:
         ramp_time = ramp_up_time
     else:
         ramp_time = ramp_down_time
@@ -103,31 +129,49 @@ def motor_control():
     time_now = time.monotonic_ns()
     ramp_step = (time_now - ebike.ramp_last_time) / (ramp_time * 1000000000)
     ebike.ramp_last_time = time_now
-    ebike.motor_current_target = utils_step_towards(ebike.motor_current_target, motor_current_target, ramp_step)
+    ebike.motor_target = utils_step_towards(ebike.motor_target, motor_target, ramp_step)
 
     # let's limit the value
-    if ebike.motor_current_target > motor_max_current_limit:
-        ebike.motor_current_target = motor_max_current_limit
+    if motor_control_scheme == 'current':
+        if ebike.motor_target > motor_max_current_limit:
+            ebike.motor_target = motor_max_current_limit
+    # no limit for speed mode
 
-    if ebike.motor_current_target < 0.0:
-        ebike.motor_current_target = 0
+    # limit very small and negative values
+    if ebike.motor_target < 0.001:
+        ebike.motor_target = 0
 
-    # if brakes are active, reset motor_current_target
-    if ebike.brakes_value > 50:
+    # check if brakes are active
+    if ebike.brakes_value > 47:
         ebike.brakes_are_active = True
     else:
         ebike.brakes_are_active = False
 
-    if ebike.brakes_are_active == True:
-        ebike.motor_current_target = 0
+    # let's update the motor current, only if the target value changed and brakes are not active
+    if ebike.brakes_are_active:
+        if motor_control_scheme == 'current':
+            vesc.set_motor_current_amps(0)
+        elif motor_control_scheme == 'speed':
+            vesc.set_motor_speed_erpm(0)
 
-    # let's update the motor current, only if the target value changed
-    if ebike.motor_current_target != ebike.previous_motor_current_target:
-        ebike.previous_motor_current_target = ebike.motor_current_target
-        # vesc.set_motor_current_amps(ebike.motor_current_target)
-        vesc.set_motor_speed_erpm(800 + (ebike.motor_current_target * 333))
+        ebike.motor_target = 0
+        ebike.previous_motor_target = 0
+      
+    elif ebike.motor_target != ebike.previous_motor_target:
+        ebike.previous_motor_target = ebike.motor_target
+
+        if motor_control_scheme == 'current':
+            vesc.set_motor_current_amps(ebike.motor_target)
+        elif motor_control_scheme == 'speed':
+            # when speed is near zero, set motor current to 0 to release the motor
+            if ebike.motor_target > 2:
+                vesc.set_motor_speed_erpm(ebike.motor_target)
+            else:
+                vesc.set_motor_current_amps(0)
     
-    print(f'{ebike.motor_current_target * 333}')
+    # for debug only        
+    # print()
+    # print(ebike.brakes_value, ebike.throttle_value, int(ramp_step), int(motor_target), int(ebike.motor_target))
 
 async def task_read_sensors_control_motor():
     while True:
@@ -148,4 +192,5 @@ async def main():
     await asyncio.gather(vesc_heartbeat_task, dashboard_task, read_sensors_control_motor_task)
 
 asyncio.run(main())
+
 
