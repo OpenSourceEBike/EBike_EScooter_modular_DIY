@@ -18,6 +18,8 @@ import supervisor
 ###############################################
 # OPTIONS
 
+wheel_circunference = 215.0 # original M365 8.5 inches wheels are 215mm in diameter
+
 throttle_max = 190
 throttle_min = 45
 
@@ -33,7 +35,7 @@ if motor_control_scheme == 'current':
     ramp_down_time = 0.05 # ram down time for each 1A
 elif motor_control_scheme == 'speed':
     ramp_up_time = 0.0001 # ram up time for each 1 erpm
-    ramp_down_time = 0.0001 # ram down time for each 1 erpm
+    ramp_down_time = 0.00005 # ram down time for each 1 erpm
 
 ###############################################
 
@@ -86,6 +88,7 @@ async def task_dashboard():
         await asyncio.sleep(0.02)
 
 motor_max_target_accumulated = 0
+throttle_value_accumulated = 0
 def motor_control():
     ##########################################################################################
     # Throttle
@@ -93,19 +96,20 @@ def motor_control():
     if motor_control_scheme == 'current':
         motor_max_target = motor_max_current_limit
     elif motor_control_scheme == 'speed':
-        # 37v --> 8000 erpm
-        # ~225 erpm per volt
-
-        # low pass motor_max_target
+        # low pass filter battery voltage
+        erpm_target = ebike.battery_voltage * 255 # this motor has near 10k erpm on max battery voltage 36V
         global motor_max_target_accumulated
-        erpm_target = int((ebike.battery_voltage - 0.5) * 225) # this motor has near 10k erpm on max battery voltage 36V
-      
         motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
         motor_max_target_accumulated += erpm_target
         motor_max_target = (int(motor_max_target_accumulated)) >> 7
+
+    global throttle_value_accumulated
+    throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 3)
+    throttle_value_accumulated += ebike.throttle_value
+    throttle_value = (int(throttle_value_accumulated)) >> 3
       
     motor_target = simpleio.map_range(
-        ebike.throttle_value,
+        throttle_value,
         throttle_min, # min input
         throttle_max, # max input
         0, # min output
@@ -164,10 +168,10 @@ def motor_control():
             vesc.set_motor_current_amps(ebike.motor_target)
         elif motor_control_scheme == 'speed':
             # when speed is near zero, set motor current to 0 to release the motor
-            if ebike.motor_target > 2:
-                vesc.set_motor_speed_erpm(ebike.motor_target)
-            else:
+            if ebike.motor_target == 0 and ebike.motor_speed_erpm < 750: # about 2 km/h:
                 vesc.set_motor_current_amps(0)
+            else:
+                vesc.set_motor_speed_erpm(ebike.motor_target)
     
     # for debug only        
     # print()
@@ -181,6 +185,27 @@ async def task_read_sensors_control_motor():
         # idle 20ms
         await asyncio.sleep(0.02)
 
+async def task_various_0_5s():
+    assert(wheel_circunference > 100), "wheel_circunference must be higher then 100mm (4 inches wheel)"
+    
+    while True:
+        # calculate wheel speed
+        # 15 pole pairs on Xiaomi M365 motor
+        # 1h --> 60 minutes
+        # 60 * 3.14 = 188.4
+        # 188.4 / 15 = 12,56
+        # mm to km --> 1000000 --> 0,00001256
+        ebike.wheel_speed = int(wheel_circunference * ebike.motor_speed_erpm * 0.00001256)
+        if ebike.wheel_speed > 99:
+            ebike.wheel_speed = 99
+        elif ebike.wheel_speed < 0:
+            ebike.wheel_speed = 0
+
+        # let's signal to update data to dashboard
+        ebike.update_data_to_dashboard = True
+
+        await asyncio.sleep(0.5)
+
 async def main():
 
     print("starting")
@@ -188,9 +213,11 @@ async def main():
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     dashboard_task = asyncio.create_task(task_dashboard())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
+    various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_heartbeat_task, dashboard_task, read_sensors_control_motor_task)
+    await asyncio.gather(vesc_heartbeat_task,
+                         dashboard_task,
+                         read_sensors_control_motor_task,
+                         various_0_5s_task)
 
 asyncio.run(main())
-
-
