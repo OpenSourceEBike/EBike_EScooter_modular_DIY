@@ -1,5 +1,5 @@
 import busio
-import struct
+import simpleio
 
 class M365_dashboard(object):
     """M365_dashboard"""
@@ -25,6 +25,10 @@ class M365_dashboard(object):
         self._read_and_unpack__state = 0
         self._read_and_unpack__len = 0
         self._read_and_unpack__cnt = 0
+        
+        self._tx_buffer = bytearray(96)
+        self._tx_buffer[0] = 0x55
+        self._tx_buffer[1] = 0xAA
 
     # read and process UART data
     def process_data(self):
@@ -87,18 +91,45 @@ class M365_dashboard(object):
 
                             self._read_and_unpack__cnt = 0
                             self._read_and_unpack__state = 0
-                            self._uart.reset_input_buffer()
                             break
                         
     def _process_data(self):
         if self._rx_package.received == True:
+            self._rx_package.received = False
             
             command = self._rx_package.data[4]
-            if command == 0x65:
+            if command == 0x65: # reveive throttle and brake
                 self._ebike_data.throttle_value = self._rx_package.data[7]
                 self._ebike_data.brakes_value = self._rx_package.data[8]
+                
+                # If we got a throttle and brake package, that have high priority, we can now ignore all other
+                # possible packages on the buffer. But if update_data_to_dashboard is needed, then do not ignore
+                # other packages on the buffer, in the hope the asking update_data_to_dashboard is there
+                if not self._ebike_data.update_data_to_dashboard:
+                    self._uart.reset_input_buffer()
 
-            self._rx_package.received = False
+            elif command == 0x64 and self._ebike_data.update_data_to_dashboard: # ask to send data to dashboard
+                self._ebike_data.update_data_to_dashboard = False
+
+                self._tx_buffer[2] = 0x08 # message lenght
+                self._tx_buffer[3] = 0x21 # receiver
+                self._tx_buffer[4] = command # command
+                self._tx_buffer[5] = 0x00 # ??
+                self._tx_buffer[6] = 0 # mode
+                
+                # battery SOC
+                self._tx_buffer[7] = int(simpleio.map_range(self._ebike_data.battery_voltage, 33, 42, 0, 96))
+
+                self._tx_buffer[8] = 0x00 # light: 0x00 - off, 0x40 - on
+                self._tx_buffer[9] = 0x00 # beep
+                self._tx_buffer[10] = self._ebike_data.wheel_speed # wheel_speed
+                self._tx_buffer[11] = 0 # error code
+
+                crc = self._crc(self._tx_buffer[2: 12])
+                self._tx_buffer[12] = crc & 0xFF
+                self._tx_buffer[13] = (crc >> 8) & 0xFF
+                self._tx_buffer[14] = 0 # '\0'
+                self._uart.write(self._tx_buffer) # transmit the package
 
 class RXPackage():
     data = bytearray(255)
