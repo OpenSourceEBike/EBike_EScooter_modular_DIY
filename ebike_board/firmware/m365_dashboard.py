@@ -1,13 +1,15 @@
 import busio
 import simpleio
+import thisbutton as tb
 
 class M365_dashboard(object):
     """M365_dashboard"""
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, ebike_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, button_pin, ebike_data):
         """M365 dashboard
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to UART half duplex
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to UART half duplex
+        :param ~microcontroller.Pin button_pin: dashboard button pin
         :param ~EBikeAppData ebike_app_data: Ebike app data object
         """
         self._ebike_data = ebike_data
@@ -20,6 +22,11 @@ class M365_dashboard(object):
             timeout = 0.005, # 5ms is enough for reading the UART
             receiver_buffer_size = 132) # seems Xiaomi M365 dashboard messages are no more than 132
         
+        # button
+        self.button = tb.thisButton(button_pin, True)
+        self.button.assignClick(self._button_click_callback)
+        self.button.assignLongPressStart(self._button_long_click_callback)
+        
         # init variables
         self._rx_package = RXPackage()
         self._read_and_unpack__state = 0
@@ -30,12 +37,20 @@ class M365_dashboard(object):
         self._tx_buffer[0] = 0x55
         self._tx_buffer[1] = 0xAA
 
+    def _button_click_callback(self):
+        print("click")
+
+    def _button_long_click_callback(self):
+        print("long click")
+
     # read and process UART data
     def process_data(self):
         """Receive and process periodically data.
         Can be called fast but probably no point to do it faster than 10ms"""
         self._read_and_unpack()
         self._process_data()
+        
+        self.button.tick()
 
     def _crc(self, data):
         crc = 0
