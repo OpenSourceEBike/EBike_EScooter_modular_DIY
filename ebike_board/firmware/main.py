@@ -63,11 +63,12 @@ vesc = vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
     ebike) #VESC data object to hold the VESC data
-# vesc.set_motor_current_brake_amps(0)
+vesc.set_motor_current_brake_amps(8)
 
 dashboard = m365_dashboard.M365_dashboard(
     board.IO12, # UART TX pin
     board.IO11, # UART RX pin
+    board.IO10, # dashboard button
     ebike)
 
 async def task_vesc_heartbeat():
@@ -84,6 +85,8 @@ async def task_vesc_heartbeat():
 async def task_dashboard():
     while True:
         dashboard.process_data()
+
+
 
         await asyncio.sleep(0.02)
 
@@ -103,10 +106,11 @@ def motor_control():
         motor_max_target_accumulated += erpm_target
         motor_max_target = (int(motor_max_target_accumulated)) >> 7
 
-    global throttle_value_accumulated
-    throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 3)
-    throttle_value_accumulated += ebike.throttle_value
-    throttle_value = (int(throttle_value_accumulated)) >> 3
+    # global throttle_value_accumulated
+    # throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 3)
+    # throttle_value_accumulated += ebike.throttle_value
+    # throttle_value = (int(throttle_value_accumulated)) >> 3
+    throttle_value = ebike.throttle_value
       
     motor_target = simpleio.map_range(
         throttle_value,
@@ -221,3 +225,4 @@ async def main():
                          various_0_5s_task)
 
 asyncio.run(main())
+
