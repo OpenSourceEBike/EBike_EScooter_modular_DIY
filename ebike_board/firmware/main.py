@@ -86,8 +86,6 @@ async def task_dashboard():
     while True:
         dashboard.process_data()
 
-
-
         await asyncio.sleep(0.02)
 
 motor_max_target_accumulated = 0
