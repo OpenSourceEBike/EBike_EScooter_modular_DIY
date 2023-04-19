@@ -23,11 +23,12 @@ class M365_dashboard(object):
             receiver_buffer_size = 132) # seems Xiaomi M365 dashboard messages are no more than 132
         
         # button
-        self.button = tb.thisButton(button_pin, True)
-        self.button.assignClick(self._button_click_callback)
-        self.button.assignLongPressStart(self._button_long_click_callback)
+        self._button = tb.thisButton(button_pin, True)
+        self._button.assignClick(self._button_click_callback)
+        self._button.assignLongPressStart(self._button_long_click_callback)
         
         # init variables
+        self._beep_state = False
         self._rx_package = RXPackage()
         self._read_and_unpack__state = 0
         self._read_and_unpack__len = 0
@@ -38,10 +39,12 @@ class M365_dashboard(object):
         self._tx_buffer[1] = 0xAA
 
     def _button_click_callback(self):
-        print("click")
+        self._beep_state = True
+        self._ebike_data.update_data_to_dashboard = True
 
     def _button_long_click_callback(self):
-        print("long click")
+        self._beep_state = True
+        self._ebike_data.update_data_to_dashboard = True
 
     # read and process UART data
     def process_data(self):
@@ -50,7 +53,7 @@ class M365_dashboard(object):
         self._read_and_unpack()
         self._process_data()
         
-        self.button.tick()
+        self._button.tick()
 
     def _crc(self, data):
         crc = 0
@@ -136,7 +139,16 @@ class M365_dashboard(object):
                 self._tx_buffer[7] = int(simpleio.map_range(self._ebike_data.battery_voltage, 33, 42, 0, 96))
 
                 self._tx_buffer[8] = 0x00 # light: 0x00 - off, 0x40 - on
-                self._tx_buffer[9] = 0x00 # beep
+
+                # check to seed if a beep need to be sent
+                if self._beep_state:
+                    beep = 1
+                    self._beep_state = False
+                else:
+                    beep = 0
+                    
+                self._tx_buffer[9] = beep # beep
+
                 self._tx_buffer[10] = self._ebike_data.wheel_speed # wheel_speed
                 self._tx_buffer[11] = 0 # error code
 
