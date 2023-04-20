@@ -1,12 +1,10 @@
 import board
 import time
 import supervisor
-import array
 import simpleio
 import asyncio
 import ebike_data
 import vesc
-import busio
 import m365_dashboard
 import simpleio
 
@@ -36,6 +34,8 @@ if motor_control_scheme == 'current':
 elif motor_control_scheme == 'speed':
     ramp_up_time = 0.0001 # ram up time for each 1 erpm
     ramp_down_time = 0.00005 # ram down time for each 1 erpm
+
+xiaomi_m365_rear_lights_always_on = True
 
 ###############################################
 
@@ -69,7 +69,8 @@ dashboard = m365_dashboard.M365_dashboard(
     board.IO12, # UART TX pin
     board.IO11, # UART RX pin
     board.IO10, # dashboard button
-    ebike)
+    ebike,
+    xiaomi_m365_rear_lights_always_on)
 
 async def task_vesc_heartbeat():
     while True:
@@ -223,4 +224,3 @@ async def main():
                          various_0_5s_task)
 
 asyncio.run(main())
-
