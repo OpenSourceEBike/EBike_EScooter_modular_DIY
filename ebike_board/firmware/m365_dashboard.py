@@ -1,11 +1,14 @@
 import busio
 import simpleio
 import thisbutton as tb
+from digitalio import DigitalInOut, Direction
+import board
+import time
 
 class M365_dashboard(object):
     """M365_dashboard"""
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, button_pin, ebike_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, button_pin, ebike_data, xiaomi_m365_rear_lights_always_on):
         """M365 dashboard
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to UART half duplex
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to UART half duplex
@@ -26,6 +29,31 @@ class M365_dashboard(object):
         self._button = tb.thisButton(button_pin, True)
         self._button.assignClick(self._button_click_callback)
         self._button.assignLongPressStart(self._button_long_click_callback)
+
+        # pins to drive the rear lamp
+        self._lights_state = False
+        self._rear_light_blink_state = False
+        self._rear_light_blink_previous_time = 0
+        self._rear_light_set_state_previous = False
+        self._xiaomi_m365_rear_lights_always_on = xiaomi_m365_rear_lights_always_on
+        self._lamp_pin_1 = DigitalInOut(board.IO4)
+        self._lamp_pin_2 = DigitalInOut(board.IO5)
+        self._lamp_pin_3 = DigitalInOut(board.IO6)
+        self._lamp_pin_4 = DigitalInOut(board.IO7)
+        self._lamp_pin_5 = DigitalInOut(board.IO15)
+        self._lamp_pin_1.direction = Direction.OUTPUT
+        self._lamp_pin_1.value = False
+        self._lamp_pin_2.direction = Direction.OUTPUT
+        self._lamp_pin_2.value = False
+        self._lamp_pin_3.direction = Direction.OUTPUT
+        self._lamp_pin_3.value = False
+        self._lamp_pin_4.direction = Direction.OUTPUT
+        self._lamp_pin_4.value = False
+        self._lamp_pin_5.direction = Direction.OUTPUT
+        self._lamp_pin_5.value = False
+        if self._xiaomi_m365_rear_lights_always_on:
+            self._rear_light_set_state(True)
+            print("true")
         
         # init variables
         self._beep_state = False
@@ -38,6 +66,23 @@ class M365_dashboard(object):
         self._tx_buffer[0] = 0x55
         self._tx_buffer[1] = 0xAA
 
+    def _rear_light_set_state(self, state):
+        if state != self._rear_light_set_state_previous:
+            self._rear_light_set_state_previous = state
+
+            if state:
+                self._lamp_pin_1.value = True
+                self._lamp_pin_2.value = True
+                self._lamp_pin_3.value = True
+                self._lamp_pin_4.value = True
+                self._lamp_pin_5.value = True
+            else:
+                self._lamp_pin_1.value = False
+                self._lamp_pin_2.value = False
+                self._lamp_pin_3.value = False
+                self._lamp_pin_4.value = False
+                self._lamp_pin_5.value = False
+
     def _button_click_callback(self):
         self._beep_state = True
         self._ebike_data.update_data_to_dashboard = True
@@ -46,6 +91,37 @@ class M365_dashboard(object):
         self._beep_state = True
         self._ebike_data.update_data_to_dashboard = True
 
+        self._lights_state = not self._lights_state
+
+        if self._xiaomi_m365_rear_lights_always_on:
+            return
+
+        if self._lights_state:
+            self._rear_light_set_state(True)
+        else:
+            self._rear_light_set_state(False)
+
+    def _blink_rear_light_if_braking(self):
+
+        if self._ebike_data.brakes_are_active:
+            # let's blink
+            now = time.monotonic()
+            if (now - self._rear_light_blink_previous_time) > 0.25:
+                self._rear_light_blink_previous_time = now
+
+                self._rear_light_blink_state = not self._rear_light_blink_state
+                if self._rear_light_blink_state:
+                    self._rear_light_set_state(False)
+                else:
+                    self._rear_light_set_state(True)
+
+        else:
+            # reset the rear lights state
+            if self._lights_state or self._xiaomi_m365_rear_lights_always_on:
+                self._rear_light_set_state(True)
+            else:
+                self._rear_light_set_state(False)
+
     # read and process UART data
     def process_data(self):
         """Receive and process periodically data.
@@ -53,7 +129,11 @@ class M365_dashboard(object):
         self._read_and_unpack()
         self._process_data()
         
+        # needed for button processing
         self._button.tick()
+
+        # blink rear light if brakes are active
+        self._blink_rear_light_if_braking()
 
     def _crc(self, data):
         crc = 0
@@ -138,7 +218,12 @@ class M365_dashboard(object):
                 # battery SOC
                 self._tx_buffer[7] = int(simpleio.map_range(self._ebike_data.battery_voltage, 33, 42, 0, 96))
 
-                self._tx_buffer[8] = 0x00 # light: 0x00 - off, 0x40 - on
+                # front light
+                if self._lights_state:
+                    front_light_state = 0x40
+                else:
+                    front_light_state = 0x00
+                self._tx_buffer[8] = front_light_state # light: 0x00 - off, 0x40 - on
 
                 # check to seed if a beep need to be sent
                 if self._beep_state:
