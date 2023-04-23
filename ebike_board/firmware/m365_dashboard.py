@@ -53,7 +53,6 @@ class M365_dashboard(object):
         self._lamp_pin_5.value = False
         if self._xiaomi_m365_rear_lights_always_on:
             self._rear_light_set_state(True)
-            print("true")
         
         # init variables
         self._beep_state = False

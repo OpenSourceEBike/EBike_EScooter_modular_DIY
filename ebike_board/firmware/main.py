@@ -16,15 +16,17 @@ import supervisor
 ###############################################
 # OPTIONS
 
-wheel_circunference = 215.0 # original M365 8.5 inches wheels are 215mm in diameter
+# original M365 8.5 inches wheels are 215mm in diameter
+# M365 10 inches wheels are 245mm in diameter
+wheel_circunference = 245.0
 
 throttle_max = 190
 throttle_min = 45
 
 motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 25.0 # max value, be carefull to not burn your motor
+motor_max_current_limit = 40.0 # max value, be carefull to not burn your motor
 
-# motor_control_scheme = 'current'
+#motor_control_scheme = 'current'
 motor_control_scheme = 'speed'
 
 # ramp up and down constants
@@ -99,20 +101,14 @@ def motor_control():
         motor_max_target = motor_max_current_limit
     elif motor_control_scheme == 'speed':
         # low pass filter battery voltage
-        erpm_target = ebike.battery_voltage * 255 # this motor has near 10k erpm on max battery voltage 36V
+        erpm_target = ebike.battery_voltage * 294 # this motor has near 11.9k erpm on max battery voltage 40.5V
         global motor_max_target_accumulated
         motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
         motor_max_target_accumulated += erpm_target
         motor_max_target = (int(motor_max_target_accumulated)) >> 7
-
-    # global throttle_value_accumulated
-    # throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 3)
-    # throttle_value_accumulated += ebike.throttle_value
-    # throttle_value = (int(throttle_value_accumulated)) >> 3
-    throttle_value = ebike.throttle_value
       
     motor_target = simpleio.map_range(
-        throttle_value,
+        ebike.throttle_value,
         throttle_min, # min input
         throttle_max, # max input
         0, # min output
@@ -124,7 +120,7 @@ def motor_control():
         if motor_target < motor_min_current_start:
             motor_target = 0
     elif motor_control_scheme == 'speed':
-        if motor_target < 900: # about 2.5 km/h
+        if motor_target < 1260: # about 3.5 km/h
             motor_target = 0
   
     # apply ramp up / down factor: faster when ramp down

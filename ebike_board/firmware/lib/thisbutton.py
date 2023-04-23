@@ -28,7 +28,7 @@ class thisButton:
         self.held_function = None
         self.click_only_assigned = False
 
-        self.default_debounce_threshold = 2000000
+        self.default_debounce_threshold = 5000000
         self.default_long_press_threshold = 500000000
         self.default_held_interval = 100000000
 
