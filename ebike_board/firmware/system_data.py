@@ -1,6 +1,6 @@
 import time
 
-class EBike(object):
+class SystemData(object):
 
     def __init__(self):
         self.vesc_fault_code = 0
