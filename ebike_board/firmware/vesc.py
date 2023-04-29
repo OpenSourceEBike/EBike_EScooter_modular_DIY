@@ -4,13 +4,13 @@ import struct
 class Vesc(object):
     """VESC"""
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, ebike_app_data):
+    def __init__(self, uart_tx_pin, uart_rx_pin, app_data):
         """VESC
         :param ~microcontroller.Pin uart_tx_pin: UART TX pin that connects to VESC
         :param ~microcontroller.Pin uart_tx_pin: UART RX pin that connects to VESC
         :param ~EBikeAppData ebike_app_data: Ebike app data object
         """
-        self._ebike_app_data = ebike_app_data
+        self._app_data = app_data
 
         # configure UART for communications with VESC
         self._uart = busio.UART(
@@ -89,12 +89,12 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
-            self._ebike_app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0] - 110 # # found experimentaly that this value has a positive offset of 11 degrees - 2023.01.27
-            self._ebike_app_data.motor_current = struct.unpack_from('>l', response, 7)[0] / 100.0
-            self._ebike_app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
-            self._ebike_app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self._ebike_app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
-            self._ebike_app_data.vesc_fault_code = response[55]
+            self._app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0] - 110 # # found experimentaly that this value has a positive offset of 11 degrees - 2023.01.27
+            self._app_data.motor_current = struct.unpack_from('>l', response, 7)[0] / 100.0
+            self._app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
+            self._app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self._app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
+            self._app_data.vesc_fault_code = response[55]
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
