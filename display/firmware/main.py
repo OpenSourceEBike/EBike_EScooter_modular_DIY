@@ -7,6 +7,50 @@ import time
 import displayio
 from adafruit_display_text import label
 import terminalio
+import espnow
+
+import supervisor
+# supervisor.runtime.autoreload = False
+
+########################################
+# CONFIGURATIONS
+
+# MAC Address value needed for the wireless communication with the EBike/EScooter board
+mac_address_ebike_escooter_board = [0x68, 0xb6, 0xb3, 0x2b, 0xa7, 0x08]
+
+# this display board MAC Address is = 0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70
+# found using:
+# import wifi
+# print([hex(i) for i in wifi.radio.mac_address])
+########################################
+
+
+# e = espnow.ESPNow()
+# peer = espnow.Peer(mac = bytes(mac_address_ebike_escooter_board))
+# e.peers.append(peer)
+
+# e.send("Starting...")
+# counter = 0
+
+def send_espnow(e, data):
+    try:
+        e.send(data)
+    except Exception as e:
+        print("e: " + str(e))
+        pass
+
+e = espnow.ESPNow()
+peer = espnow.Peer(mac=bytes(mac_address_ebike_escooter_board))
+e.peers.append(peer)
+
+while True:
+
+    send_espnow(e, "Starting...")
+    print('sent...')
+    print(e.send_success)
+    print(e.send_failure)
+    time.sleep(2)
+
 
 buttons = buttons.Buttons(
         board.IO33, # POWER
@@ -23,9 +67,8 @@ displayObject = display.Display(
 display = displayObject.display
 
 ebike_data = ebike_data.EBike()
+
 ebike = ebike_board.EBikeBoard(
-    board.IO18, # UART TX pin that connect to display UART RX pin
-    board.IO17, # UART RX pin that connect to display UART TX pin
     ebike_data) # EBike data object to hold the EBike data
 
 DISPLAY_WIDTH = 64  
