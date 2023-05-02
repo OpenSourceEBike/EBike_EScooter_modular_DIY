@@ -6,8 +6,10 @@ import asyncio
 import system_data
 import vesc
 import simpleio
+import brake
+import throttle
 
-import supervisor
+# import supervisor
 # supervisor.runtime.autoreload = False
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
@@ -21,13 +23,14 @@ motor_poles_pair = 15
 # original Fiido Q1S 12 inches wheels are 305mm in diameter
 wheel_circunference = 305.0
 
-max_speed_limit = 30.0
+max_speed_limit = 20.0
 
-throttle_max = 190
-throttle_min = 45
+# throttle value of original Fiido Q1S throttle
+throttle_max = 50540
+throttle_min = 16500
 
-motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 10.0 # max value, be carefull to not burn your motor
+motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 50.0 # max value, be careful to not burn your motor
 
 #motor_control_scheme = 'current'
 motor_control_scheme = 'speed'
@@ -43,6 +46,20 @@ elif motor_control_scheme == 'speed':
 xiaomi_m365_rear_lights_always_on = True
 
 ###############################################
+
+brake_sensor = brake.Brake(
+   board.IO12) # brake sensor pin
+
+throttle = throttle.Throttle(
+    board.IO11, # ADC pin for throttle
+    min = throttle_min, # min ADC value that throttle reads, plus some margin
+    max = throttle_max) # max ADC value that throttle reads, minus some margin
+
+system_data = system_data.SystemData()
+vesc = vesc.Vesc(
+    board.IO13, # UART TX pin that connect to VESC
+    board.IO14, # UART RX pin that connect to VESC
+    system_data)
 
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -62,12 +79,6 @@ def utils_step_towards(current_value, target_value, step):
             value = target_value
 
     return value
-
-system_data = system_data.SystemData()
-vesc = vesc.Vesc(
-    board.IO13, # UART TX pin that connect to VESC
-    board.IO14, # UART RX pin that connect to VESC
-    system_data)
 
 async def task_vesc_heartbeat():
     while True:
@@ -99,13 +110,13 @@ def motor_control():
         motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
         motor_max_target_accumulated += max_speed_limit_in_erpm
         motor_max_target = (int(motor_max_target_accumulated)) >> 7
-      
+  
     motor_target = simpleio.map_range(
-        system_data.throttle_value,
-        throttle_min, # min input
-        throttle_max, # max input
+        throttle.value,
+        0, # min input
+        1000, # max input
         0, # min output
-        motor_max_target) # max output
+        4500) #motor_max_target) # max output
     ##########################################################################################
 
     # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
@@ -137,14 +148,8 @@ def motor_control():
     if system_data.motor_target < 0.001:
         system_data.motor_target = 0
 
-    # check if brakes are active
-    if system_data.brakes_value > 47:
-        system_data.brakes_are_active = True
-    else:
-        system_data.brakes_are_active = False
-
     # let's update the motor current, only if the target value changed and brakes are not active
-    if system_data.brakes_are_active:
+    if brake_sensor.value:
         if motor_control_scheme == 'current':
             vesc.set_motor_current_amps(0)
         elif motor_control_scheme == 'speed':
@@ -202,10 +207,10 @@ async def main():
 
     vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
-    various_0_5s_task = asyncio.create_task(task_various_0_5s())
+    # various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_heartbeat_task,
-                         read_sensors_control_motor_task,
-                         various_0_5s_task)
+    await asyncio.gather(vesc_heartbeat_task)#,
+                        #  read_sensors_control_motor_task)
+                        #  various_0_5s_task)
 
 asyncio.run(main())

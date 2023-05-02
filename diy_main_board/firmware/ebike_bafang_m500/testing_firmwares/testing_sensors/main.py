@@ -1,14 +1,14 @@
 import board
 import time
 import throttle
-import brake_sensor
+import brake
 import wheel_speed_sensor
 import torque_sensor
 import motor_temperature_sensor
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
-brake_sensor = brake_sensor.BrakeSensor(
+brake = brake.Brake(
    board.IO10) # brake sensor pin
 
 wheel_speed_sensor = wheel_speed_sensor.WheelSpeedSensor(
@@ -40,7 +40,7 @@ while True:
         print(f"can not read torque sensor")
 
     # brake sensor
-    brake = "enable" if brake_sensor.value == True else "disable"
+    brake = "enable" if brake.value == True else "disable"
     print(f"brake sensor state: {brake}")
 
     # throttle sensor
