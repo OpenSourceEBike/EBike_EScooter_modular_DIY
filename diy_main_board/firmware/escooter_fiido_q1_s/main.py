@@ -9,8 +9,11 @@ import simpleio
 import brake
 import throttle
 
-# import supervisor
-# supervisor.runtime.autoreload = False
+# while True:
+#     pass
+
+import supervisor
+supervisor.runtime.autoreload = False
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -26,19 +29,19 @@ wheel_circunference = 305.0
 max_speed_limit = 20.0
 
 # throttle value of original Fiido Q1S throttle
+throttle_min = 17000
 throttle_max = 50540
-throttle_min = 16500
 
 motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 50.0 # max value, be careful to not burn your motor
+motor_max_current_limit = 60.0 # max value, be careful to not burn your motor
 
-#motor_control_scheme = 'current'
-motor_control_scheme = 'speed'
+motor_control_scheme = 'current'
+# motor_control_scheme = 'speed'
 
 # ramp up and down constants
 if motor_control_scheme == 'current':
-    ramp_up_time = 0.05 # ram up time for each 1A
-    ramp_down_time = 0.05 # ram down time for each 1A
+    ramp_up_time = 0.005 # ram up time for each 1A
+    ramp_down_time = 0.005 # ram down time for each 1A
 elif motor_control_scheme == 'speed':
     ramp_up_time = 0.0010 # ram up time for each 1 erpm
     ramp_down_time = 0.00005 # ram down time for each 1 erpm
@@ -116,9 +119,9 @@ def motor_control():
         0, # min input
         1000, # max input
         0, # min output
-        4500) #motor_max_target) # max output
+        motor_max_target) # max output
     ##########################################################################################
-
+  
     # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
     if motor_control_scheme == 'current':
         if motor_target < motor_min_current_start:
@@ -143,29 +146,24 @@ def motor_control():
         if system_data.motor_target > motor_max_current_limit:
             system_data.motor_target = motor_max_current_limit
     # no limit for speed mode
-
+          
     # limit very small and negative values
     if system_data.motor_target < 0.001:
         system_data.motor_target = 0
 
-    # let's update the motor current, only if the target value changed and brakes are not active
+    # if brakes are active, set our motor target as zero
     if brake_sensor.value:
-        if motor_control_scheme == 'current':
-            vesc.set_motor_current_amps(0)
-        elif motor_control_scheme == 'speed':
-            vesc.set_motor_speed_erpm(0)
-
         system_data.motor_target = 0
         system_data.previous_motor_target = 0
       
-    elif system_data.motor_target != system_data.previous_motor_target:
+    if system_data.motor_target != system_data.previous_motor_target:
         system_data.previous_motor_target = system_data.motor_target
 
         if motor_control_scheme == 'current':
             vesc.set_motor_current_amps(system_data.motor_target)
         elif motor_control_scheme == 'speed':
             # when speed is near zero, set motor current to 0 to release the motor
-            if system_data.motor_target == 0 and system_data.motor_speed_erpm < 750: # about 2 km/h:
+            if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
                 vesc.set_motor_current_amps(0)
             else:
                 vesc.set_motor_speed_erpm(system_data.motor_target)
@@ -209,8 +207,8 @@ async def main():
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_heartbeat_task)#,
-                        #  read_sensors_control_motor_task)
+    await asyncio.gather(vesc_heartbeat_task,
+                        read_sensors_control_motor_task)
                         #  various_0_5s_task)
 
 asyncio.run(main())
