@@ -94,7 +94,8 @@ class Vesc(object):
             self._app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
             self._app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
             self._app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
-            self._app_data.vesc_fault_code = response[55]
+            # NOTE: next line breaks the code sometimes, probably when VESC flaut code != 0
+            #self._app_data.vesc_fault_code = response[55]
 
     def send_heart_beat(self):
         """Send the heart beat / alive command to VESC, must be sent at least every 0.9s or VESC will stop the motor"""
