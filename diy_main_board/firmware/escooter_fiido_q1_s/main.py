@@ -8,6 +8,8 @@ import vesc
 import simpleio
 import brake
 import throttle
+import microcontroller
+import watchdog
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -53,6 +55,9 @@ elif motor_control_scheme == MotorControlScheme.SPEED:
 xiaomi_m365_rear_lights_always_on = True
 
 ###############################################
+
+# watchdog, to reset the system if watchdog is not feed in time
+wdt = microcontroller.watchdog
 
 brake_sensor = brake.Brake(
    board.IO12) # brake sensor pin
@@ -103,85 +108,86 @@ throttle_value_accumulated = 0
 # TODO
 max_speed_limit_in_erpm = ((max_speed_limit * 1000) / 3600)
 
-def motor_control():
-    ##########################################################################################
-    # Throttle
-    # map torque value
-    if motor_control_scheme == MotorControlScheme.CURRENT:
-        motor_max_target = motor_max_current_limit
-    elif motor_control_scheme == MotorControlScheme.SPEED:
-        # low pass filter battery voltage
-        global motor_max_target_accumulated
-        global max_speed_limit_in_erpm
-        motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
-        motor_max_target_accumulated += max_speed_limit_in_erpm
-        motor_max_target = (int(motor_max_target_accumulated)) >> 7
-
-    # low pass filter torque sensor value to smooth it,
-    # because the easy DIY hardware lacks such low pass filter on purpose
-    global throttle_value_accumulated
-    throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 2)
-    throttle_value_accumulated += throttle.value
-    throttle_value_filtered = (int(throttle_value_accumulated)) >> 2
-  
-    motor_target = simpleio.map_range(
-        throttle_value_filtered,
-        0, # min input
-        1000, # max input
-        0, # min output
-        motor_max_target) # max output
-    ##########################################################################################
-  
-    # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-    if motor_control_scheme == MotorControlScheme.CURRENT:
-        if motor_target < motor_min_current_start:
-            motor_target = 0
-    elif motor_control_scheme == MotorControlScheme.SPEED:
-        if motor_target < 1000: # about 3.5 km/h
-            motor_target = 0
-  
-    # apply ramp up / down factor: faster when ramp down
-    if motor_target > system_data.motor_target:
-        ramp_time = ramp_up_time
-    else:
-        ramp_time = ramp_down_time
-        
-    time_now = time.monotonic_ns()
-    ramp_step = (time_now - system_data.ramp_last_time) / (ramp_time * 1000000000)
-    system_data.ramp_last_time = time_now
-    system_data.motor_target = utils_step_towards(system_data.motor_target, motor_target, ramp_step)
-
-    # let's limit the value
-    if motor_control_scheme == MotorControlScheme.CURRENT:
-        if system_data.motor_target > motor_max_current_limit:
-            system_data.motor_target = motor_max_current_limit
-    # no limit for speed mode
-          
-    # limit very small and negative values
-    if system_data.motor_target < 0.001:
-        system_data.motor_target = 0
-
-    # if brakes are active, set our motor target as zero
-    if brake_sensor.value:
-        system_data.motor_target = 0
-
-    if motor_control_scheme == MotorControlScheme.CURRENT:
-        vesc.set_motor_current_amps(system_data.motor_target)
-    elif motor_control_scheme == MotorControlScheme.SPEED:
-        # when speed is near zero, set motor current to 0 to release the motor
-        if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
-            vesc.set_motor_current_amps(0)
-        else:
-            vesc.set_motor_speed_erpm(system_data.motor_target)
-    
-    # for debug only        
-    # print()
-    # print(ebike.brakes_value, ebike.throttle_value, int(ramp_step), int(motor_target), int(ebike.motor_target))
-
-async def task_read_sensors_control_motor():
+async def task_control_motor():
     while True:
-        # motor control
-        motor_control()
+        ##########################################################################################
+        # Throttle
+        # map torque value
+        if motor_control_scheme == MotorControlScheme.CURRENT:
+            motor_max_target = motor_max_current_limit
+        elif motor_control_scheme == MotorControlScheme.SPEED:
+            # low pass filter battery voltage
+            global motor_max_target_accumulated
+            global max_speed_limit_in_erpm
+            motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
+            motor_max_target_accumulated += max_speed_limit_in_erpm
+            motor_max_target = (int(motor_max_target_accumulated)) >> 7
+        else:
+            raise Exception("invalid motor_control_scheme")
+
+        # low pass filter torque sensor value to smooth it,
+        # because the easy DIY hardware lacks such low pass filter on purpose
+        global throttle_value_accumulated
+        throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 2)
+        throttle_value_accumulated += throttle.value
+        throttle_value_filtered = (int(throttle_value_accumulated)) >> 2
+    
+        motor_target = simpleio.map_range(
+            throttle_value_filtered,
+            0, # min input
+            1000, # max input
+            0, # min output
+            motor_max_target) # max output
+        ##########################################################################################
+    
+        # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
+        if motor_control_scheme == MotorControlScheme.CURRENT:
+            if motor_target < motor_min_current_start:
+                motor_target = 0
+        elif motor_control_scheme == MotorControlScheme.SPEED:
+            if motor_target < 1000: # about 3.5 km/h
+                motor_target = 0
+    
+        # apply ramp up / down factor: faster when ramp down
+        if motor_target > system_data.motor_target:
+            ramp_time = ramp_up_time
+        else:
+            ramp_time = ramp_down_time
+            
+        time_now = time.monotonic_ns()
+        ramp_step = (time_now - system_data.ramp_last_time) / (ramp_time * 1000000000)
+        system_data.ramp_last_time = time_now
+        system_data.motor_target = utils_step_towards(system_data.motor_target, motor_target, ramp_step)
+
+        # let's limit the value
+        if motor_control_scheme == MotorControlScheme.CURRENT:
+            if system_data.motor_target > motor_max_current_limit:
+                system_data.motor_target = motor_max_current_limit
+        # no limit for speed mode
+            
+        # limit very small and negative values
+        if system_data.motor_target < 0.001:
+            system_data.motor_target = 0
+
+        # if brakes are active, set our motor target as zero
+        if brake_sensor.value:
+            system_data.motor_target = 0
+
+        if motor_control_scheme == MotorControlScheme.CURRENT:
+            vesc.set_motor_current_amps(system_data.motor_target)
+        elif motor_control_scheme == MotorControlScheme.SPEED:
+            # when speed is near zero, set motor current to 0 to release the motor
+            if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
+                vesc.set_motor_current_amps(0)
+            else:
+                vesc.set_motor_speed_erpm(system_data.motor_target)
+
+        # we just updated the motor target, so let's feed the watchdog to avoid a system reset
+        wdt.feed() # avoid system reset because watchdog timeout
+        
+        # for debug only        
+        # print()
+        # print(ebike.brakes_value, ebike.throttle_value, int(ramp_step), int(motor_target), int(ebike.motor_target))
 
         # idle 20ms
         await asyncio.sleep(0.02)
@@ -209,8 +215,13 @@ async def main():
 
     print("starting")
 
+    # setup watchdog, to reset the system if watchdog is not feed in time
+    # 250ms timeout to reset the system, should be more than enough as task_control_motor() feeds the watchdog
+    wdt.timeout = 0.25 
+    wdt.mode = watchdog.WatchDogMode.RESET
+
     vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
-    read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
+    read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
     await asyncio.gather(vesc_refresh_data_task,
