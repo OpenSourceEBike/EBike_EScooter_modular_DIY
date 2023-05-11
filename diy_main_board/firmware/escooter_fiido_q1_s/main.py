@@ -9,11 +9,15 @@ import simpleio
 import brake
 import throttle
 
-# while True:
-#     pass
-
 import supervisor
 supervisor.runtime.autoreload = False
+
+class MotorControlScheme:
+    CURRENT = 0
+    SPEED = 1
+
+# while True:
+#     pass
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -29,20 +33,20 @@ wheel_circunference = 305.0
 max_speed_limit = 20.0
 
 # throttle value of original Fiido Q1S throttle
-throttle_min = 17000
+throttle_min = 17200
 throttle_max = 50540
 
 motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 60.0 # max value, be careful to not burn your motor
+motor_max_current_limit = 40.0 # max value, be careful to not burn your motor
 
-motor_control_scheme = 'current'
-# motor_control_scheme = 'speed'
+motor_control_scheme = MotorControlScheme.CURRENT
+# motor_control_scheme = = MotorControlScheme.SPEED
 
 # ramp up and down constants
-if motor_control_scheme == 'current':
-    ramp_up_time = 0.005 # ram up time for each 1A
-    ramp_down_time = 0.005 # ram down time for each 1A
-elif motor_control_scheme == 'speed':
+if motor_control_scheme == MotorControlScheme.CURRENT:
+    ramp_up_time = 0.002 # ram up time for each 1A
+    ramp_down_time = 0.002 # ram down time for each 1A
+elif motor_control_scheme == MotorControlScheme.SPEED:
     ramp_up_time = 0.0010 # ram up time for each 1 erpm
     ramp_down_time = 0.00005 # ram down time for each 1 erpm
 
@@ -83,13 +87,12 @@ def utils_step_towards(current_value, target_value, step):
 
     return value
 
-async def task_vesc_heartbeat():
+async def task_vesc_refresh_data():
     while True:
-        # VESC heart beat must be sent more frequently than 1 second, otherwise the motor will stop
-        vesc.send_heart_beat()
-        
         # ask for VESC latest data
         vesc.refresh_data()
+
+        # print(system_data.motor_target)
 
         # idle 500ms
         await asyncio.sleep(0.5)
@@ -104,18 +107,25 @@ def motor_control():
     ##########################################################################################
     # Throttle
     # map torque value
-    if motor_control_scheme == 'current':
+    if motor_control_scheme == MotorControlScheme.CURRENT:
         motor_max_target = motor_max_current_limit
-    elif motor_control_scheme == 'speed':
+    elif motor_control_scheme == MotorControlScheme.SPEED:
         # low pass filter battery voltage
         global motor_max_target_accumulated
         global max_speed_limit_in_erpm
         motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
         motor_max_target_accumulated += max_speed_limit_in_erpm
         motor_max_target = (int(motor_max_target_accumulated)) >> 7
+
+    # low pass filter torque sensor value to smooth it,
+    # because the easy DIY hardware lacks such low pass filter on purpose
+    global throttle_value_accumulated
+    throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 2)
+    throttle_value_accumulated += throttle.value
+    throttle_value_filtered = (int(throttle_value_accumulated)) >> 2
   
     motor_target = simpleio.map_range(
-        throttle.value,
+        throttle_value_filtered,
         0, # min input
         1000, # max input
         0, # min output
@@ -123,10 +133,10 @@ def motor_control():
     ##########################################################################################
   
     # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-    if motor_control_scheme == 'current':
+    if motor_control_scheme == MotorControlScheme.CURRENT:
         if motor_target < motor_min_current_start:
             motor_target = 0
-    elif motor_control_scheme == 'speed':
+    elif motor_control_scheme == MotorControlScheme.SPEED:
         if motor_target < 1000: # about 3.5 km/h
             motor_target = 0
   
@@ -142,7 +152,7 @@ def motor_control():
     system_data.motor_target = utils_step_towards(system_data.motor_target, motor_target, ramp_step)
 
     # let's limit the value
-    if motor_control_scheme == 'current':
+    if motor_control_scheme == MotorControlScheme.CURRENT:
         if system_data.motor_target > motor_max_current_limit:
             system_data.motor_target = motor_max_current_limit
     # no limit for speed mode
@@ -154,19 +164,15 @@ def motor_control():
     # if brakes are active, set our motor target as zero
     if brake_sensor.value:
         system_data.motor_target = 0
-        system_data.previous_motor_target = 0
-      
-    if system_data.motor_target != system_data.previous_motor_target:
-        system_data.previous_motor_target = system_data.motor_target
 
-        if motor_control_scheme == 'current':
-            vesc.set_motor_current_amps(system_data.motor_target)
-        elif motor_control_scheme == 'speed':
-            # when speed is near zero, set motor current to 0 to release the motor
-            if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
-                vesc.set_motor_current_amps(0)
-            else:
-                vesc.set_motor_speed_erpm(system_data.motor_target)
+    if motor_control_scheme == MotorControlScheme.CURRENT:
+        vesc.set_motor_current_amps(system_data.motor_target)
+    elif motor_control_scheme == MotorControlScheme.SPEED:
+        # when speed is near zero, set motor current to 0 to release the motor
+        if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
+            vesc.set_motor_current_amps(0)
+        else:
+            vesc.set_motor_speed_erpm(system_data.motor_target)
     
     # for debug only        
     # print()
@@ -203,11 +209,11 @@ async def main():
 
     print("starting")
 
-    vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
+    vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_heartbeat_task,
+    await asyncio.gather(vesc_refresh_data_task,
                         read_sensors_control_motor_task)
                         #  various_0_5s_task)
 
