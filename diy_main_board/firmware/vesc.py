@@ -18,7 +18,8 @@ class Vesc(object):
             uart_rx_pin,
             baudrate = 115200, # VESC UART baudrate
             timeout = 0.005, # 5ms is enough for reading the UART
-            receiver_buffer_size = 512) # VESC PACKET_MAX_PL_LEN = 512
+            # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
+            receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
