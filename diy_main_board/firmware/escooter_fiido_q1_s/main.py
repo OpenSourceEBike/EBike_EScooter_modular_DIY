@@ -216,8 +216,8 @@ async def main():
     print("starting")
 
     # setup watchdog, to reset the system if watchdog is not feed in time
-    # 250ms timeout to reset the system, should be more than enough as task_control_motor() feeds the watchdog
-    wdt.timeout = 0.25 
+    # 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
+    wdt.timeout = 1
     wdt.mode = watchdog.WatchDogMode.RESET
 
     vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
