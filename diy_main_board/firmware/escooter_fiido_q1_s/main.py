@@ -35,8 +35,9 @@ wheel_circunference = 305.0
 max_speed_limit = 20.0
 
 # throttle value of original Fiido Q1S throttle
-throttle_min = 17200
-throttle_max = 50540
+throttle_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
+throttle_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
+throttle_over_max_error = 50800 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
 motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
 motor_max_current_limit = 40.0 # max value, be careful to not burn your motor
@@ -131,6 +132,13 @@ async def task_control_motor():
         throttle_value_accumulated -= ((int(throttle_value_accumulated)) >> 2)
         throttle_value_accumulated += throttle.value
         throttle_value_filtered = (int(throttle_value_accumulated)) >> 2
+
+        # check to see if throttle is over the suposed max error value,
+        # if this happens, that probably means there is an issue with ADC and this can be dangerous,
+        # as this did happen a few times during development and motor keeps running at max target / current / speed!!
+        # the raise Exception() will reset the system
+        if throttle_value_filtered > throttle_over_max_error:
+            raise Exception("throttle value is over max, this can be dangerous!")
     
         motor_target = simpleio.map_range(
             throttle_value_filtered,
