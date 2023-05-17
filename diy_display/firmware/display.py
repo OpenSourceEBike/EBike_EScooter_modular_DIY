@@ -26,7 +26,7 @@ class Display(object):
         self._display = adafruit_displayio_sh1106.SH1106(display_bus, width = WIDTH, height = HEIGHT)
 
         # set the display to vertical mode
-        self._display.rotation = 90
+        self._display.rotation = 180
 
     @property
     def display(self):
