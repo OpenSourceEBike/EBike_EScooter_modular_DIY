@@ -1,8 +1,8 @@
 import board
 import buttons
 import display
-import ebike_board
-import ebike_data
+import motor_board
+import system_data
 import time
 import displayio
 from adafruit_display_text import label
@@ -10,7 +10,7 @@ import terminalio
 import espnow
 
 import supervisor
-# supervisor.runtime.autoreload = False
+supervisor.runtime.autoreload = False
 
 ########################################
 # CONFIGURATIONS
@@ -23,34 +23,6 @@ mac_address_ebike_escooter_board = [0x68, 0xb6, 0xb3, 0x2b, 0xa7, 0x08]
 # import wifi
 # print([hex(i) for i in wifi.radio.mac_address])
 ########################################
-
-
-# e = espnow.ESPNow()
-# peer = espnow.Peer(mac = bytes(mac_address_ebike_escooter_board))
-# e.peers.append(peer)
-
-# e.send("Starting...")
-# counter = 0
-
-def send_espnow(e, data):
-    try:
-        e.send(data)
-    except Exception as e:
-        print("e: " + str(e))
-        pass
-
-e = espnow.ESPNow()
-peer = espnow.Peer(mac=bytes(mac_address_ebike_escooter_board))
-e.peers.append(peer)
-
-while True:
-
-    send_espnow(e, "Starting...")
-    print('sent...')
-    print(e.send_success)
-    print(e.send_failure)
-    time.sleep(2)
-
 
 buttons = buttons.Buttons(
         board.IO33, # POWER
@@ -66,10 +38,10 @@ displayObject = display.Display(
         1000000) # spi clock frequency
 display = displayObject.display
 
-ebike_data = ebike_data.EBike()
+system_data = system_data.SystemData()
 
-ebike = ebike_board.EBikeBoard(
-    ebike_data) # EBike data object to hold the EBike data
+motor = motor_board.MotorBoard(
+    system_data) # System data object to hold the EBike data
 
 DISPLAY_WIDTH = 64  
 DISPLAY_HEIGHT = 128
@@ -97,25 +69,18 @@ assist_level_area.scale = 2
 
 battery_voltage_area = label.Label(terminalio.FONT, text=TEXT)
 battery_voltage_area.anchor_point = (0.0, 0.0)
-battery_voltage_area.anchored_position = (34, 0)
+battery_voltage_area.anchored_position = (97, 0)
 battery_voltage_area.scale = 1
 
-label_x = 1
-label_y = 22 + 16
-label_y_offset = 32
+label_x = 0
+label_y = 10 + 16
 label_1 = label.Label(terminalio.FONT, text=TEXT)
 label_1.anchor_point = (0.0, 0.0)
 label_1.anchored_position = (label_x, label_y)
 label_1.scale = 2
 
-# label_y += label_y_offset
-# label_2 = label.Label(terminalio.FONT, text=TEXT)
-# label_2.anchor_point = (0.0, 0.0)
-# label_2.anchored_position = (label_x, label_y)
-# label_2.scale = 2
-
-# label_y += label_y_offset
-label_y += (label_y_offset + 16)
+label_x += 82
+label_y = 10 + 16
 label_3 = label.Label(terminalio.FONT, text=TEXT)
 label_3.anchor_point = (0.0, 0.0)
 label_3.anchored_position = (label_x, label_y)
@@ -144,55 +109,76 @@ display_time_previous = now
 ebike_receive_data_time_previous = now
 ebike_send_data_time_previous = now
 
-battery_voltage_previous = 9999
+battery_voltage_previous_x10 = 9999
 motor_power_previous = 9999
 motor_temperature_sensor_x10_previous = 9999
 vesc_temperature_x10_previous = 9999
+motor_speed_erpm_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
 while True:
     now = time.monotonic()
-    if (now - display_time_previous) > 1.0:
+    if (now - display_time_previous) > 0.1:
         display_time_previous = now
 
-        if battery_voltage_previous != ebike_data.battery_voltage:
-            battery_voltage_previous = ebike_data.battery_voltage
-            battery_voltage_area.text = str(f"{ebike_data.battery_voltage:2.1f}v")
+        if battery_voltage_previous_x10 != system_data.battery_voltage_x10:
+            battery_voltage_previous_x10 = system_data.battery_voltage_x10
+            battery_voltage = float(system_data.battery_voltage_x10) / 10.0
+            battery_voltage_area.text = str(f"{battery_voltage:2.1f}v")
 
-        if motor_power_previous != ebike_data.motor_power:
-            motor_power_previous = ebike_data.motor_power
-            motor_power = filter_motor_power(ebike_data.motor_power)
-            label_1.text = str(f"{ebike_data.motor_power:5}")
+        # calculate the motor power
+        system_data.motor_power = int((float(system_data.battery_voltage_x10) * float(system_data.battery_current_x100)) / 1000.0)
+        if system_data.motor_power < 0:
+            system_data.motor_power = 0
+
+        if motor_power_previous != system_data.motor_power:
+            motor_power_previous = system_data.motor_power
+            motor_power = filter_motor_power(system_data.motor_power)
+            label_1.text = str(f"{system_data.motor_power:5}")
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
         #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
         #     label_2.text = str(f"{(ebike_data.motor_temperature_sensor_x10 / 10.0): 2.1f}")
 
-        if vesc_temperature_x10_previous != ebike_data.vesc_temperature_x10:
-            vesc_temperature_x10_previous = ebike_data.vesc_temperature_x10  
-            label_3.text = str(f"{(ebike_data.vesc_temperature_x10 / 10.0): 2.1f}")    
+        if motor_speed_erpm_previous != system_data.motor_speed_erpm:
+            motor_speed_erpm_previous = system_data.motor_speed_erpm
+
+            # Fiido Q1S original motor runs 45 ERPM for each 1 RPM
+            # calculate the wheel speed
+            # speed = system_data.motor_speed_erpm / 5.0
+            # print()
+            # print(system_data.motor_speed_erpm)
+            # print(speed)
+
+            #S=[2∗PI∗(D/2)]∗[RPM/60]
+            wheel_radius = 0.165 # measured as 16.5cms
+            perimeter = 6.28 * wheel_radius
+            motor_rpm = ((float(system_data.motor_speed_erpm)) / 45.0)
+            speed = ((perimeter / 1000.0) * motor_rpm * 60)
+
+            label_3.text = str(f"{speed:2.1f}")    
 
     now = time.monotonic()
-    if (now - ebike_receive_data_time_previous) > 0.01:
+    if (now - ebike_receive_data_time_previous) > 0.1:
         ebike_receive_data_time_previous = now
-        ebike.process_data()
+        motor.process_data()
 
     now = time.monotonic()
     if (now - ebike_send_data_time_previous) > 0.1:
         ebike_send_data_time_previous = now
-        ebike.send_data()
+        motor.send_data()
 
-    if brakes_are_active_previous != ebike_data.brakes_are_active:
-        brakes_are_active_previous = ebike_data.brakes_are_active
-        if ebike_data.brakes_are_active:
+    if brakes_are_active_previous != system_data.brakes_are_active:
+        brakes_are_active_previous = system_data.brakes_are_active
+        if system_data.brakes_are_active:
             warning_area.text = str("brakes")
         else:
             warning_area.text = str("")
-    elif vesc_fault_code_previous != ebike_data.vesc_fault_code:
-        vesc_fault_code_previous = ebike_data.vesc_fault_code
-        if ebike_data.vesc_fault_code:
-            warning_area.text = str(f"mot e: {ebike_data.vesc_fault_code}")
+    elif vesc_fault_code_previous != system_data.vesc_fault_code:
+        vesc_fault_code_previous = system_data.vesc_fault_code
+        if system_data.vesc_fault_code:
+            warning_area.text = str(f"mot e: {system_data.vesc_fault_code}")
         else:
             warning_area.text = str("")
 
@@ -215,5 +201,5 @@ while True:
             assist_level_state = 2
             assist_level -= 1
 
-        ebike_data.assist_level = assist_level
+        system_data.assist_level = assist_level
         assist_level_area.text = str(assist_level)
