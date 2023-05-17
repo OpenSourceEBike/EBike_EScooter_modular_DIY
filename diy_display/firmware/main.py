@@ -67,8 +67,8 @@ assist_level_area.anchored_position = (4, 0)
 assist_level_area.scale = 2
 
 battery_voltage_area = label.Label(terminalio.FONT, text=TEXT)
-battery_voltage_area.anchor_point = (0.0, 0.0)
-battery_voltage_area.anchored_position = (97, 0)
+battery_voltage_area.anchor_point = (1.0, 0.0)
+battery_voltage_area.anchored_position = (129, 0)
 battery_voltage_area.scale = 1
 
 label_x = 61
@@ -78,7 +78,7 @@ label_1.anchor_point = (1.0, 0.0)
 label_1.anchored_position = (label_x, label_y)
 label_1.scale = 2
 
-label_x = 125
+label_x = 129
 label_3 = label.Label(terminalio.FONT, text=TEXT)
 label_3.anchor_point = (1.0, 0.0)
 label_3.anchored_position = (label_x, label_y)
@@ -137,7 +137,7 @@ while True:
             if motor_power_previous != system_data.motor_power:
                 motor_power_previous = system_data.motor_power
                 motor_power = filter_motor_power(system_data.motor_power)
-                label_1.text = f"{system_data.motor_power:5}"
+                label_1.text = f"{motor_power:5}"
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
         #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
