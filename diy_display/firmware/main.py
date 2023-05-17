@@ -7,7 +7,6 @@ import time
 import displayio
 from adafruit_display_text import label
 import terminalio
-import espnow
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -72,17 +71,16 @@ battery_voltage_area.anchor_point = (0.0, 0.0)
 battery_voltage_area.anchored_position = (97, 0)
 battery_voltage_area.scale = 1
 
-label_x = 0
+label_x = 61
 label_y = 10 + 16
 label_1 = label.Label(terminalio.FONT, text=TEXT)
-label_1.anchor_point = (0.0, 0.0)
+label_1.anchor_point = (1.0, 0.0)
 label_1.anchored_position = (label_x, label_y)
 label_1.scale = 2
 
-label_x += 82
-label_y = 10 + 16
+label_x = 125
 label_3 = label.Label(terminalio.FONT, text=TEXT)
-label_3.anchor_point = (0.0, 0.0)
+label_3.anchor_point = (1.0, 0.0)
 label_3.anchored_position = (label_x, label_y)
 label_3.scale = 2
 
@@ -110,6 +108,7 @@ ebike_receive_data_time_previous = now
 ebike_send_data_time_previous = now
 
 battery_voltage_previous_x10 = 9999
+battery_current_previous_x100 = 9999
 motor_power_previous = 9999
 motor_temperature_sensor_x10_previous = 9999
 vesc_temperature_x10_previous = 9999
@@ -124,18 +123,21 @@ while True:
 
         if battery_voltage_previous_x10 != system_data.battery_voltage_x10:
             battery_voltage_previous_x10 = system_data.battery_voltage_x10
-            battery_voltage = float(system_data.battery_voltage_x10) / 10.0
-            battery_voltage_area.text = str(f"{battery_voltage:2.1f}v")
+            battery_voltage = system_data.battery_voltage_x10 / 10.0
+            battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
-        # calculate the motor power
-        system_data.motor_power = int((float(system_data.battery_voltage_x10) * float(system_data.battery_current_x100)) / 1000.0)
-        if system_data.motor_power < 0:
-            system_data.motor_power = 0
+        if battery_current_previous_x100 != system_data.battery_current_x100:
+            battery_current_previous_x100 = system_data.battery_current_x100
+            
+            # calculate the motor power
+            system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+            if system_data.motor_power < 0:
+                system_data.motor_power = 0
 
-        if motor_power_previous != system_data.motor_power:
-            motor_power_previous = system_data.motor_power
-            motor_power = filter_motor_power(system_data.motor_power)
-            label_1.text = str(f"{system_data.motor_power:5}")
+            if motor_power_previous != system_data.motor_power:
+                motor_power_previous = system_data.motor_power
+                motor_power = filter_motor_power(system_data.motor_power)
+                label_1.text = f"{system_data.motor_power:5}"
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
         #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
@@ -146,18 +148,14 @@ while True:
 
             # Fiido Q1S original motor runs 45 ERPM for each 1 RPM
             # calculate the wheel speed
-            # speed = system_data.motor_speed_erpm / 5.0
-            # print()
-            # print(system_data.motor_speed_erpm)
-            # print(speed)
-
-            #S=[2∗PI∗(D/2)]∗[RPM/60]
             wheel_radius = 0.165 # measured as 16.5cms
             perimeter = 6.28 * wheel_radius
-            motor_rpm = ((float(system_data.motor_speed_erpm)) / 45.0)
+            motor_rpm = system_data.motor_speed_erpm / 45.0
             speed = ((perimeter / 1000.0) * motor_rpm * 60)
+            if speed < 0.1:
+                speed = 0.0
 
-            label_3.text = str(f"{speed:2.1f}")    
+            label_3.text = f"{speed:2.1f}"
 
     now = time.monotonic()
     if (now - ebike_receive_data_time_previous) > 0.1:
