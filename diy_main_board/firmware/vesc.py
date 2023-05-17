@@ -67,14 +67,26 @@ class Vesc(object):
         data_array[package_len - 3] = (crc & 0xff00) >> 8
         data_array[package_len - 2] = crc & 0x00ff
         data_array[package_len - 1] = 3
-
+        
         # send packet to UART
         self._uart.write(data_array)
-        
+
         # try to read response only if we expect it
-        if response_len is not 0:
+        if response_len > 0:
             data = self._uart.read(response_len)  # read up to response_len bytes
-            return data
+
+            # the data must have the lenght we are expecting, otherwise discard
+            if (data is None) or (len(data) != response_len):
+                return None
+            else:
+                # we now have the expected package, let's check the CRC, to check the data integrity
+                # TODO
+
+                # before sending a packet, clear any available data on the RX buffer
+                if self._uart.in_waiting:
+                  self._uart.reset_input_buffer()
+
+                return data
         else:
             return None
             
@@ -90,13 +102,12 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
-            self._app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0] - 110 # # found experimentaly that this value has a positive offset of 11 degrees - 2023.01.27
-            self._app_data.motor_current = struct.unpack_from('>l', response, 7)[0] / 100.0
-            self._app_data.battery_current = struct.unpack_from('>l', response, 11)[0] / 100.0
+            self._app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
+            self._app_data.motor_current_x100 = (struct.unpack_from('>l', response, 7)[0]) * -1.0 # for some reason, the current is inverted
+            self._app_data.battery_current_x100 = (struct.unpack_from('>l', response, 11)[0]) * -1.0 # for some reason, the current is inverted
             self._app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self._app_data.battery_voltage = struct.unpack_from('>h', response, 29)[0] / 10.0
-            # NOTE: next line breaks the code sometimes, probably when VESC flaut code != 0
-            #self._app_data.vesc_fault_code = response[55]
+            self._app_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
+            self._app_data.vesc_fault_code = response[55]
 
     def set_motor_current_amps(self, value):
         """Set battery Amps"""

@@ -5,9 +5,9 @@ class SystemData(object):
     def __init__(self):
         self.vesc_fault_code = 0
         self.vesc_temperature_x10 = 0
-        self.battery_voltage = 0
-        self.battery_current = 0
-        self.motor_current = 0
+        self.battery_voltage_x10 = 0
+        self.battery_current_x100 = 0
+        self.motor_current_x100 = 0
         self.motor_power = 0
         self.motor_speed_erpm = 0
         self.motor_temperature_sensor_x10 = 0
