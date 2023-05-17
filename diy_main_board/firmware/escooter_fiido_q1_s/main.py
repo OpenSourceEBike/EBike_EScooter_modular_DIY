@@ -10,6 +10,8 @@ import brake
 import throttle
 import microcontroller
 import watchdog
+import gc
+import escooter_fiido_q1_s.display_espnow as display_espnow
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -53,7 +55,11 @@ elif motor_control_scheme == MotorControlScheme.SPEED:
     ramp_up_time = 0.0010 # ram up time for each 1 erpm
     ramp_down_time = 0.00005 # ram down time for each 1 erpm
 
-xiaomi_m365_rear_lights_always_on = True
+# MAC Address value needed for the wireless communication with the display
+display_mac_address = [0x48, 0x27, 0xe2, 0x50, 0x62, 0x78]
+# get the display MAC address by running on the display:
+# import wifi
+# print([hex(i) for i in wifi.radio.mac_address])
 
 ###############################################
 
@@ -73,6 +79,8 @@ vesc = vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
     system_data)
+
+display = display_espnow.Display(display_mac_address, system_data)
 
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -97,11 +105,13 @@ async def task_vesc_refresh_data():
     while True:
         # ask for VESC latest data
         vesc.refresh_data()
+        gc.collect()
 
-        # print(system_data.motor_target)
+        display.update()
+        gc.collect()
 
-        # idle 500ms
-        await asyncio.sleep(0.5)
+        # idle 250ms
+        await asyncio.sleep(0.25)
 
 motor_max_target_accumulated = 0
 throttle_value_accumulated = 0
@@ -192,6 +202,8 @@ async def task_control_motor():
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         wdt.feed() # avoid system reset because watchdog timeout
+
+        gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
         
         # for debug only        
         # print()
