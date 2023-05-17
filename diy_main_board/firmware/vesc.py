@@ -52,6 +52,10 @@ class Vesc(object):
             crc &= 0xFFFF                                   # important, crc must stay 16bits all the way through
 
         return crc
+    
+    def _uart_maybe_reset_input_buffer(self):
+        if self._uart.in_waiting:
+            self._uart.reset_input_buffer()
 
     def _pack_and_send(self, buf, response_len):
 
@@ -77,16 +81,33 @@ class Vesc(object):
 
             # the data must have the lenght we are expecting, otherwise discard
             if (data is None) or (len(data) != response_len):
+                self._uart_maybe_reset_input_buffer()
                 return None
-            else:
-                # we now have the expected package, let's check the CRC, to check the data integrity
-                # TODO
 
-                # before sending a packet, clear any available data on the RX buffer
-                if self._uart.in_waiting:
-                  self._uart.reset_input_buffer()
-
-                return data
+            # check for expected packet lenght ID = 2
+            if data[0] != 2:
+                self._uart_maybe_reset_input_buffer()
+                return None
+            
+            # check for expected packet lenght = 74
+            if data[1] != 74:
+                self._uart_maybe_reset_input_buffer()
+                return None
+            
+            # check for expected COMM_GET_VALUES = 4
+            if data[2] != 4:
+                self._uart_maybe_reset_input_buffer()
+                return None
+            
+            # check for CRC
+            crc_calculated = self._crc16(data[2:-3])
+            crc = (data[-3] * 256) + data[-2]
+            if crc != crc_calculated:
+                self._uart_maybe_reset_input_buffer()
+                return None
+            
+            self._uart_maybe_reset_input_buffer()
+            return data
         else:
             return None
             

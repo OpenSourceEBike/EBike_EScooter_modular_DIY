@@ -15,9 +15,9 @@ class MotorBoard(object):
 
         if data is not None:
             data = [int(n) for n in data.msg.split()]
-            self._system_data.battery_voltage_x10 = data[0]
-            self._system_data.battery_current_x100 = data[1]
-            self._system_data.motor_speed_erpm = data[2]
+            self._system_data.battery_voltage_x10 = int(data[0])
+            self._system_data.battery_current_x100 = int(data[1])
+            self._system_data.motor_speed_erpm = int(data[2])
 
     def send_data(self):
         pass

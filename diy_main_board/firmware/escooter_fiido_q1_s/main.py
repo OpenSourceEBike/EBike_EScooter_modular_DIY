@@ -157,7 +157,14 @@ async def task_control_motor():
             0, # min output
             motor_max_target) # max output
         ##########################################################################################
-    
+        
+        # motor_target = 0
+        # print()
+        # print(brake_sensor.value)
+        # print(motor_target)
+        # print(throttle.value)
+        # time.sleep(0.5)
+
         # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
         if motor_control_scheme == MotorControlScheme.CURRENT:
             if motor_target < motor_min_current_start:
