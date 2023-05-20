@@ -150,8 +150,8 @@ class Vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self._pack_and_send(command, 0)
 
-    def set_motor_speed_erpm(self, value):
-        """Set motor speed in ERPM"""
+    def set_motor_speed_rpm(self, value):
+        """Set motor speed in RPM"""
         # COMM_SET_RPM = 8; no response
         command = bytearray(5)
         command[0] = 8
