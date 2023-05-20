@@ -12,6 +12,6 @@ class Display(object):
 
     def update(self):
         try:
-            self._espnow.send(f"{int(self._system_data.battery_voltage_x10)} {int(self._system_data.battery_current_x100)} {self._system_data.motor_speed_erpm}")
+            self._espnow.send(f"{int(self._system_data.battery_voltage_x10)} {int(self._system_data.battery_current_x100)} {int(self._system_data.motor_current_x100)} {self._system_data.motor_speed_erpm}")
         except Exception as exception:
             print(exception)

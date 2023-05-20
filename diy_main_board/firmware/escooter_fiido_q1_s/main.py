@@ -41,8 +41,8 @@ throttle_min = 16400 # this is a value that should be a bit superior than the mi
 throttle_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 throttle_over_max_error = 50800 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
-motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 40.0 # max value, be careful to not burn your motor
+motor_min_current_start = 20.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
 
 motor_control_scheme = MotorControlScheme.CURRENT
 # motor_control_scheme = = MotorControlScheme.SPEED
@@ -205,7 +205,7 @@ async def task_control_motor():
             if system_data.motor_target == 0 and system_data.motor_speed_erpm < 100:
                 vesc.set_motor_current_amps(0)
             else:
-                vesc.set_motor_speed_erpm(system_data.motor_target)
+                vesc.set_motor_speed_rpm(system_data.motor_target)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         wdt.feed() # avoid system reset because watchdog timeout

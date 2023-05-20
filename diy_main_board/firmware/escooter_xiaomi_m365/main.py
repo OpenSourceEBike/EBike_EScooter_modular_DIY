@@ -155,7 +155,7 @@ def motor_control():
         if motor_control_scheme == 'current':
             vesc.set_motor_current_amps(0)
         elif motor_control_scheme == 'speed':
-            vesc.set_motor_speed_erpm(0)
+            vesc.set_motor_speed_rpm(0)
 
         ebike.motor_target = 0
         ebike.previous_motor_target = 0
@@ -170,7 +170,7 @@ def motor_control():
             if ebike.motor_target == 0 and ebike.motor_speed_erpm < 750: # about 2 km/h:
                 vesc.set_motor_current_amps(0)
             else:
-                vesc.set_motor_speed_erpm(ebike.motor_target)
+                vesc.set_motor_speed_rpm(ebike.motor_target)
     
     # for debug only        
     # print()

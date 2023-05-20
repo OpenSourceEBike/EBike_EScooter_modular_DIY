@@ -109,6 +109,7 @@ ebike_send_data_time_previous = now
 
 battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
+motor_current_previous_x100 = 9999
 motor_power_previous = 9999
 motor_temperature_sensor_x10_previous = 9999
 vesc_temperature_x10_previous = 9999
@@ -126,18 +127,24 @@ while True:
             battery_voltage = system_data.battery_voltage_x10 / 10.0
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
-        if battery_current_previous_x100 != system_data.battery_current_x100:
-            battery_current_previous_x100 = system_data.battery_current_x100
+        # if battery_current_previous_x100 != system_data.battery_current_x100:
+        #     battery_current_previous_x100 = system_data.battery_current_x100
             
-            # calculate the motor power
-            system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-            if system_data.motor_power < 0:
-                system_data.motor_power = 0
+        #     # calculate the motor power
+        #     system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+        #     if system_data.motor_power < 0:
+        #         system_data.motor_power = 0
 
-            if motor_power_previous != system_data.motor_power:
-                motor_power_previous = system_data.motor_power
-                motor_power = filter_motor_power(system_data.motor_power)
-                label_1.text = f"{motor_power:5}"
+        #     if motor_power_previous != system_data.motor_power:
+        #         motor_power_previous = system_data.motor_power
+        #         motor_power = filter_motor_power(system_data.motor_power)
+        #         label_1.text = f"{motor_power:5}"
+
+        if motor_current_previous_x100 != system_data.motor_current_x100:
+            motor_current_previous_x100 = system_data.motor_current_x100
+
+            motor_current = int(system_data.motor_current_x100 / 100.0)
+            label_1.text = f"{motor_current:5}"
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
         #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  
@@ -150,7 +157,8 @@ while True:
             # calculate the wheel speed
             wheel_radius = 0.165 # measured as 16.5cms
             perimeter = 6.28 * wheel_radius
-            motor_rpm = system_data.motor_speed_erpm / 45.0
+            # motor_rpm = system_data.motor_speed_erpm / 45.0
+            motor_rpm = system_data.motor_speed_erpm / 15.0
             speed = ((perimeter / 1000.0) * motor_rpm * 60)
             if speed < 0.1:
                 speed = 0.0
