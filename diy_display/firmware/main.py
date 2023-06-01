@@ -1,12 +1,14 @@
 import board
 import buttons
 import display
-import motor_board
+import motor_board_espnow
 import system_data
 import time
 import displayio
 from adafruit_display_text import label
 import terminalio
+import power_switch_espnow
+import espnow as ESPNow
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -14,8 +16,9 @@ supervisor.runtime.autoreload = False
 ########################################
 # CONFIGURATIONS
 
-# MAC Address value needed for the wireless communication with the EBike/EScooter board
-mac_address_ebike_escooter_board = [0x68, 0xb6, 0xb3, 0x2b, 0xa7, 0x08]
+# MAC Address value needed for the wireless communication
+mac_address_motor_board = [0xff, 0xff, 0xff, 0xff, 0xff, 0x00]
+mac_address_power_switch_board = [0x48, 0x27, 0xe2, 0x51, 0x82, 0xb2]
 
 # this display board MAC Address is = 0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70
 # found using:
@@ -23,10 +26,28 @@ mac_address_ebike_escooter_board = [0x68, 0xb6, 0xb3, 0x2b, 0xa7, 0x08]
 # print([hex(i) for i in wifi.radio.mac_address])
 ########################################
 
+system_data = system_data.SystemData()
+
 buttons = buttons.Buttons(
         board.IO33, # POWER
         board.IO37, # UP
         board.IO35) # DOWN
+
+button_power_previous = False
+button_power_long_press_previous = False
+button_up_previous = False
+button_down_previous = False
+
+time_previous = time.monotonic()
+while True:
+    now = time.monotonic()
+    if (now - time_previous) > 0.05:
+        time_previous = now
+
+        buttons.tick()
+        if buttons.power_long_press != button_power_long_press_previous:
+            system_data.system_power_state = not system_data.system_power_state
+            break
 
 displayObject = display.Display(
         board.IO7, # CLK pin
@@ -37,10 +58,9 @@ displayObject = display.Display(
         1000000) # spi clock frequency
 display = displayObject.display
 
-system_data = system_data.SystemData()
-
-motor = motor_board.MotorBoard(
-    system_data) # System data object to hold the EBike data
+espnow = ESPNow.ESPNow()
+motor = motor_board_espnow.MotorBoard(espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
+power_switch = power_switch_espnow.PowerSwitch(espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
 
 DISPLAY_WIDTH = 64  
 DISPLAY_HEIGHT = 128
@@ -106,6 +126,7 @@ assist_level_time_previous = now
 display_time_previous = now
 ebike_receive_data_time_previous = now
 ebike_send_data_time_previous = now
+power_switch_send_data_time_previous = now
 
 battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
@@ -175,6 +196,13 @@ while True:
         ebike_send_data_time_previous = now
         motor.send_data()
 
+    now = time.monotonic()
+    if (now - power_switch_send_data_time_previous) > 0.25:
+        power_switch_send_data_time_previous = now
+
+        system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+        power_switch.update()
+
     if brakes_are_active_previous != system_data.brakes_are_active:
         brakes_are_active_previous = system_data.brakes_are_active
         if system_data.brakes_are_active:
@@ -192,20 +220,36 @@ while True:
     if (now - assist_level_time_previous) > 0.05:
         assist_level_time_previous = now
 
-        # change assist level
-        if assist_level_state == 1 and not buttons.up:
-            assist_level_state = 0
+        buttons.tick()
 
-        if assist_level_state == 2 and not buttons.down:
-            assist_level_state = 0
+        button_up_changed = False
+        if buttons.up != button_up_previous:
+            button_up_previous = buttons.up
+            button_up_changed = True
 
-        if assist_level < 20 and buttons.up and assist_level_state == 0:
-            assist_level_state = 1
-            assist_level += 1
+        button_down_changed = False
+        if buttons.down != button_down_previous:
+            button_down_previous = buttons.down
+            button_down_changed = True
 
-        if assist_level > 0 and buttons.down and assist_level_state == 0:
-            assist_level_state = 2
+        button_power_changed = False
+        if buttons.power != button_power_previous:
+            button_power_previous = buttons.power
+            button_power_changed = True
+
+        button_power_long_press_changed = False
+        if buttons.power_long_press != button_power_long_press_previous:
+            button_power_long_press_previous = buttons.power_long_press
+            button_power_long_press_changed = True
+            system_data.system_power_state = not system_data.system_power_state
+            
+            if system_data.system_power_state:
+                system_data.turn_off_relay = True
+
+        if assist_level > 0 and button_down_changed:
             assist_level -= 1
+        elif assist_level < 20 and button_up_changed:
+            assist_level += 1
 
         system_data.assist_level = assist_level
         assist_level_area.text = str(assist_level)
