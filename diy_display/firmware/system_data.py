@@ -18,4 +18,7 @@ class SystemData(object):
         self.assist_level = 0
         self.vesc_temperature_x10 = 0
         self.motor_temperature_sensor_x10 = 0
+        self.display_communication_counter = 0
+        self.turn_off_relay = False
+        self.system_power_state = False
         
