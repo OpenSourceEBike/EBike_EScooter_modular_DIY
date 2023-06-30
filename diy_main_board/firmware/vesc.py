@@ -158,16 +158,6 @@ class Vesc(object):
         struct.pack_into('>l', command, 1, int(value))
         self._pack_and_send(command, 0)
 
-    def set_motor_speed_rpm_current_amps(self, speed_rpm, current):
-
-        """Set motor speed in RPM"""
-        # COMM_SET_RPM_CURRENT = 152; no response
-        command = bytearray(9)
-        command[0] = 152
-        struct.pack_into('>l', command, 1, int(speed_rpm))
-        struct.pack_into('>l', command, 5, int(current * 1000)) # current in mA
-        self._pack_and_send(command, 0)
-
     def brake(self):
         """ Brake: will set the motor current to 0 amps, efectivly coasting"""
         # COMM_SET_CURRENT_BRAKE = 7; no response

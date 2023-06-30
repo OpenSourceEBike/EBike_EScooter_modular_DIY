@@ -34,16 +34,16 @@ motor_poles_pair = 15
 # original Fiido Q1S 12 inches wheels are 305mm in diameter
 wheel_circunference = 305.0
 
-# max wheel speed in RPM
-motor_max_speed_limit = 15665
+# max wheel speed in ERPM
+motor_max_speed_limit = 13100 # 50kms/h
 
 # throttle value of original Fiido Q1S throttle
-throttle_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
-throttle_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
-throttle_over_max_error = 50800 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
+throttle_adc_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
+throttle_adc_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
+throttle_adc_over_max_error = 50800 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
 motor_min_current_start = 10.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
+motor_max_current_limit = 150.0 # max value, be careful to not burn your motor
 
 # motor_control_scheme = MotorControlScheme.CURRENT
 motor_control_scheme = MotorControlScheme.SPEED_CURRENT
@@ -55,7 +55,8 @@ speed_ramp_up_time = 0.00001 # ram up time for each 1 erpm
 speed_ramp_down_time = 0.00001 # ram down time for each 1 erpm
 
 # MAC Address value needed for the wireless communication with the display
-display_mac_address = [0x48, 0x27, 0xe2, 0x50, 0x62, 0x78]
+display_mac_address = [0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70]
+
 # get the display MAC address by running on the display:
 # import wifi
 # print([hex(i) for i in wifi.radio.mac_address])
@@ -70,8 +71,8 @@ brake_sensor = brake.Brake(
 
 throttle = throttle.Throttle(
     board.IO11, # ADC pin for throttle
-    min = throttle_min, # min ADC value that throttle reads, plus some margin
-    max = throttle_max) # max ADC value that throttle reads, minus some margin
+    min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
+    max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
 
 system_data = system_data.SystemData()
 vesc = vesc.Vesc(
@@ -124,8 +125,6 @@ async def task_vesc_refresh_data():
         # idle 250ms
         await asyncio.sleep(0.25)
 
-
-
 async def task_control_motor():
     while True:
         ##########################################################################################
@@ -134,18 +133,23 @@ async def task_control_motor():
         motor_max_current_target = motor_max_current_limit
         motor_max_speed_target = motor_max_speed_limit
 
-        # low pass filter torque sensor value to smooth it,
-        # because the easy DIY hardware lacks such low pass filter on purpose
-        throttle_value_filtered = lowpass_filter(throttle.value, 0.33)
-        if throttle_value_filtered < 1.0:
-            throttle_value_filtered = 0
-
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
-        if throttle_value_filtered > throttle_over_max_error:
+        if throttle.adc_value > throttle_adc_over_max_error:
+            # send 3x times the motor current 0, to make sure VESC receives it
+            vesc.set_motor_current_amps(0)
+            vesc.set_motor_current_amps(0)
+            vesc.set_motor_current_amps(0)
             raise Exception("throttle value is over max, this can be dangerous!")
+
+        # low pass filter torque sensor value to smooth it,
+        # because the easy DIY hardware lacks such low pass filter on purpose
+        #throttle_value_filtered = lowpass_filter(throttle.value, 0.25)
+        #if throttle_value_filtered < 1.0:
+        #   throttle_value_filtered = 0
+        throttle_value_filtered = throttle.value
     
         motor_target_current = simpleio.map_range(
             throttle_value_filtered,
@@ -189,8 +193,6 @@ async def task_control_motor():
         ramp_step = (time_now - system_data.ramp_speed_last_time) / (ramp_time_speed * 40_000_000)
         system_data.ramp_speed_last_time = time_now
         system_data.motor_target_speed = utils_step_towards(system_data.motor_target_speed, motor_target_speed, ramp_step)
-        
-        # print(motor_target_speed, system_data.motor_target_speed)
 
         # let's limit the value
         if system_data.motor_target_current > motor_max_current_limit:
@@ -214,19 +216,12 @@ async def task_control_motor():
         if motor_control_scheme == MotorControlScheme.CURRENT:
             vesc.set_motor_current_amps(system_data.motor_target_current)
         elif motor_control_scheme == MotorControlScheme.SPEED_CURRENT:
-            if system_data.motor_target_current >= 1:      
-                vesc.set_motor_speed_rpm_current_amps(system_data.motor_target_speed, system_data.motor_target_current)
-            else:
-                vesc.set_motor_current_amps(0)
+            vesc.set_motor_speed_rpm(system_data.motor_target_speed)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         wdt.feed() # avoid system reset because watchdog timeout
 
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
-        
-        # for debug only        
-        # print()
-        # print(ebike.brakes_value, ebike.throttle_value, int(ramp_step), int(motor_target), int(ebike.motor_target))
 
         # idle 20ms
         await asyncio.sleep(0.02)
