@@ -13,18 +13,24 @@ import espnow as ESPNow
 import supervisor
 supervisor.runtime.autoreload = False
 
+import wifi
+# Preparing the Wi-Fi radio
+wifi.radio.enabled = True
+
 ########################################
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication
-mac_address_motor_board = [0xff, 0xff, 0xff, 0xff, 0xff, 0x00]
-mac_address_power_switch_board = [0x48, 0x27, 0xe2, 0x51, 0x82, 0xb2]
+mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x29, 0xf7, 0xf0]
+mac_address_power_switch_board = [0x48, 0x27, 0xe2, 0x50, 0x82, 0x96]
 
 # this display board MAC Address is = 0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70
 # found using:
 # import wifi
 # print([hex(i) for i in wifi.radio.mac_address])
 ########################################
+
+print("Starting Display")
 
 system_data = system_data.SystemData()
 
@@ -38,16 +44,16 @@ button_power_long_press_previous = False
 button_up_previous = False
 button_down_previous = False
 
-time_previous = time.monotonic()
-while True:
-    now = time.monotonic()
-    if (now - time_previous) > 0.05:
-        time_previous = now
+# time_previous = time.monotonic()
+# while True:
+#     now = time.monotonic()
+#     if (now - time_previous) > 0.05:
+#         time_previous = now
 
-        buttons.tick()
-        if buttons.power_long_press != button_power_long_press_previous:
-            system_data.system_power_state = not system_data.system_power_state
-            break
+#         buttons.tick()
+#         if buttons.power_long_press != button_power_long_press_previous:
+#             system_data.system_power_state = not system_data.system_power_state
+#             break
 
 displayObject = display.Display(
         board.IO7, # CLK pin
@@ -58,26 +64,38 @@ displayObject = display.Display(
         1000000) # spi clock frequency
 display = displayObject.display
 
-espnow = ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
+_espnow = ESPNow.ESPNow()
+motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
+power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
 
 DISPLAY_WIDTH = 64  
 DISPLAY_HEIGHT = 128
 TEXT = "0"
 
 def filter_motor_power(motor_power):
-
-    if motor_power < 10:
-        motor_power = 0
-    elif motor_power < 25:
-        pass
-    elif motor_power < 50:
-        motor_power = round(motor_power / 2) * 2 
-    elif motor_power < 100:
-        motor_power = round(motor_power / 5) * 5
+    
+    if motor_power < 0:
+        if motor_power > -10:
+            motor_power = 0
+        elif motor_power > -25:
+            pass
+        elif motor_power > -50:
+            motor_power = round(motor_power / 2) * 2 
+        elif motor_power > -100:
+            motor_power = round(motor_power / 5) * 5
+        else:
+            motor_power = round(motor_power / 10) * 10        
     else:
-        motor_power = round(motor_power / 10) * 10
+        if motor_power < 10:
+            motor_power = 0
+        elif motor_power < 25:
+            pass
+        elif motor_power < 50:
+            motor_power = round(motor_power / 2) * 2 
+        elif motor_power < 100:
+            motor_power = round(motor_power / 5) * 5
+        else:
+            motor_power = round(motor_power / 10) * 10
 
     return motor_power
 
@@ -106,11 +124,11 @@ label_3.scale = 2
 
 warning_area = label.Label(terminalio.FONT, text=TEXT)
 warning_area.anchor_point = (0.0, 0.0)
-warning_area.anchored_position = (2, 116)
+warning_area.anchored_position = (2, 48)
 warning_area.scale = 1
 
 text_group = displayio.Group()
-text_group.append(assist_level_area)
+# text_group.append(assist_level_area)
 text_group.append(battery_voltage_area)
 text_group.append(label_1)
 # text_group.append(label_2)
@@ -148,24 +166,22 @@ while True:
             battery_voltage = system_data.battery_voltage_x10 / 10.0
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
-        # if battery_current_previous_x100 != system_data.battery_current_x100:
-        #     battery_current_previous_x100 = system_data.battery_current_x100
+        if battery_current_previous_x100 != system_data.battery_current_x100:
+            battery_current_previous_x100 = system_data.battery_current_x100
             
-        #     # calculate the motor power
-        #     system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-        #     if system_data.motor_power < 0:
-        #         system_data.motor_power = 0
+            # calculate the motor power
+            system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
 
-        #     if motor_power_previous != system_data.motor_power:
-        #         motor_power_previous = system_data.motor_power
-        #         motor_power = filter_motor_power(system_data.motor_power)
-        #         label_1.text = f"{motor_power:5}"
+            if motor_power_previous != system_data.motor_power:
+                motor_power_previous = system_data.motor_power
+                motor_power = filter_motor_power(system_data.motor_power)
+                label_1.text = f"{motor_power:5}"
 
-        if motor_current_previous_x100 != system_data.motor_current_x100:
-            motor_current_previous_x100 = system_data.motor_current_x100
+        # if motor_current_previous_x100 != system_data.motor_current_x100:
+        #     motor_current_previous_x100 = system_data.motor_current_x100
 
-            motor_current = int(system_data.motor_current_x100 / 100.0)
-            label_1.text = f"{motor_current:5}"
+        #     motor_current = int(system_data.motor_current_x100 / 100.0)
+        #     label_1.text = f"{motor_current:5}"
         
         # if motor_temperature_sensor_x10_previous != ebike_data.motor_temperature_sensor_x10:
         #     motor_temperature_sensor_x10_previous = ebike_data.motor_temperature_sensor_x10  

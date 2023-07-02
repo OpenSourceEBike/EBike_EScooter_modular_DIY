@@ -10,11 +10,14 @@ class Buttons(object):
         self._down_button = False
 
         self._power = tb.thisButton(power_pin, True)
+        self._power.setDebounceThreshold(20)
         self._power.assignClick(self._power_button_click_callback)
         self._power.assignLongPressStart(self._power_button_long_click_callback)
         self._up = tb.thisButton(up_pin, True)
+        self._up.setDebounceThreshold(20)
         self._up.assignClick(self._up_button_click_callback)
         self._down = tb.thisButton(down_pin, True)
+        self._down.setDebounceThreshold(20)
         self._down.assignClick(self._down_button_click_callback)
 
     def _power_button_click_callback(self):
