@@ -13,7 +13,18 @@ class MotorBoard(object):
         
     def process_data(self):
         try:
-            data = self._motor_board_espnow.read()
+            data = None
+            data_temp = None
+
+            # read a package and discard others available
+            while True:
+                data_temp = self._motor_board_espnow.read()
+                if data_temp is None:
+                    break
+                else:
+                    data = data_temp
+            
+            # process the package
             if data is not None:
                 data = [n for n in data.msg.split()]
                 self._system_data.battery_voltage_x10 = int(data[0])
@@ -26,7 +37,7 @@ class MotorBoard(object):
 
     def send_data(self):
         try:
-            system_power_state = 1 if self._system_data.system_power_state else 0
-            self._motor_board_espnow.send(f"{int(self.motor_board_espnow_id)} {system_power_state}")
+            motor_enable_state = 1 if self._system_data.motor_enable_state else 0
+            self._motor_board_espnow.send(f"{int(self.motor_board_espnow_id)} {motor_enable_state}")
         except:
             supervisor.reload()

@@ -111,18 +111,27 @@ def utils_step_towards(current_value, target_value, step):
 
     return value
 
-async def task_vesc_refresh_data():
+async def task_vesc_display_refresh_data():
     while True:
         # ask for VESC latest data
         vesc.refresh_data()
         gc.collect()
 
+        # send data to the display
         display.update()
-        display.process_data()
         gc.collect()
 
         # idle 250ms
         await asyncio.sleep(0.25)
+
+async def task_display_refresh_data():
+    while True:
+        # process received data from the display
+        display.process_data()
+        gc.collect()
+
+        # idle 100ms
+        await asyncio.sleep(0.1)
 
 async def task_control_motor():
     while True:
@@ -216,6 +225,11 @@ async def task_control_motor():
             system_data.motor_target_speed = 0.0
             system_data.brakes_are_active = True
 
+        # if motor state is off, set our motor target as zero
+        if system_data.motor_enable_state == False:
+            system_data.motor_target_current = 0.0
+            system_data.motor_target_speed = 0.0
+
         if motor_control_scheme == MotorControlScheme.CURRENT:
             vesc.set_motor_current_amps(system_data.motor_target_current)
         elif motor_control_scheme == MotorControlScheme.SPEED_CURRENT:
@@ -257,11 +271,13 @@ async def main():
     watchdog.timeout = 1
     watchdog.mode = WatchDogMode.RESET
 
-    vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
+    vesc_display_refresh_data_task = asyncio.create_task(task_vesc_display_refresh_data())
+    display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_refresh_data_task,
+    await asyncio.gather(vesc_display_refresh_data_task,
+                        display_refresh_data_task,
                         read_sensors_control_motor_task)
                         #  various_0_5s_task)
 

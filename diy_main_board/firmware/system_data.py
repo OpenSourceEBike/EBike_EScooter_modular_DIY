@@ -23,4 +23,4 @@ class SystemData(object):
         self.throttle_value = 0
         self.brakes_value = 0
         self.wheel_speed = 0
-        self.update_data_to_dashboard = False
+        self.motor_enable_state = False

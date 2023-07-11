@@ -6,6 +6,7 @@ class Display(object):
 
     def __init__(self, display_mac_address, system_data):
         self._system_data = system_data
+        self.my_espnow_id = 1
 
         self._espnow = ESPNow.ESPNow()
         peer = ESPNow.Peer(mac=bytes(display_mac_address), channel=1)
@@ -13,9 +14,23 @@ class Display(object):
 
     def process_data(self):
         try:
-            data = self._espnow.read()
+            data = None
+            data_temp = None
+
+            # read a package and discard others available
+            while True:
+                data_temp = self._espnow.read()
+                if data_temp is None:
+                    break
+                else:
+                    data = data_temp
+            
+            # process the package
             if data is not None:
-                pass
+                data = [n for n in data.msg.split()]
+                # only process packages for us
+                if int(data[0]) == self.my_espnow_id:
+                    self._system_data.motor_enable_state = True if int(data[1]) != 0 else False
         except:
             supervisor.reload()
 

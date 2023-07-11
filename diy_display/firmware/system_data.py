@@ -20,5 +20,5 @@ class SystemData(object):
         self.motor_temperature_sensor_x10 = 0
         self.display_communication_counter = 0
         self.turn_off_relay = False
-        self.system_power_state = False
+        self.motor_enable_state = False
         

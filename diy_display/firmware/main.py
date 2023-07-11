@@ -113,7 +113,7 @@ while True:
 
         buttons.tick()
         if buttons.power:
-            system_data.system_power_state = True
+            system_data.motor_enable_state = True
             break
 
 
@@ -160,8 +160,7 @@ assist_level_state = 0
 now = time.monotonic()
 assist_level_time_previous = now
 display_time_previous = now
-ebike_receive_data_time_previous = now
-ebike_send_data_time_previous = now
+ebike_rx_tx_data_time_previous = now
 power_switch_send_data_time_previous = now
 
 battery_voltage_previous_x10 = 9999
@@ -185,7 +184,7 @@ while True:
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # calculate the motor power
-        if system_data.motor_speed_erpm < 10:
+        if system_data.motor_speed_erpm < 100:
             system_data.battery_current_x100 = 0
 
         system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
@@ -220,14 +219,10 @@ while True:
             label_3.text = f"{speed:2.1f}"
 
     now = time.monotonic()
-    if (now - ebike_receive_data_time_previous) > 0.1:
-        ebike_receive_data_time_previous = now
-        motor.process_data()
-
-    now = time.monotonic()
-    if (now - ebike_send_data_time_previous) > 0.1:
-        ebike_send_data_time_previous = now
+    if (now - ebike_rx_tx_data_time_previous) > 0.1:
+        ebike_rx_tx_data_time_previous = now
         motor.send_data()
+        motor.process_data()
 
     now = time.monotonic()
     if (now - power_switch_send_data_time_previous) > 0.25:
@@ -269,7 +264,7 @@ while True:
 
         if buttons.power_long_press != button_power_long_press_previous:
             button_power_long_press_previous = buttons.power_long_press
-            system_data.system_power_state = False
+            system_data.motor_enable_state = False
             system_data.turn_off_relay = True
 
             label_x = 10
