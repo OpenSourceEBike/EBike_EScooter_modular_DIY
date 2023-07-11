@@ -7,26 +7,18 @@ import system_data
 import vesc
 import brake
 import throttle
-# import microcontroller
-# import watchdog
+from microcontroller import watchdog
+from watchdog import WatchDogMode
 import gc
 import escooter_fiido_q1_s.display_espnow as display_espnow
+import wifi
 
 import supervisor
 supervisor.runtime.autoreload = False
 
-import time
-time.sleep(8)
-
-print("starting")
-import wifi
-print("1")
 wifi.radio.enabled = True
-print("2")
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
-print("3")
 wifi.radio.mac_address = bytearray(my_mac_address)
-print("4")
 
 class MotorControlScheme:
     CURRENT = 0
@@ -67,31 +59,25 @@ speed_ramp_up_time = 0.00001 # ram up time for each 1 erpm
 speed_ramp_down_time = 0.00001 # ram down time for each 1 erpm
 
 # MAC Address value needed for the wireless communication with the display
-display_mac_address = [0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70]
-
-# get the display MAC address by running on the display:
-# import wifi
-# print([hex(i) for i in wifi.radio.mac_address])
+display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 ###############################################
 
-print("9")
 brake_sensor = brake.Brake(
    board.IO12) # brake sensor pin
-gc.collect()
-print("1.7")
+
 throttle = throttle.Throttle(
     board.IO11, # ADC pin for throttle
     min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
     max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
-print("1.8")
+
 system_data = system_data.SystemData()
-print("1.9")
+
 vesc = vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
     system_data)
-print("2")
+
 display = display_espnow.Display(display_mac_address, system_data)
 
 throttle_lowpass_filter_state = None
@@ -132,6 +118,7 @@ async def task_vesc_refresh_data():
         gc.collect()
 
         display.update()
+        display.process_data()
         gc.collect()
 
         # idle 250ms
@@ -235,7 +222,7 @@ async def task_control_motor():
             vesc.set_motor_speed_rpm(system_data.motor_target_speed)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
-        # wdt.feed() # avoid system reset because watchdog timeout
+        watchdog.feed() # avoid system reset because watchdog timeout
 
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
 
@@ -267,9 +254,9 @@ async def main():
 
     # setup watchdog, to reset the system if watchdog is not feed in time
     # 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
-    # wdt.timeout = 1
-    # wdt.mode = watchdog.WatchDogMode.RESET
-    print("3")
+    watchdog.timeout = 1
+    watchdog.mode = WatchDogMode.RESET
+
     vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())

@@ -8,31 +8,38 @@ import displayio
 from adafruit_display_text import label
 import terminalio
 import power_switch_espnow
+import wifi
 import espnow as ESPNow
 
 import supervisor
 supervisor.runtime.autoreload = False
 
-import wifi
-# Preparing the Wi-Fi radio
-wifi.radio.enabled = True
+print("Starting Display")
 
 ########################################
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication
-mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x29, 0xf7, 0xf0]
-mac_address_power_switch_board = [0x48, 0x27, 0xe2, 0x50, 0x82, 0x96]
-
-# this display board MAC Address is = 0x48, 0x27, 0xe2, 0x4b, 0x37, 0x70
-# found using:
-# import wifi
-# print([hex(i) for i in wifi.radio.mac_address])
+my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
+mac_address_power_switch_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
+mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 ########################################
 
-print("Starting Display")
-
 system_data = system_data.SystemData()
+
+wifi.radio.enabled = True
+wifi.radio.mac_address = bytearray(my_mac_address)
+wifi.radio.start_ap(ssid="NO_SSID", channel=1)
+wifi.radio.stop_ap()
+
+_espnow = ESPNow.ESPNow()
+motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
+power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
+
+# this will try send data over ESPNow and if there is an error, will restart
+system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+power_switch.update()
+motor.send_data()
 
 buttons = buttons.Buttons(
         board.IO33, # POWER
@@ -44,17 +51,6 @@ button_power_long_press_previous = False
 button_up_previous = False
 button_down_previous = False
 
-# time_previous = time.monotonic()
-# while True:
-#     now = time.monotonic()
-#     if (now - time_previous) > 0.05:
-#         time_previous = now
-
-#         buttons.tick()
-#         if buttons.power_long_press != button_power_long_press_previous:
-#             system_data.system_power_state = not system_data.system_power_state
-#             break
-
 displayObject = display.Display(
         board.IO7, # CLK pin
         board.IO9, # MOSI pin
@@ -63,10 +59,6 @@ displayObject = display.Display(
         board.IO11, # reset pin
         1000000) # spi clock frequency
 display = displayObject.display
-
-_espnow = ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
 
 DISPLAY_WIDTH = 64  
 DISPLAY_HEIGHT = 128
@@ -98,6 +90,32 @@ def filter_motor_power(motor_power):
             motor_power = round(motor_power / 10) * 10
 
     return motor_power
+
+
+# screen 1
+label_x = 10
+label_y = 18
+label_1 = label.Label(terminalio.FONT, text=TEXT)
+label_1.anchor_point = (0.0, 0.0)
+label_1.anchored_position = (label_x, label_y)
+label_1.scale = 1
+label_1.text = "Ready to power on"
+
+screen1_group = displayio.Group()
+screen1_group.append(label_1)
+display.show(screen1_group)
+
+time_previous = time.monotonic()
+while True:
+    now = time.monotonic()
+    if (now - time_previous) > 0.05:
+        time_previous = now
+
+        buttons.tick()
+        if buttons.power:
+            system_data.system_power_state = True
+            break
+
 
 assist_level_area = label.Label(terminalio.FONT, text=TEXT)
 assist_level_area.anchor_point = (0.0, 0.0)
@@ -166,16 +184,15 @@ while True:
             battery_voltage = system_data.battery_voltage_x10 / 10.0
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
-        if battery_current_previous_x100 != system_data.battery_current_x100:
-            battery_current_previous_x100 = system_data.battery_current_x100
-            
-            # calculate the motor power
-            system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+        # calculate the motor power
+        if system_data.motor_speed_erpm < 10:
+            system_data.battery_current_x100 = 0
 
-            if motor_power_previous != system_data.motor_power:
-                motor_power_previous = system_data.motor_power
-                motor_power = filter_motor_power(system_data.motor_power)
-                label_1.text = f"{motor_power:5}"
+        system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+        if motor_power_previous != system_data.motor_power:
+            motor_power_previous = system_data.motor_power
+            motor_power = filter_motor_power(system_data.motor_power)
+            label_1.text = f"{motor_power:5}"
 
         # if motor_current_previous_x100 != system_data.motor_current_x100:
         #     motor_current_previous_x100 = system_data.motor_current_x100
@@ -246,21 +263,40 @@ while True:
         button_down_changed = False
         if buttons.down != button_down_previous:
             button_down_previous = buttons.down
-            button_down_changed = True
 
-        button_power_changed = False
         if buttons.power != button_power_previous:
             button_power_previous = buttons.power
-            button_power_changed = True
 
-        button_power_long_press_changed = False
         if buttons.power_long_press != button_power_long_press_previous:
             button_power_long_press_previous = buttons.power_long_press
-            button_power_long_press_changed = True
-            system_data.system_power_state = not system_data.system_power_state
-            
-            if system_data.system_power_state:
-                system_data.turn_off_relay = True
+            system_data.system_power_state = False
+            system_data.turn_off_relay = True
+
+            label_x = 10
+            label_y = 18
+            label_1 = label.Label(terminalio.FONT, text=TEXT)
+            label_1.anchor_point = (0.0, 0.0)
+            label_1.anchored_position = (label_x, label_y)
+            label_1.scale = 1
+            label_1.text = "Shutting down"
+
+            g = displayio.Group()
+            g.append(label_1)
+            display.show(g)
+
+            while True:
+                motor.send_data()
+                
+                system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+                power_switch.update()
+
+                buttons.tick()
+                if buttons.power_long_press != button_power_long_press_previous:
+                    button_power_long_press_previous = buttons.power_long_press
+                    import supervisor
+                    supervisor.reload()
+                
+                time.sleep(0.1)
 
         if assist_level > 0 and button_down_changed:
             assist_level -= 1
