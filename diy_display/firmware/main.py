@@ -42,14 +42,18 @@ power_switch.update()
 motor.send_data()
 
 buttons = buttons.Buttons(
-        board.IO33, # POWER
-        board.IO37, # UP
-        board.IO35) # DOWN
+        board.IO39, # POWER
+        board.IO37, # LEFT
+        board.IO35, # RIGHT
+        board.IO33, # LIGHTS
+        board.IO18) # SWITCH
 
 button_power_previous = False
 button_power_long_press_previous = False
-button_up_previous = False
-button_down_previous = False
+button_left_previous = False
+button_right_previous = False
+button_lights_previous = False
+button_switch_previous = False
 
 displayObject = display.Display(
         board.IO7, # CLK pin
@@ -105,16 +109,16 @@ screen1_group = displayio.Group()
 screen1_group.append(label_1)
 display.show(screen1_group)
 
-time_previous = time.monotonic()
-while True:
-    now = time.monotonic()
-    if (now - time_previous) > 0.05:
-        time_previous = now
+# time_previous = time.monotonic()
+# while True:
+#     now = time.monotonic()
+#     if (now - time_previous) > 0.05:
+#         time_previous = now
 
-        buttons.tick()
-        if buttons.power:
-            system_data.motor_enable_state = True
-            break
+#         buttons.tick()
+#         if buttons.power:
+#             system_data.motor_enable_state = True
+#             break
 
 
 assist_level_area = label.Label(terminalio.FONT, text=TEXT)
@@ -146,7 +150,7 @@ warning_area.anchored_position = (2, 48)
 warning_area.scale = 1
 
 text_group = displayio.Group()
-# text_group.append(assist_level_area)
+text_group.append(assist_level_area)
 text_group.append(battery_voltage_area)
 text_group.append(label_1)
 # text_group.append(label_2)
@@ -250,53 +254,84 @@ while True:
 
         buttons.tick()
 
-        button_up_changed = False
-        if buttons.up != button_up_previous:
-            button_up_previous = buttons.up
-            button_up_changed = True
+        button_left_changed = False
+        if buttons.left != button_left_previous:
+            button_left_previous = buttons.left
+            button_left_changed = True
 
-        button_down_changed = False
-        if buttons.down != button_down_previous:
-            button_down_previous = buttons.down
+        button_right_changed = False
+        if buttons.right != button_right_previous:
+            button_right_previous = buttons.right
+            button_right_changed = True
 
+        button_power_changed = False
         if buttons.power != button_power_previous:
             button_power_previous = buttons.power
+            button_power_changed = True
 
         if buttons.power_long_press != button_power_long_press_previous:
             button_power_long_press_previous = buttons.power_long_press
-            system_data.motor_enable_state = False
-            system_data.turn_off_relay = True
+            # system_data.motor_enable_state = False
+            # system_data.turn_off_relay = True
 
-            label_x = 10
-            label_y = 18
-            label_1 = label.Label(terminalio.FONT, text=TEXT)
-            label_1.anchor_point = (0.0, 0.0)
-            label_1.anchored_position = (label_x, label_y)
-            label_1.scale = 1
-            label_1.text = "Shutting down"
+            # label_x = 10
+            # label_y = 18
+            # label_1 = label.Label(terminalio.FONT, text=TEXT)
+            # label_1.anchor_point = (0.0, 0.0)
+            # label_1.anchored_position = (label_x, label_y)
+            # label_1.scale = 1
+            # label_1.text = "Shutting down"
 
-            g = displayio.Group()
-            g.append(label_1)
-            display.show(g)
+            # g = displayio.Group()
+            # g.append(label_1)
+            # display.show(g)
 
-            while True:
-                motor.send_data()
+            # while True:
+            #     motor.send_data()
                 
-                system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
-                power_switch.update()
+            #     system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+            #     power_switch.update()
 
-                buttons.tick()
-                if buttons.power_long_press != button_power_long_press_previous:
-                    button_power_long_press_previous = buttons.power_long_press
-                    import supervisor
-                    supervisor.reload()
+            #     buttons.tick()
+            #     if buttons.power_long_press != button_power_long_press_previous:
+            #         button_power_long_press_previous = buttons.power_long_press
+            #         import supervisor
+            #         supervisor.reload()
                 
-                time.sleep(0.1)
+            #     time.sleep(0.1)
 
-        if assist_level > 0 and button_down_changed:
+        button_lights_changed = False
+        if buttons.lights != button_lights_previous:
+            button_lights_previous = buttons.lights
+            button_lights_changed = True
+
+        button_switch_changed = False
+        if buttons.switch != button_switch_previous:
+            button_switch_previous = buttons.switch
+            button_switch_changed = True
+            
+        if assist_level > 0 and button_right_changed:
             assist_level -= 1
-        elif assist_level < 20 and button_up_changed:
+        elif assist_level < 20 and button_left_changed:
             assist_level += 1
+
+
+        assist_level = 0
+        if button_power_changed:
+            assist_level &= 1
+
+        if button_left_changed:
+            assist_level &= 2
+        
+        if button_right_changed:
+            assist_level &= 4
+
+        if button_lights_changed:
+            assist_level &= 8
+
+        if button_switch_changed:
+            assist_level &= 16
+
 
         system_data.assist_level = assist_level
         assist_level_area.text = str(assist_level)
