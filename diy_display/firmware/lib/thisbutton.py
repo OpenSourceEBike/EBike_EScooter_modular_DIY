@@ -22,7 +22,8 @@ class thisButton:
         self.debouncing = False
         self.held = False
         
-        self.click_function = None
+        self.click_start_function = None
+        self.click_release_function = None
         self.long_press_start_function = None
         self.long_press_release_function = None
         self.held_function = None
@@ -61,7 +62,7 @@ class thisButton:
                 self.prev_state_change = self.cur_time
                 if self.debug == True: print("Click Down")
                 #if only click is defined, can fire the event now
-                if self.click_function is not None and self.click_only_assigned == True: self.click_function()
+                if self.click_start_function is not None and self.click_only_assigned == True: self.click_start_function()
                 
             elif self.active == True: #this is the second or more cycle where the button has been pressed
                 if self.cur_time - self.prev_state_change > self.long_press_threshold: #check if this exceeds the long press threshold
@@ -98,7 +99,8 @@ class thisButton:
             #Click release
             else: 
                 self.active = False
-                if self.click_function is not None and self.click_only_assigned == False: self.click_function()
+                if self.click_start_function is not None and self.click_only_assigned == False: self.click_start_function()
+                if self.click_release_function is not None: self.click_release_function()
                 if self.debug == True: print("Click release, duration: " + str(self.cur_time - self.prev_state_change))
             
         self.prev_state = self.cur_state
@@ -115,17 +117,20 @@ class thisButton:
         self.debouncing = True
         self.debounce_start = self.cur_time
 
-    def assignClick(self, function_name):
+    def assignClickStart(self, function_name):
         #this function will fire when the button is pressed if no other functions are assigned, otherwise it fires on button release
-        self.click_function = function_name
+        self.click_start_function = function_name
         if self.long_press_start_function is None and self.long_press_release_function is None and self.held_function is None:
             self.click_only_assigned = True
 
-    def assignLongPressStart(self, function_name):
+    def assignClickRelease(self, function_name):
+        self.click_release_function = function_name
+
+    def assignLongClickStart(self, function_name):
         self.long_press_start_function = function_name
         self.click_only_assigned = False
 
-    def assignLongPressRelease(self, function_name):
+    def assignLongClickRelease(self, function_name):
         #this fires when the button is released after either a long press or when it is held down
         self.long_press_release_function = function_name
         self.click_only_assigned = False
@@ -192,4 +197,3 @@ class thisButton:
     def buttonActive(self):
         #returns true while the button is currently pressed after debouncing, not necessarily during a long press
         return self.active
-

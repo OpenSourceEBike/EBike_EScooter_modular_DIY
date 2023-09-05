@@ -1,5 +1,4 @@
 import board
-import buttons
 import display
 import motor_board_espnow
 import system_data
@@ -7,12 +6,13 @@ import time
 import displayio
 from adafruit_display_text import label
 import terminalio
+import thisbutton as tb
 import power_switch_espnow
 import wifi
 import espnow as ESPNow
 
-import supervisor
-supervisor.runtime.autoreload = False
+# import supervisor
+# supervisor.runtime.autoreload = False
 
 print("Starting Display")
 
@@ -23,14 +23,16 @@ print("Starting Display")
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 mac_address_power_switch_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
 mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+mac_address_rear_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
+mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 ########################################
 
 system_data = system_data.SystemData()
 
 wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
-wifi.radio.start_ap(ssid="NO_SSID", channel=1)
-wifi.radio.stop_ap()
+# wifi.radio.start_ap(ssid="NO_SSID", channel=1)
+# wifi.radio.stop_ap()
 
 _espnow = ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
@@ -40,20 +42,6 @@ power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch
 system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
 power_switch.update()
 motor.send_data()
-
-buttons = buttons.Buttons(
-        board.IO39, # POWER
-        board.IO37, # LEFT
-        board.IO35, # RIGHT
-        board.IO33, # LIGHTS
-        board.IO18) # SWITCH
-
-button_power_previous = False
-button_power_long_press_previous = False
-button_left_previous = False
-button_right_previous = False
-button_lights_previous = False
-button_switch_previous = False
 
 displayObject = display.Display(
         board.IO7, # CLK pin
@@ -109,6 +97,7 @@ screen1_group = displayio.Group()
 screen1_group.append(label_1)
 display.show(screen1_group)
 
+# let's wait for a first click on power button
 # time_previous = time.monotonic()
 # while True:
 #     now = time.monotonic()
@@ -119,7 +108,6 @@ display.show(screen1_group)
 #         if buttons.power:
 #             system_data.motor_enable_state = True
 #             break
-
 
 assist_level_area = label.Label(terminalio.FONT, text=TEXT)
 assist_level_area.anchor_point = (0.0, 0.0)
@@ -162,7 +150,7 @@ display.show(text_group)
 assist_level = 0
 assist_level_state = 0
 now = time.monotonic()
-assist_level_time_previous = now
+buttons_time_previous = now
 display_time_previous = now
 ebike_rx_tx_data_time_previous = now
 power_switch_send_data_time_previous = now
@@ -176,6 +164,95 @@ vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
+
+def turn_off():
+  global system_data
+  system_data.motor_enable_state = False
+  system_data.turn_off_relay = True
+
+  global label_x
+  global label_y
+  global label_1
+  label_x = 10
+  label_y = 18
+  label_1 = label.Label(terminalio.FONT, text=TEXT)
+  label_1.anchor_point = (0.0, 0.0)
+  label_1.anchored_position = (label_x, label_y)
+  label_1.scale = 1
+  label_1.text = "Shutting down"
+
+  global display
+  g = displayio.Group()
+  g.append(label_1)
+  display.show(g)
+
+  global motor
+  global power_switch
+  global nr_buttons
+
+  while True:
+    time.sleep(0.1)
+    
+    motor.send_data()
+    
+    system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+    power_switch.update()
+
+    buttons[0].tick()
+
+    while not buttons[0].buttonActive:
+      buttons[0].tick()
+      time.sleep(0.1)
+      
+      while not buttons[0].buttonActive:
+        buttons[0].tick()
+        time.sleep(0.1)
+
+      print("reset")
+      import supervisor
+      supervisor.reload()
+      while True: pass
+
+def increase_assist_level():
+  global assist_level
+  if assist_level < 20:
+    assist_level += 1
+  print(assist_level)
+
+def decrease_assist_level():
+  global assist_level
+  if assist_level > 0:
+    assist_level -= 1
+  print(assist_level)
+
+### Setup buttons ###
+button_POWER, button_LEFT, button_RIGHT, button_LIGHTS, button_SWITCH = range(5)
+buttons_pins = [
+  board.IO39, # button_POWER
+  board.IO37, # button_LEFT   
+  board.IO35, # button_RIGHT
+  board.IO33, # button_LIGHTS 
+  board.IO18  # button_SWITCH
+]
+
+buttons_callbacks = {
+  button_POWER:   {'click_start': lambda: print(1), 'click_release': lambda: print(2), 'long_click_start': turn_off},
+  button_LEFT:    {'click_start': decrease_assist_level},
+  button_RIGHT:   {'click_start': increase_assist_level},
+  button_LIGHTS:  {'click_start': lambda: print(55), 'click_release': lambda: print(66)},
+  button_SWITCH:  {'click_start': lambda: print(77), 'click_release': lambda: print(88)}
+}
+
+nr_buttons = len(buttons_pins)
+buttons = [0] * nr_buttons
+for index in range(nr_buttons):
+  buttons[index] = tb.thisButton(buttons_pins[index], True)
+  buttons[index].setDebounceThreshold(30)
+  # check if each callback is defined, and if so, register it
+  if 'click_start' in buttons_callbacks[index]: buttons[index].assignClickStart(buttons_callbacks[index]['click_start'])
+  if 'click_release' in buttons_callbacks[index]: buttons[index].assignClickRelease(buttons_callbacks[index]['click_release'])
+  if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
+  if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
 
 while True:
     now = time.monotonic()
@@ -249,88 +326,33 @@ while True:
             warning_area.text = str("")
 
     now = time.monotonic()
-    if (now - assist_level_time_previous) > 0.05:
-        assist_level_time_previous = now
+    if (now - buttons_time_previous) > 0.05:
+        buttons_time_previous = now
 
-        buttons.tick()
-
-        button_left_changed = False
-        if buttons.left != button_left_previous:
-            button_left_previous = buttons.left
-            button_left_changed = True
-
-        button_right_changed = False
-        if buttons.right != button_right_previous:
-            button_right_previous = buttons.right
-            button_right_changed = True
-
-        button_power_changed = False
-        if buttons.power != button_power_previous:
-            button_power_previous = buttons.power
-            button_power_changed = True
-
-        if buttons.power_long_press != button_power_long_press_previous:
-            button_power_long_press_previous = buttons.power_long_press
-            # system_data.motor_enable_state = False
-            # system_data.turn_off_relay = True
-
-            # label_x = 10
-            # label_y = 18
-            # label_1 = label.Label(terminalio.FONT, text=TEXT)
-            # label_1.anchor_point = (0.0, 0.0)
-            # label_1.anchored_position = (label_x, label_y)
-            # label_1.scale = 1
-            # label_1.text = "Shutting down"
-
-            # g = displayio.Group()
-            # g.append(label_1)
-            # display.show(g)
-
-            # while True:
-            #     motor.send_data()
-                
-            #     system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
-            #     power_switch.update()
-
-            #     buttons.tick()
-            #     if buttons.power_long_press != button_power_long_press_previous:
-            #         button_power_long_press_previous = buttons.power_long_press
-            #         import supervisor
-            #         supervisor.reload()
-                
-            #     time.sleep(0.1)
-
-        button_lights_changed = False
-        if buttons.lights != button_lights_previous:
-            button_lights_previous = buttons.lights
-            button_lights_changed = True
-
-        button_switch_changed = False
-        if buttons.switch != button_switch_previous:
-            button_switch_previous = buttons.switch
-            button_switch_changed = True
+        for index in range(nr_buttons):
+            buttons[index].tick()
             
-        if assist_level > 0 and button_right_changed:
-            assist_level -= 1
-        elif assist_level < 20 and button_left_changed:
-            assist_level += 1
+        # if assist_level > 0 and button_right_changed:
+        #     assist_level -= 1
+        # elif assist_level < 20 and button_left_changed:
+        #     assist_level += 1
 
 
-        assist_level = 0
-        if button_power_changed:
-            assist_level &= 1
+        # assist_level = 0
+        # if button_power_changed:
+        #     assist_level &= 1
 
-        if button_left_changed:
-            assist_level &= 2
+        # if button_left_changed:
+        #     assist_level &= 2
         
-        if button_right_changed:
-            assist_level &= 4
+        # if button_right_changed:
+        #     assist_level &= 4
 
-        if button_lights_changed:
-            assist_level &= 8
+        # if button_lights_changed:
+        #     assist_level &= 8
 
-        if button_switch_changed:
-            assist_level &= 16
+        # if button_switch_changed:
+        #     assist_level &= 16
 
 
         system_data.assist_level = assist_level
