@@ -1,83 +1,67 @@
-import digitalio
 import thisbutton as tb
 
 class Buttons(object):
-    def __init__(self, power_pin, left_pin, right_pin, lights_pin, switch_pin):
+  def __init__(self, buttons_pins):
 
-        self._power_button = False
-        self._power_button_long_press = False
-        self._left_button = False
-        self._right_button = False
-        self._lights_button = False
-        self._switch_button = False
+    self._power_button = False
+    self._power_button_long_press = False
+    self._left_button = False
+    self._right_button = False
+    self._lights_button = False
+    self._switch_button = False
 
-        self._power = tb.thisButton(power_pin, True)
-        self._power.setDebounceThreshold(20)
-        self._power.assignClick(self._power_button_click_callback)
-        self._power.assignLongPressStart(self._power_button_long_click_callback)
-        self._left = tb.thisButton(left_pin, True)
-        self._left.setDebounceThreshold(20)
-        self._left.assignClick(self._left_button_click_callback)
-        self._right = tb.thisButton(right_pin, True)
-        self._right.setDebounceThreshold(20)
-        self._right.assignClick(self._right_button_click_callback)
-        self._lights = tb.thisButton(lights_pin, True)
-        self._lights.setDebounceThreshold(20)
-        self._lights.assignClick(self._lights_button_click_callback)
-        self._switch = tb.thisButton(switch_pin, True)
-        self._switch.setDebounceThreshold(20)
-        self._switch.assignClick(self._switch_button_click_callback)
+    self._nr_buttons = len(buttons_pins)
 
-    def _power_button_click_callback(self):
-      print("p")
-      self._power_button = not self._power_button
+    # on current implementation 
+    if self._nr_buttons != 5:
+      raise Exception('on current implementation, buttons must be 5')
 
-    def _power_button_long_click_callback(self):
-      self._power_button_long_press = not self._power_button_long_press
+    self._buttons_callbacks = 2 * self._nr_buttons # 2x to accomodate a call back for click and other for long click
+    self._buttons_callbacks[0] = _b0_click_callback
+    self._buttons_callbacks[1] = _b0_long_click_callback
+    self._buttons_callbacks[2] = _b1_click_callback
+    self._buttons_callbacks[3] = None
+    self._buttons_callbacks[4] = _b2_click_callback
+    self._buttons_callbacks[5] = None
+    self._buttons_callbacks[6] = _b3_click_callback
+    self._buttons_callbacks[7] = None
+    self._buttons_callbacks[8] = _b4_click_callback
+    self._buttons_callbacks[9] = None
 
-    def _left_button_click_callback(self):
-      print("l")
-      self._left_button = not self._left_button
+    self._buttons_state = [False] * self._nr_buttons
+    self._buttons = [0] * self._nr_buttons
 
-    def _right_button_click_callback(self):
-      print("r")
-      self._right_button = not self._right_button
+    for index in range(self._nr_buttons):
+      self._buttons[index] = tb.thisButton(buttons_pins[index][1], True)
+      self._buttons[index].setDebounceThreshold(20)
+      self._buttons[index].assignClick(self._buttons_callbacks[index * 2])
+      self._buttons[index].assignLongPressStart(self._buttons_callbacks[(index * 2) + 1])
 
-    def _lights_button_click_callback(self):
-      print("lights")
-      self._lights_button = not self._lights_button
+  def _b0_click_callback(self):
+    self._buttons_state[0] = not self._buttons_state[0]
 
-    def _switch_button_click_callback(self):
-      print("s")
-      self._switch_button = not self._switch_button
+  def _b0_long_click_callback(self):
+    self._buttons_state[1] = not self._buttons_state[1]
 
-    def tick(self):
-       self._power.tick()
-       self._left.tick()
-       self._right.tick()
-       self._lights.tick()
-       self._switch.tick()
+  def _b1_click_callback(self):
+    self._buttons_state[2] = not self._buttons_state[2]
 
-    @property
-    def power(self):
-        return self._power_button
-    
-    @property
-    def power_long_press(self):
-        return self._power_button_long_press
+  def _b2_click_callback(self):
+    self._buttons_state[4] = not self._buttons_state[4]
 
-    @property
-    def left(self):
-        return self._left_button
+  def _b3_click_callback(self):
+    self._buttons_state[6] = not self._buttons_state[6]
 
-    @property
-    def right(self):
-        return self._right_button
-    
-    @property
-    def lights(self):
-        return self._lights_button
+  def _b4_click_callback(self):
+    self._buttons_state[8] = not self._buttons_state[8]
 
-    @property
-    def switch(self):
-        return self._switch_button
+  def tick(self):
+    for index in range(self._nr_buttons):
+      self._buttons[index].tick()
+
+  @property
+  def state(self, button_index):
+    return (
+      (1 if self._buttons_state[button_index * 2] else 0)         |
+      (2 if self._buttons_state[(button_index * 2) + 1] else 0)
+      )
