@@ -751,7 +751,7 @@
     (uuid f47d62f2-ccbd-4f7f-848c-95af698a37c9)
   )
   (wire (pts (xy 153.67 189.23) (xy 172.72 189.23))
-    (stroke (width 0) (type default) (color 255 0 0 1))
+    (stroke (width 0) (type default) (color 255 0 130 1))
     (uuid f7c9a121-b766-432a-931d-6e12091aa56a)
   )
   (wire (pts (xy 220.98 148.59) (xy 251.46 148.59))
