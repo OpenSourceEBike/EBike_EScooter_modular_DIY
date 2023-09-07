@@ -1,12 +1,14 @@
 import espnow as ESPNow
 import supervisor
 
+cccounter_a = 0
+
 class Display(object):
     """Display"""
 
     def __init__(self, display_mac_address, system_data):
         self._system_data = system_data
-        self.my_espnow_id = 1
+        self.message_id = 1 # motor board ESPNow message ID
 
         self._espnow = ESPNow.ESPNow()
         peer = ESPNow.Peer(mac=bytes(display_mac_address), channel=1)
@@ -29,7 +31,7 @@ class Display(object):
             if data is not None:
                 data = [n for n in data.msg.split()]
                 # only process packages for us
-                if int(data[0]) == self.my_espnow_id:
+                if int(data[0]) == self.message_id:
                     self._system_data.motor_enable_state = True if int(data[1]) != 0 else False
         except:
             supervisor.reload()
