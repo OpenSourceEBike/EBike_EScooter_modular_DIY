@@ -8,11 +8,12 @@ from adafruit_display_text import label
 import terminalio
 import thisbutton as tb
 import power_switch_espnow
+import rear_lights_espnow
 import wifi
 import espnow as ESPNow
 
-# import supervisor
-# supervisor.runtime.autoreload = False
+import supervisor
+supervisor.runtime.autoreload = False
 
 print("Starting Display")
 
@@ -31,16 +32,18 @@ system_data = system_data.SystemData()
 
 wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
-# wifi.radio.start_ap(ssid="NO_SSID", channel=1)
-# wifi.radio.stop_ap()
+wifi.radio.start_ap(ssid="NO_SSID", channel=1)
+wifi.radio.stop_ap()
 
 _espnow = ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data) # System data object to hold the EBike data
+motor_peer = motor.get_peer()
+power_switch = power_switch_espnow.PowerSwitch(_espnow, motor_peer, mac_address_power_switch_board, system_data)
+rear_lights = rear_lights_espnow.RearLights(_espnow, motor_peer, mac_address_rear_lights_board, system_data)
 
 # this will try send data over ESPNow and if there is an error, will restart
 system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
-power_switch.update()
+# just to check if is possible to send data to motor
 motor.send_data()
 
 displayObject = display.Display(
@@ -83,32 +86,6 @@ def filter_motor_power(motor_power):
 
     return motor_power
 
-
-# screen 1
-label_x = 10
-label_y = 18
-label_1 = label.Label(terminalio.FONT, text=TEXT)
-label_1.anchor_point = (0.0, 0.0)
-label_1.anchored_position = (label_x, label_y)
-label_1.scale = 1
-label_1.text = "Ready to power on"
-
-screen1_group = displayio.Group()
-screen1_group.append(label_1)
-display.show(screen1_group)
-
-# let's wait for a first click on power button
-# time_previous = time.monotonic()
-# while True:
-#     now = time.monotonic()
-#     if (now - time_previous) > 0.05:
-#         time_previous = now
-
-#         buttons.tick()
-#         if buttons.power:
-#             system_data.motor_enable_state = True
-#             break
-
 assist_level_area = label.Label(terminalio.FONT, text=TEXT)
 assist_level_area.anchor_point = (0.0, 0.0)
 assist_level_area.anchored_position = (4, 0)
@@ -137,22 +114,13 @@ warning_area.anchor_point = (0.0, 0.0)
 warning_area.anchored_position = (2, 48)
 warning_area.scale = 1
 
-text_group = displayio.Group()
-text_group.append(assist_level_area)
-text_group.append(battery_voltage_area)
-text_group.append(label_1)
-# text_group.append(label_2)
-text_group.append(label_3)
-text_group.append(warning_area)
-
-display.show(text_group)
-
 assist_level = 0
 assist_level_state = 0
 now = time.monotonic()
 buttons_time_previous = now
 display_time_previous = now
 ebike_rx_tx_data_time_previous = now
+rear_lights_send_data_time_previous = now
 power_switch_send_data_time_previous = now
 
 battery_voltage_previous_x10 = 9999
@@ -164,6 +132,13 @@ vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
+
+rear_light_pin_tail_bit = 1
+rear_light_pin_stop_bit = 2
+rear_light_pin_turn_left_bit = 4
+rear_light_pin_turn_right_bit = 8
+# keep tail light always on
+system_data.rear_lights_board_pins_state = rear_light_pin_tail_bit
 
 def turn_off():
   global system_data
@@ -198,14 +173,14 @@ def turn_off():
     system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
     power_switch.update()
 
-    buttons[0].tick()
+    buttons[button_POWER].tick()
 
-    while not buttons[0].buttonActive:
-      buttons[0].tick()
+    while not buttons[button_POWER].buttonActive:
+      buttons[button_POWER].tick()
       time.sleep(0.1)
       
-      while not buttons[0].buttonActive:
-        buttons[0].tick()
+      while not buttons[button_POWER].buttonActive:
+        buttons[button_POWER].tick()
         time.sleep(0.1)
 
       print("reset")
@@ -225,6 +200,44 @@ def decrease_assist_level():
     assist_level -= 1
   print(assist_level)
 
+def button_power_click_start_cb():
+  pass
+
+def button_power_click_release_cb():
+  pass
+
+def button_power_long_click_start_cb():
+  # only turn off after initial motor enable
+  if system_data.motor_enable_state:
+    turn_off()
+
+def button_power_long_click_release_cb():
+  pass
+
+def button_left_click_start_cb():
+  system_data.rear_lights_board_pins_state |= rear_light_pin_turn_left_bit
+
+def button_left_click_release_cb():
+  system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_left_bit
+
+def button_right_click_start_cb():
+  system_data.rear_lights_board_pins_state |= rear_light_pin_turn_right_bit
+
+def button_right_click_release_cb():
+  system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
+
+def button_lights_click_start_cb():
+  pass
+
+def button_lights_click_release_cb():
+  pass
+
+def button_switch_click_start_cb():
+  pass
+
+def button_switch_click_release_cb():
+  pass
+
 ### Setup buttons ###
 button_POWER, button_LEFT, button_RIGHT, button_LIGHTS, button_SWITCH = range(5)
 buttons_pins = [
@@ -236,11 +249,23 @@ buttons_pins = [
 ]
 
 buttons_callbacks = {
-  button_POWER:   {'click_start': lambda: print(1), 'click_release': lambda: print(2), 'long_click_start': turn_off},
-  button_LEFT:    {'click_start': decrease_assist_level},
-  button_RIGHT:   {'click_start': increase_assist_level},
-  button_LIGHTS:  {'click_start': lambda: print(55), 'click_release': lambda: print(66)},
-  button_SWITCH:  {'click_start': lambda: print(77), 'click_release': lambda: print(88)}
+  button_POWER: {
+    'click_start': button_power_click_start_cb,
+    'click_release': button_power_click_release_cb,
+    'long_click_start': button_power_long_click_start_cb,
+    'long_click_release': button_power_long_click_release_cb},
+  button_LEFT: {
+    'click_start': button_left_click_start_cb,
+    'click_release': button_left_click_release_cb},
+  button_RIGHT: {
+    'click_start': button_right_click_start_cb,
+    'click_release': button_right_click_release_cb},
+  button_LIGHTS: {
+    'click_start': button_lights_click_start_cb,
+    'click_release': button_lights_click_release_cb},
+  button_SWITCH: {
+    'click_start': button_switch_click_start_cb,
+    'click_release': button_switch_click_release_cb}
 }
 
 nr_buttons = len(buttons_pins)
@@ -253,6 +278,46 @@ for index in range(nr_buttons):
   if 'click_release' in buttons_callbacks[index]: buttons[index].assignClickRelease(buttons_callbacks[index]['click_release'])
   if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
   if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
+
+# show init screen
+label_x = 10
+label_y = 18
+label_init_screen = label.Label(terminalio.FONT, text=TEXT)
+label_init_screen.anchor_point = (0.0, 0.0)
+label_init_screen.anchored_position = (label_x, label_y)
+label_init_screen.scale = 1
+label_init_screen.text = "Ready to power on"
+screen1_group = displayio.Group()
+screen1_group.append(label_init_screen)
+display.show(screen1_group)
+
+# let's wait for a first click on power button
+time_previous = time.monotonic()
+while True:
+  now = time.monotonic()
+  if (now - time_previous) > 0.05:
+    time_previous = now
+
+    buttons[button_POWER].tick()
+
+    if buttons[button_POWER].buttonActive:
+
+      # wait for user to release the button
+      while buttons[button_POWER].buttonActive:
+        buttons[button_POWER].tick()
+
+      system_data.motor_enable_state = True
+      break
+
+# show main screen
+text_group = displayio.Group()
+# text_group.append(assist_level_area)
+text_group.append(battery_voltage_area)
+text_group.append(label_1)
+# text_group.append(label_2)
+text_group.append(label_3)
+text_group.append(warning_area)
+display.show(text_group)
 
 while True:
     now = time.monotonic()
@@ -306,6 +371,18 @@ while True:
         motor.process_data()
 
     now = time.monotonic()
+    if (now - rear_lights_send_data_time_previous) > 0.1:
+        rear_lights_send_data_time_previous = now
+
+        # if we are braking, enable brake light
+        if system_data.motor_current_x100 > 25000:
+            system_data.rear_lights_board_pins_state |= rear_light_pin_stop_bit
+        else:
+            system_data.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
+
+        rear_lights.update()
+
+    now = time.monotonic()
     if (now - power_switch_send_data_time_previous) > 0.25:
         power_switch_send_data_time_previous = now
 
@@ -331,29 +408,6 @@ while True:
 
         for index in range(nr_buttons):
             buttons[index].tick()
-            
-        # if assist_level > 0 and button_right_changed:
-        #     assist_level -= 1
-        # elif assist_level < 20 and button_left_changed:
-        #     assist_level += 1
 
-
-        # assist_level = 0
-        # if button_power_changed:
-        #     assist_level &= 1
-
-        # if button_left_changed:
-        #     assist_level &= 2
-        
-        # if button_right_changed:
-        #     assist_level &= 4
-
-        # if button_lights_changed:
-        #     assist_level &= 8
-
-        # if button_switch_changed:
-        #     assist_level &= 16
-
-
-        system_data.assist_level = assist_level
-        assist_level_area.text = str(assist_level)
+        # system_data.assist_level = assist_level
+        # assist_level_area.text = str(assist_level)

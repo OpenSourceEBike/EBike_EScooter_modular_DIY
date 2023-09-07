@@ -3,13 +3,13 @@ import supervisor
 
 class MotorBoard(object):
     def __init__(self, _espnow, mac_address, system_data):
-        self._motor_board_espnow = _espnow
-        peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
-        self._motor_board_espnow.peers.append(peer)
+        self._espnow = _espnow
+        self._peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
+        self._espnow.peers.append(self._peer)
 
         self._packets = []
         self._system_data = system_data
-        self.motor_board_espnow_id = 1
+        self.message_id = 1 # motor board ESPNow messages ID
         
     def process_data(self):
         try:
@@ -18,7 +18,7 @@ class MotorBoard(object):
 
             # read a package and discard others available
             while True:
-                data_temp = self._motor_board_espnow.read()
+                data_temp = self._espnow.read()
                 if data_temp is None:
                     break
                 else:
@@ -33,11 +33,16 @@ class MotorBoard(object):
                 self._system_data.motor_speed_erpm = int(data[3])
                 self._system_data.brakes_are_active = True if int(data[4]) == 1 else False
         except:
-            supervisor.reload()
+            pass
 
     def send_data(self):
         try:
             motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-            self._motor_board_espnow.send(f"{int(self.motor_board_espnow_id)} {motor_enable_state}")
+            self._espnow.send(f"{int(self.message_id)} {motor_enable_state}")
         except:
+            # this should not happen, as the motor board should exist and ready to receive ESPNow communication
+            # but if for some reason this fails, reset the display
             supervisor.reload()
+
+    def get_peer(self):
+        return self._peer

@@ -1,10 +1,10 @@
 import espnow as ESPNow
 
-class PowerSwitch(object):
+class RearLights(object):
 
     def __init__(self, _espnow, motor_peer, mac_address, system_data):
         self._system_data = system_data
-        self.message_id = 4 # power switch ESPNow messages ID
+        self.message_id = 8 # rear lights ESPNow messages ID
 
         self._espnow = _espnow
         self._motor_peer = motor_peer
@@ -15,7 +15,7 @@ class PowerSwitch(object):
             # add peer before sending the message
             self._espnow.peers.append(self._peer)
             self._espnow.peers.remove(self._motor_peer)
-            self._espnow.send(f"{self.message_id} {int(self._system_data.display_communication_counter)} {int(self._system_data.turn_off_relay)}")
+            self._espnow.send(f"{self.message_id} {int(self._system_data.rear_lights_board_pins_state)}")
             self._espnow.peers.append(self._motor_peer)
             # now remove the peer
             self._espnow.peers.remove(self._peer)

@@ -21,4 +21,4 @@ class SystemData(object):
         self.display_communication_counter = 0
         self.turn_off_relay = False
         self.motor_enable_state = False
-        
+        self.rear_lights_board_pins_state = 0
