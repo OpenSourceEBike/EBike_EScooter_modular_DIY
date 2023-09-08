@@ -138,7 +138,7 @@ rear_light_pin_stop_bit = 2
 rear_light_pin_turn_left_bit = 4
 rear_light_pin_turn_right_bit = 8
 # keep tail light always on
-system_data.rear_lights_board_pins_state = rear_light_pin_tail_bit
+system_data.rear_lights_board_pins_state = 0
 
 def turn_off():
   global system_data
@@ -227,10 +227,10 @@ def button_right_click_release_cb():
   system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
 
 def button_lights_click_start_cb():
-  pass
+  system_data.lights_state = True
 
 def button_lights_click_release_cb():
-  pass
+  system_data.lights_state = False
 
 def button_switch_click_start_cb():
   pass
@@ -306,6 +306,7 @@ while True:
       while buttons[button_POWER].buttonActive:
         buttons[button_POWER].tick()
 
+      # motor board will now enable the motor
       system_data.motor_enable_state = True
       break
 
@@ -371,14 +372,22 @@ while True:
         motor.process_data()
 
     now = time.monotonic()
-    if (now - rear_lights_send_data_time_previous) > 0.1:
+    if (now - rear_lights_send_data_time_previous) > 0.05:
         rear_lights_send_data_time_previous = now
 
+        # print(system_data.motor_current_x100)
+
         # if we are braking, enable brake light
-        if system_data.motor_current_x100 > 25000:
+        if system_data.brakes_are_active or system_data.motor_current_x100 < -100.0:
             system_data.rear_lights_board_pins_state |= rear_light_pin_stop_bit
         else:
             system_data.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
+
+        # if lights are enable, enable the tail light 
+        if system_data.lights_state:
+            system_data.rear_lights_board_pins_state |= rear_light_pin_tail_bit
+        else:
+            system_data.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
 
         rear_lights.update()
 
@@ -411,3 +420,4 @@ while True:
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
+
