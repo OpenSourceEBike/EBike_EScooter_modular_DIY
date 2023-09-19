@@ -121,8 +121,8 @@ async def task_vesc_display_refresh_data():
         display.update()
         gc.collect()
 
-        # idle 250ms
-        await asyncio.sleep(0.25)
+        # idle 100ms
+        await asyncio.sleep(0.1)
 
 async def task_display_refresh_data():
     while True:
@@ -172,7 +172,7 @@ async def task_control_motor():
             throttle_value_filtered,
             0.0, # min input
             1000.0, # max input
-            950.0, # min output
+            500.0, # min output
             motor_max_speed_target) # max output
         ##########################################################################################
 
@@ -180,7 +180,7 @@ async def task_control_motor():
         if motor_target_current < (motor_min_current_start + 1):
             motor_target_current = 0.0
 
-        if motor_target_speed < 1200.0:
+        if motor_target_speed < 500.0:
             motor_target_speed = 0.0
     
         # apply ramp up / down factor: faster when ramp down
@@ -215,15 +215,16 @@ async def task_control_motor():
         if system_data.motor_target_current < 1.0:
             system_data.motor_target_current = 0.0
 
-        if system_data.motor_target_speed < 949.0: # 1kms/h
+        if system_data.motor_target_speed < 500.0: # 2 kms/h
             system_data.motor_target_speed = 0.0
 
         # if brakes are active, set our motor target as zero
-        system_data.brakes_are_active = False
         if brake_sensor.value:
             system_data.motor_target_current = 0.0
             system_data.motor_target_speed = 0.0
             system_data.brakes_are_active = True
+        else:
+            system_data.brakes_are_active = False
 
         # if motor state is off, set our motor target as zero
         if system_data.motor_enable_state == False:
