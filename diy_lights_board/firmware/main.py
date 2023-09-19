@@ -1,25 +1,26 @@
+import supervisor
+supervisor.runtime.autoreload = False
+
 import board
 import digitalio
 import time
 import gc
 import espnow_comms
 
-import supervisor
-supervisor.runtime.autoreload = False
+FRONT_VERSION, REAR_VERSION = range(2)
 
 ################################################################
 # CONFIGURATIONS
 
-FRONT, REAR = range(2)
-lights_board_version = FRONT
+lights_board = FRONT_VERSION
 
-if lights_board_version is FRONT:
+if lights_board is FRONT_VERSION:
   # front lights board ESPNow MAC Address
   my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
   # front lights board ESPNow messages ID = 8
   message_id = 16
-elif lights_board_version is REAR:
+elif lights_board is REAR_VERSION:
   # rear lights board ESPNow MAC Address
   my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
 
@@ -44,8 +45,11 @@ espnow_comms = espnow_comms.ESPNowComms(my_mac_address, message_id)
 io_pins_target = 0
 io_pins_target_previous = 0
 cycles_with_no_received_display_message_counter = 0
-turn_lights_blink_counter = 0
-turn_lights_blink_state = False
+
+# variables only used on REAR_VERSION
+if lights_board is REAR_VERSION:
+  turn_lights_blink_counter = 0
+  turn_lights_blink_state = False
 
 def set_io_pins(io_pins_target):
   # loop over all the pins and set their target values
@@ -68,7 +72,8 @@ while True:
       io_pins_target_previous = 0
       set_io_pins(0)
 
-  if lights_board_version is REAR:
+  if lights_board is REAR_VERSION:
+    print(1)
     # let's disable here the turn lights pins
     if turn_lights_blink_state is False:
       io_pins_target &= 0b0011
@@ -78,12 +83,12 @@ while True:
     io_pins_target_previous = io_pins_target
     set_io_pins(io_pins_target)
 
-  if lights_board_version is REAR:
+  if lights_board is REAR_VERSION:
     # let's blink turn_lights_blink_state
     # SAE J1690 and associated standards FMVSS 108 and IEC 60809 specify 60 - 120 flashes per minute for turn signals, with 90 per minute as a target.
     # assuming loop of 25ms, 25 * 25ms = 625ms which is about 90 times per minute
     turn_lights_blink_counter += 1
-    if turn_lights_blink_counter % 25 is 0:
+    if turn_lights_blink_counter % 22 is 0:
       turn_lights_blink_state = not turn_lights_blink_state
 
   # do memory clean
@@ -91,4 +96,9 @@ while True:
 
   # try to get 25ms loop time
   loop_code_total_time = time.monotonic() - loop_code_time_begin
-  time.sleep(0.025 - loop_code_total_time)
+  next_sleep_time = 0.025 - loop_code_total_time
+  # avoid to small or even negative values
+  if next_sleep_time < 0.001:
+    next_sleep_time = 0.001
+
+  time.sleep(next_sleep_time)
