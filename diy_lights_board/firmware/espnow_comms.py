@@ -9,11 +9,19 @@ class ESPNowComms(object):
         self._message_id = message_id
         self._espnow = espnow.ESPNow()
         
-    def get_data(self):
-        received_data = None
-
+    def get_data(self):    
+        received_data = None    
+        data = None
         try:
-            data = self._espnow.read()
+            # read a package and discard others available
+            while True:
+                rx_data = self._espnow.read()
+                if rx_data is None:
+                    break
+                else:
+                    data = rx_data
+
+            # process the package, if available
             if data is not None:
                 data = [n for n in data.msg.split()]
                 # only process packages for us
