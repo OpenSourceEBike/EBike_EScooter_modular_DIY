@@ -3,7 +3,7 @@ import time
 import supervisor
 import asyncio
 import simpleio
-import system_data
+import system_data as _SystemData
 import vesc
 import brake
 import throttle
@@ -11,25 +11,19 @@ from microcontroller import watchdog
 from watchdog import WatchDogMode
 import gc
 import escooter_fiido_q1_s.display_espnow as display_espnow
-import wifi
-
 import escooter_fiido_q1_s.logger as logger
-logger_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf9]
-_logger = logger.Logger(logger_mac_address, system_data)
+import wifi
 
 import supervisor
 supervisor.runtime.autoreload = False
 
-wifi.radio.enabled = True
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 wifi.radio.mac_address = bytearray(my_mac_address)
+wifi.radio.enabled = True
 
 class MotorControlScheme:
     CURRENT = 0
     SPEED_CURRENT = 1
-
-# while True:
-#     pass
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -67,6 +61,9 @@ display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 ###############################################
 
+logger_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf9]
+_system_data = _SystemData.SystemData()
+
 brake_sensor = brake.Brake(
    board.IO12) # brake sensor pin
 
@@ -75,14 +72,10 @@ throttle = throttle.Throttle(
     min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
     max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
 
-system_data = system_data.SystemData()
-
 vesc = vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
-    system_data)
-
-display = display_espnow.Display(display_mac_address, system_data, _logger._espnow)
+    _system_data)
 
 throttle_lowpass_filter_state = None
 def lowpass_filter(sample, filter_constant):
@@ -114,6 +107,10 @@ def utils_step_towards(current_value, target_value, step):
             value = target_value
 
     return value
+
+# don't know why, but if this objects related to ESPNow are started earlier, system will enter safemode
+_logger = logger.Logger(logger_mac_address, _system_data)
+display = display_espnow.Display(display_mac_address, _system_data, _logger._espnow)
 
 async def task_log_data_espnow():
     counter = 0
@@ -176,13 +173,13 @@ async def task_control_motor():
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
         throttle_adc_previous_value = throttle.adc_previous_value
-        if throttle_adc_previous_value > throttle_adc_over_max_error:
-            # send 3x times the motor current 0, to make sure VESC receives it
-            vesc.set_motor_current_amps(0)
-            vesc.set_motor_current_amps(0)
-            vesc.set_motor_current_amps(0)
-            print(f"throttle_adc_previous_value: {throttle_adc_previous_value}")
-            raise Exception("throttle value is over max, this can be dangerous!")
+        # if throttle_adc_previous_value > throttle_adc_over_max_error:
+        #     # send 3x times the motor current 0, to make sure VESC receives it
+        #     vesc.set_motor_current_amps(0)
+        #     vesc.set_motor_current_amps(0)
+        #     vesc.set_motor_current_amps(0)
+        #     print(f"throttle_adc_previous_value: {throttle_adc_previous_value}")
+        #     raise Exception("throttle value is over max, this can be dangerous!")
     
         motor_target_current = simpleio.map_range(
             throttle_value_filtered,
@@ -207,57 +204,57 @@ async def task_control_motor():
             motor_target_speed = 0.0
     
         # apply ramp up / down factor: faster when ramp down
-        if motor_target_current > system_data.motor_target_current:
+        if motor_target_current > _system_data.motor_target_current:
             ramp_time_current = current_ramp_up_time
         else:
             ramp_time_current = current_ramp_down_time
 
-        if motor_target_speed > system_data.motor_target_speed:
+        if motor_target_speed > _system_data.motor_target_speed:
             ramp_time_speed = speed_ramp_up_time
         else:
             ramp_time_speed = speed_ramp_down_time
             
         time_now = time.monotonic_ns()
-        ramp_step = (time_now - system_data.ramp_current_last_time) / (ramp_time_current * 40_000_000)
-        system_data.ramp_current_last_time = time_now
-        system_data.motor_target_current = utils_step_towards(system_data.motor_target_current, motor_target_current, ramp_step)
+        ramp_step = (time_now - _system_data.ramp_current_last_time) / (ramp_time_current * 40_000_000)
+        _system_data.ramp_current_last_time = time_now
+        _system_data.motor_target_current = utils_step_towards(_system_data.motor_target_current, motor_target_current, ramp_step)
 
         time_now = time.monotonic_ns()
-        ramp_step = (time_now - system_data.ramp_speed_last_time) / (ramp_time_speed * 40_000_000)
-        system_data.ramp_speed_last_time = time_now
-        system_data.motor_target_speed = utils_step_towards(system_data.motor_target_speed, motor_target_speed, ramp_step)
+        ramp_step = (time_now - _system_data.ramp_speed_last_time) / (ramp_time_speed * 40_000_000)
+        _system_data.ramp_speed_last_time = time_now
+        _system_data.motor_target_speed = utils_step_towards(_system_data.motor_target_speed, motor_target_speed, ramp_step)
 
         # let's limit the value
-        if system_data.motor_target_current > motor_max_current_limit:
-            system_data.motor_target_current = motor_max_current_limit
+        if _system_data.motor_target_current > motor_max_current_limit:
+            _system_data.motor_target_current = motor_max_current_limit
 
-        if system_data.motor_target_speed > motor_max_speed_limit:
-            system_data.motor_target_speed = motor_max_speed_limit
+        if _system_data.motor_target_speed > motor_max_speed_limit:
+            _system_data.motor_target_speed = motor_max_speed_limit
             
         # limit very small and negative values
-        if system_data.motor_target_current < 1.0:
-            system_data.motor_target_current = 0.0
+        if _system_data.motor_target_current < 1.0:
+            _system_data.motor_target_current = 0.0
 
-        if system_data.motor_target_speed < 500.0: # 2 kms/h
-            system_data.motor_target_speed = 0.0
+        if _system_data.motor_target_speed < 500.0: # 2 kms/h
+            _system_data.motor_target_speed = 0.0
 
         # if brakes are active, set our motor target as zero
         if brake_sensor.value:
-            system_data.motor_target_current = 0.0
-            system_data.motor_target_speed = 0.0
-            system_data.brakes_are_active = True
+            _system_data.motor_target_current = 0.0
+            _system_data.motor_target_speed = 0.0
+            _system_data.brakes_are_active = True
         else:
-            system_data.brakes_are_active = False
+            _system_data.brakes_are_active = False
 
         # if motor state is off, set our motor target as zero
-        if system_data.motor_enable_state == False:
-            system_data.motor_target_current = 0.0
-            system_data.motor_target_speed = 0.0
+        if _system_data.motor_enable_state == False:
+            _system_data.motor_target_current = 0.0
+            _system_data.motor_target_speed = 0.0
 
         if motor_control_scheme == MotorControlScheme.CURRENT:
-            vesc.set_motor_current_amps(system_data.motor_target_current)
+            vesc.set_motor_current_amps(_system_data.motor_target_current)
         elif motor_control_scheme == MotorControlScheme.SPEED_CURRENT:
-            vesc.set_motor_speed_rpm(system_data.motor_target_speed)
+            vesc.set_motor_speed_rpm(_system_data.motor_target_speed)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
@@ -266,25 +263,6 @@ async def task_control_motor():
 
         # idle 20ms
         await asyncio.sleep(0.02)
-
-async def task_various_0_5s():
-    assert(wheel_circunference > 100), "wheel_circunference must be higher then 100mm (4 inches wheel)"
-    
-    while True:
-        # # calculate wheel speed
-        # # 15 pole pairs on Xiaomi M365 motor
-        # # 1h --> 60 minutes
-        # # 60 * 3.14 = 188.4
-        # # 188.4 / 15 = 12,56
-        # # mm to km --> 1000000 --> 0,00001256
-        # system_data.wheel_speed = int(wheel_circunference * system_data.motor_speed_erpm * 0.00001256)
-        # if system_data.wheel_speed > 99:
-        #     system_data.wheel_speed = 99
-        # elif system_data.wheel_speed < 0:
-        #     system_data.wheel_speed = 0
-        pass
-
-        await asyncio.sleep(0.5)
 
 async def main():
 
@@ -308,4 +286,3 @@ async def main():
                         #  various_0_5s_task)
 
 asyncio.run(main())
-
