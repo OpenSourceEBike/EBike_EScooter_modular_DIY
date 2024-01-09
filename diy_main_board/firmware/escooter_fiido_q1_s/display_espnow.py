@@ -14,8 +14,17 @@ class Display(object):
         self._espnow.peers.append(peer)
 
     def process_data(self):
+        data = None
         try:
-            data = self._espnow.read()
+            # read a package and discard others available
+            while True:
+                rx_data = self._espnow.read()
+                if rx_data is None:
+                    break
+                else:
+                    data = rx_data
+            
+            # process the package, if available
             if data is not None:
                 data = [n for n in data.msg.split()]
                 # only process packages for us
