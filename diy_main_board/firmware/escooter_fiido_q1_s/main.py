@@ -13,6 +13,10 @@ import gc
 import escooter_fiido_q1_s.display_espnow as display_espnow
 import wifi
 
+import escooter_fiido_q1_s.logger as logger
+logger_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf9]
+_logger = logger.Logger(logger_mac_address, system_data)
+
 import supervisor
 supervisor.runtime.autoreload = False
 
@@ -78,7 +82,7 @@ vesc = vesc.Vesc(
     board.IO14, # UART RX pin that connect to VESC
     system_data)
 
-display = display_espnow.Display(display_mac_address, system_data)
+display = display_espnow.Display(display_mac_address, system_data, _logger._espnow)
 
 throttle_lowpass_filter_state = None
 def lowpass_filter(sample, filter_constant):
@@ -110,6 +114,25 @@ def utils_step_towards(current_value, target_value, step):
             value = target_value
 
     return value
+
+async def task_log_data_espnow():
+    counter = 0
+
+    while True:
+        # ask for VESC latest data
+        vesc.refresh_data()
+        gc.collect()
+
+        # send data to the display
+        counter = (counter + 1) % 4
+        if counter == 0:
+            display.update()
+
+        _logger.update()
+        gc.collect()
+
+        # idle 100ms
+        await asyncio.sleep(0.025)
 
 async def task_vesc_display_refresh_data():
     while True:
@@ -272,7 +295,9 @@ async def main():
     watchdog.timeout = 1
     watchdog.mode = WatchDogMode.RESET
 
-    vesc_display_refresh_data_task = asyncio.create_task(task_vesc_display_refresh_data())
+    # vesc_display_refresh_data_task = asyncio.create_task(task_vesc_display_refresh_data())
+    vesc_display_refresh_data_task = asyncio.create_task(task_log_data_espnow())
+    
     display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     # various_0_5s_task = asyncio.create_task(task_various_0_5s())

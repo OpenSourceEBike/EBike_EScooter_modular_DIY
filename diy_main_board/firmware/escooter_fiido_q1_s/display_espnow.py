@@ -1,15 +1,14 @@
 import espnow as ESPNow
 
-cccounter_a = 0
-
 class Display(object):
     """Display"""
 
-    def __init__(self, display_mac_address, system_data):
+    def __init__(self, display_mac_address, system_data, espnow):
         self._system_data = system_data
         self.message_id = 1 # motor board ESPNow message ID
 
-        self._espnow = ESPNow.ESPNow()
+        # self._espnow = ESPNow.ESPNow()
+        self._espnow = espnow
         peer = ESPNow.Peer(mac=bytes(display_mac_address), channel=1)
         self._espnow.peers.append(peer)
 
