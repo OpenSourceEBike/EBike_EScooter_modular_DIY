@@ -3,14 +3,14 @@ import time
 import supervisor
 import asyncio
 import simpleio
-import system_data
-import vesc
-import brake
-import throttle
+import system_data as SystemData
+import vesc as Vesc
+import Brake
+import throttle as Throttle
 from microcontroller import watchdog
 from watchdog import WatchDogMode
 import gc
-import escooter_fiido_q1_s.display_espnow as display_espnow
+import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 import wifi
 
 import supervisor
@@ -63,22 +63,20 @@ display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 ###############################################
 
-brake_sensor = brake.Brake(
+brake_sensor = Brake.Brake(
    board.IO12) # brake sensor pin
 
-throttle = throttle.Throttle(
+throttle = Throttle.Throttle(
     board.IO11, # ADC pin for throttle
     min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
     max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
 
-system_data = system_data.SystemData()
+system_data = SystemData.SystemData()
 
-vesc = vesc.Vesc(
+vesc = Vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
     system_data)
-
-display = display_espnow.Display(display_mac_address, system_data)
 
 throttle_lowpass_filter_state = None
 def lowpass_filter(sample, filter_constant):
@@ -110,6 +108,9 @@ def utils_step_towards(current_value, target_value, step):
             value = target_value
 
     return value
+
+# don't know why, but if this objects related to ESPNow are started earlier, system will enter safemode
+display = DisplayESPnow.Display(display_mac_address, system_data)
 
 async def task_vesc_display_refresh_data():
     while True:
