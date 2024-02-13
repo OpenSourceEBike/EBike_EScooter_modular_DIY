@@ -12,7 +12,7 @@ FRONT_VERSION, REAR_VERSION = range(2)
 ################################################################
 # CONFIGURATIONS
 
-lights_board = REAR_VERSION
+lights_board = FRONT_VERSION
 disable_tail_brake_while_blink_on = True
 
 if lights_board is FRONT_VERSION:
@@ -29,6 +29,12 @@ elif lights_board is REAR_VERSION:
   message_id = 8
 
 ################################################################
+
+# print versions
+if lights_board is FRONT_VERSION:
+  print("Starting the DIY Lights board - front version")
+elif lights_board is REAR_VERSION:
+  print("Starting the DIY Lights board - rear version")
 
 # enable the IO pins
 switch_pins_numbers = [board.IO33, board.IO35, board.IO37, board.IO39]
