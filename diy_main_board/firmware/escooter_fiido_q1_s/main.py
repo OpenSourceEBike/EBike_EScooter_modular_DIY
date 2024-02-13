@@ -39,7 +39,11 @@ motor_poles_pair = 15
 wheel_circunference = 305.0
 
 # max wheel speed in ERPM
-motor_max_speed_limit = 13100 # 50kms/h
+# tire diameter: 0.33 meters
+# tire RPM: 884
+# motor poles: 15
+# motor ERPM: 13263 to get 55kms/h wheel speed
+motor_max_speed_limit = 13263 # 55kms/h
 
 # throttle value of original Fiido Q1S throttle
 throttle_adc_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
@@ -65,6 +69,14 @@ display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 brake_sensor = Brake.Brake(
    board.IO12) # brake sensor pin
+
+# if brakes are active at startup, block here
+# this is needed for development, to help keep the motor and the UART disable
+# if brake_sensor.value:
+#     while True:
+#         print('brake at start')
+#         time.sleep(1)
+#         pass
 
 throttle = Throttle.Throttle(
     board.IO11, # ADC pin for throttle
