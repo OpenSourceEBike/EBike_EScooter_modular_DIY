@@ -10,11 +10,11 @@ class ESPNowComms(object):
         self._espnow = espnow.ESPNow()
         
     def get_data(self):    
-        received_data = None    
+        received_data = None
         data = None
         try:
             # read a package and discard others available
-            while True:
+            while self._espnow:
                 rx_data = self._espnow.read()
                 if rx_data is None:
                     break
@@ -29,7 +29,7 @@ class ESPNowComms(object):
                     received_data = int(data[1])
 
         except Exception as ex:
-                pass
+            print(ex)
         
         return received_data
 
