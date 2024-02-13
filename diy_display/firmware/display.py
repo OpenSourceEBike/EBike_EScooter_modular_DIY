@@ -1,5 +1,6 @@
 import busio
 import displayio
+import fourwire
 import adafruit_displayio_sh1106
 
 class Display(object):
@@ -12,7 +13,7 @@ class Display(object):
             spi_mosi_pin, # MOSI pin
             None) # MISO pin, not need to drive this display
 
-        display_bus = displayio.FourWire(
+        display_bus = fourwire.FourWire(
             spi,
             command = command_pin,
             reset = reset_pin,

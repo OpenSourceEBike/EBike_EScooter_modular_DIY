@@ -1,7 +1,7 @@
 import board
 import display
 import motor_board_espnow
-import system_data
+import system_data as _SystemData
 import time
 import displayio
 from adafruit_display_text import label
@@ -11,7 +11,7 @@ import power_switch_espnow
 import rear_lights_espnow
 import front_lights_espnow
 import wifi
-import espnow as ESPNow
+import espnow as _ESPNow
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -29,14 +29,14 @@ mac_address_rear_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
 mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 ########################################
 
-system_data = system_data.SystemData()
+system_data = _SystemData.SystemData()
 
 wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
 wifi.radio.start_ap(ssid="NO_SSID", channel=1)
 wifi.radio.stop_ap()
 
-_espnow = ESPNow.ESPNow()
+_espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
 power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data)
 front_lights = front_lights_espnow.FrontLights(_espnow, mac_address_front_lights_board, system_data)
@@ -172,8 +172,8 @@ def turn_off():
 
   g = displayio.Group()
   g.append(label_1)
-  display.show(g)
-
+  display.root_group = g
+  
   # wait for button long press release
   while buttons[button_POWER].isHeld:
     buttons[button_POWER].tick()
@@ -293,7 +293,7 @@ label_init_screen.scale = 1
 label_init_screen.text = "Ready to power on"
 screen1_group = displayio.Group()
 screen1_group.append(label_init_screen)
-display.show(screen1_group)
+display.root_group = screen1_group
 
 # let's wait for a first click on power button
 time_previous = time.monotonic()
@@ -322,7 +322,7 @@ text_group.append(label_1)
 # text_group.append(label_2)
 text_group.append(label_3)
 text_group.append(warning_area)
-display.show(text_group)
+display.root_group = text_group
 
 while True:
     now = time.monotonic()
@@ -357,13 +357,12 @@ while True:
         if motor_speed_erpm_previous != system_data.motor_speed_erpm:
             motor_speed_erpm_previous = system_data.motor_speed_erpm
 
-            if system_data.motor_speed_erpm > 200:
-                # Fiido Q1S original motor runs 45 ERPM for each 1 RPM
+            if system_data.motor_speed_erpm > 150:
+                # Fiido Q1S with installed Luneye motor 2000W
                 # calculate the wheel speed
                 wheel_radius = 0.165 # measured as 16.5cms
-                perimeter = 6.28 * wheel_radius
-                # motor_rpm = system_data.motor_speed_erpm / 45.0
-                motor_rpm = system_data.motor_speed_erpm / 15.0
+                perimeter = 6.28 * wheel_radius # 2*pi = 6.28
+                motor_rpm = system_data.motor_speed_erpm / 15.0 # motor with 15 poles pair
                 system_data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
 
             else:
@@ -428,4 +427,5 @@ while True:
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
+
 
