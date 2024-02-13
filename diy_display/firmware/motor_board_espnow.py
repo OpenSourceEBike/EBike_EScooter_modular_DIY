@@ -12,7 +12,7 @@ class MotorBoard(object):
         data = None
         try:
             # read a package and discard others available
-            while True:
+            while self._espnow:
                 rx_data = self._espnow.read()
                 if rx_data is None:
                     break

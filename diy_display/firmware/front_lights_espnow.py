@@ -4,7 +4,7 @@ class FrontLights(object):
 
     def __init__(self, _espnow, mac_address, system_data):
         self._system_data = system_data
-        self.message_id = 16 # rear lights ESPNow messages ID
+        self.message_id = 16 # front lights ESPNow messages ID
 
         self._espnow = _espnow
         self._peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
