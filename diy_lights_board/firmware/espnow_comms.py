@@ -14,7 +14,7 @@ class ESPNowComms(object):
         data = None
         try:
             # read a package and discard others available
-            while self._espnow:
+            while self._espnow is not None:
                 rx_data = self._espnow.read()
                 if rx_data is None:
                     break

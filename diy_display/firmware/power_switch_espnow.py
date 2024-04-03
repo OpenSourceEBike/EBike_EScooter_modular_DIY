@@ -10,13 +10,14 @@ class PowerSwitch(object):
         self._peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
 
     def update(self):
-        try:
-            # add peer before sending the message
-            self._espnow.peers.append(self._peer)
+        if self._espnow is not None:
+            try:
+                # add peer before sending the message
+                self._espnow.peers.append(self._peer)
 
-            self._espnow.send(f"{self.message_id} {int(self._system_data.display_communication_counter)} {int(self._system_data.turn_off_relay)}")
+                self._espnow.send(f"{self.message_id} {int(self._system_data.display_communication_counter)} {int(self._system_data.turn_off_relay)}")
 
-            # now remove the peer
-            self._espnow.peers.remove(self._peer)
-        except:
-            pass
+                # now remove the peer
+                self._espnow.peers.remove(self._peer)
+            except:
+                pass

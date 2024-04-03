@@ -1,7 +1,5 @@
 import espnow as ESPNow
 
-cccounter_a = 0
-
 class Display(object):
     """Display"""
 
@@ -14,10 +12,11 @@ class Display(object):
         self._espnow.peers.append(peer)
 
     def process_data(self):
-        data = None
         try:
+            data = None
+            
             # read a package and discard others available
-            while self._espnow:
+            while self._espnow is not None:
                 rx_data = self._espnow.read()
                 if rx_data is None:
                     break
@@ -30,12 +29,14 @@ class Display(object):
                 # only process packages for us
                 if int(data[0]) == self.message_id:
                     self._system_data.motor_enable_state = True if int(data[1]) != 0 else False
+                    self._system_data.button_power_state = int(data[2])
         except:
             pass
 
     def update(self):
-        try:
-            brakes_are_active = 1 if self._system_data.brakes_are_active else 0
-            self._espnow.send(f"{int(self._system_data.battery_voltage_x10)} {int(self._system_data.battery_current_x100)} {int(self._system_data.motor_current_x100)} {self._system_data.motor_speed_erpm} {brakes_are_active}")
-        except:
-            pass
+        if self._espnow is not None:
+            try:
+                brakes_are_active = 1 if self._system_data.brakes_are_active else 0
+                self._espnow.send(f"{int(self._system_data.battery_voltage_x10)} {int(self._system_data.battery_current_x100)} {int(self._system_data.motor_current_x100)} {self._system_data.motor_speed_erpm} {brakes_are_active} {int(self._system_data.vesc_temperature_x10)} {int(self._system_data.motor_temperature_x10)}")
+            except:
+                pass

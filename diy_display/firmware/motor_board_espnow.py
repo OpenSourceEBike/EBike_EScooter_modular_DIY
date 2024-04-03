@@ -9,10 +9,11 @@ class MotorBoard(object):
         self.message_id = 1 # motor board ESPNow messages ID
         
     def process_data(self):
-        data = None
         try:
+            data = None
+            
             # read a package and discard others available
-            while self._espnow:
+            while self._espnow is not None:
                 rx_data = self._espnow.read()
                 if rx_data is None:
                     break
@@ -27,18 +28,21 @@ class MotorBoard(object):
                 self._system_data.motor_current_x100 = int(data[2]) * -1.0
                 self._system_data.motor_speed_erpm = int(data[3])
                 self._system_data.brakes_are_active = True if int(data[4]) == 1 else False
+                self._system_data.vesc_temperature_x10 = int(data[5])
+                self._system_data.motor_temperature_x10 = int(data[6])
         except:
             pass
 
     def send_data(self):
-        try:
-            # add peer before sending the message
-            self._espnow.peers.append(self._peer)
+        if self._espnow is not None:
+            try:
+                # add peer before sending the message
+                self._espnow.peers.append(self._peer)
 
-            motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-            self._espnow.send(f"{int(self.message_id)} {motor_enable_state}")
+                motor_enable_state = 1 if self._system_data.motor_enable_state else 0
+                self._espnow.send(f"{int(self.message_id)} {motor_enable_state} {self._system_data.button_power_state}")
 
-            # now remove the peer
-            self._espnow.peers.remove(self._peer)
-        except:
-            pass
+                # now remove the peer
+                self._espnow.peers.remove(self._peer)
+            except:
+                pass
