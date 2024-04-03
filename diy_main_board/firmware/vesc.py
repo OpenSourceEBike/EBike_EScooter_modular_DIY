@@ -113,17 +113,19 @@ class Vesc(object):
             
     def refresh_data(self):
         """Read VESC motor data and update vesc_motor_data"""
-        # COMM_GET_VALUES = 4; 79 bytes response
+        # COMM_GET_VALUES = 4; 81 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         command = bytearray([4])
-        response = self._pack_and_send(command, 79)
+        response = self._pack_and_send(command, 81)
 
         if response is not None:
+            # for debug
             # print(",".join(["{}".format(i) for i in response]))
             # for index, data in enumerate(response):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
             self._app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
+            self._app_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
             self._app_data.motor_current_x100 = (struct.unpack_from('>l', response, 7)[0]) * -1.0 # for some reason, the current is inverted
             self._app_data.battery_current_x100 = (struct.unpack_from('>l', response, 11)[0]) * -1.0 # for some reason, the current is inverted
             self._app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]

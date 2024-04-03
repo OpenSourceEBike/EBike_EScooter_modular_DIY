@@ -32,11 +32,8 @@ class MotorControlScheme:
 ###############################################
 # OPTIONS
 
-# Lunyee fast motor 12 inches (not the original Fiido Q1S motor) has 15 poles pair
+# Lunyee 2000W motor 12 inches (not the original Fiido Q1S motor) has 15 poles pair
 motor_poles_pair = 15
-
-# original Fiido Q1S 12 inches wheels are 305mm in diameter
-wheel_circunference = 305.0
 
 # max wheel speed in ERPM
 # tire diameter: 0.33 meters
@@ -146,6 +143,55 @@ async def task_display_refresh_data():
         # idle 100ms
         await asyncio.sleep(0.1)
 
+cruise_control_state = 0
+cruise_control_button_long_press_previous_state = 0
+cruise_control_button_press_previous_state = 0
+cruise_control_throttle_value = 0
+def cruise_control(throttle_value):
+    global cruise_control_state
+    global cruise_control_button_long_press_previous_state
+    global cruise_control_button_press_previous_state
+    global cruise_control_throttle_value
+    
+    button_long_press_state = system_data.button_power_state & 0x0200
+    
+    # Set initial variables values
+    if cruise_control_state == 0:     
+        cruise_control_button_long_press_previous_state = button_long_press_state
+        cruise_control_state = 1
+    
+    # Wait for conditions to start cruise control
+    if cruise_control_state == 1:        
+        if (button_long_press_state != cruise_control_button_long_press_previous_state) and system_data.wheel_speed > 4.0:
+            cruise_control_button_long_press_previous_state = button_long_press_state
+            
+            cruise_control_throttle_value = throttle_value
+            cruise_control_state = 3
+            
+    if cruise_control_state == 2:
+        cruise_control_button_press_previous_state = system_data.button_power_state & 0x0100
+        cruise_control_state = 3
+            
+    # Cruise control is active
+    if cruise_control_state == 3:
+        # Check for button pressed
+        cruise_control_button_pressed = False
+        button_press_state = system_data.button_power_state & 0x0100
+        if button_press_state != cruise_control_button_press_previous_state:
+            cruise_control_button_press_previous_state = button_press_state
+            cruise_control_button_pressed = True
+        
+        # Check for conditions to stop cruise control
+        if system_data.brakes_are_active or cruise_control_button_pressed or throttle_value > (cruise_control_throttle_value * 1.15):
+            cruise_control_button_long_press_previous_state = button_long_press_state
+            cruise_control_state = 1
+        else:
+            # Keep cruising...
+            # overide the throttle value
+            throttle_value = cruise_control_throttle_value
+        
+    return throttle_value
+
 async def task_control_motor():
     while True:
         ##########################################################################################
@@ -173,6 +219,9 @@ async def task_control_motor():
             vesc.set_motor_current_amps(0)
             print(f"throttle_adc_previous_value: {throttle_adc_previous_value}")
             raise Exception("throttle value is over max, this can be dangerous!")
+    
+        # Apply cruise control
+        throttle_value_filtered = cruise_control(throttle_value_filtered)
     
         motor_target_current = simpleio.map_range(
             throttle_value_filtered,
@@ -257,22 +306,24 @@ async def task_control_motor():
         # idle 20ms
         await asyncio.sleep(0.02)
 
+wheel_speed_previous_motor_speed_erpm = 0
 async def task_various_0_5s():
-    assert(wheel_circunference > 100), "wheel_circunference must be higher then 100mm (4 inches wheel)"
+    global wheel_speed_previous_motor_speed_erpm
     
     while True:
-        # # calculate wheel speed
-        # # 15 pole pairs on Xiaomi M365 motor
-        # # 1h --> 60 minutes
-        # # 60 * 3.14 = 188.4
-        # # 188.4 / 15 = 12,56
-        # # mm to km --> 1000000 --> 0,00001256
-        # system_data.wheel_speed = int(wheel_circunference * system_data.motor_speed_erpm * 0.00001256)
-        # if system_data.wheel_speed > 99:
-        #     system_data.wheel_speed = 99
-        # elif system_data.wheel_speed < 0:
-        #     system_data.wheel_speed = 0
-        pass
+        if system_data.motor_speed_erpm != wheel_speed_previous_motor_speed_erpm:
+            wheel_speed_previous_motor_speed_erpm = system_data.motor_speed_erpm
+        
+            if system_data.motor_speed_erpm > 150:
+                # Fiido Q1S with installed Luneye motor 2000W
+                # calculate the wheel speed
+                wheel_radius = 0.165 # measured as 16.5cms
+                perimeter = 6.28 * wheel_radius # 2*pi = 6.28
+                motor_rpm = system_data.motor_speed_erpm / motor_poles_pair
+                system_data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
+
+            else:
+                system_data.wheel_speed = 0.0
 
         await asyncio.sleep(0.5)
 
@@ -288,12 +339,12 @@ async def main():
     vesc_display_refresh_data_task = asyncio.create_task(task_vesc_display_refresh_data())
     display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
-    # various_0_5s_task = asyncio.create_task(task_various_0_5s())
+    various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
     await asyncio.gather(vesc_display_refresh_data_task,
                         display_refresh_data_task,
-                        read_sensors_control_motor_task)
-                        #  various_0_5s_task)
+                        read_sensors_control_motor_task,
+                        various_0_5s_task)
 
 asyncio.run(main())
 

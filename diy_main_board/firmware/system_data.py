@@ -5,6 +5,7 @@ class SystemData(object):
     def __init__(self):
         self.vesc_fault_code = 0
         self.vesc_temperature_x10 = 0
+        self.motor_temperature_x10 = 0
         self.battery_voltage_x10 = 0
         self.battery_current_x100 = 0
         self.motor_current_x100 = 0
@@ -24,3 +25,4 @@ class SystemData(object):
         self.brakes_value = 0
         self.wheel_speed = 0
         self.motor_enable_state = False
+        self.button_power_state = 0

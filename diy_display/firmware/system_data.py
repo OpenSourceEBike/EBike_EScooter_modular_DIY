@@ -18,10 +18,11 @@ class SystemData(object):
         self.motor_current_target = 0
         self.assist_level = 0
         self.vesc_temperature_x10 = 0
-        self.motor_temperature_sensor_x10 = 0
+        self.motor_temperature_x10 = 0    
         self.display_communication_counter = 0
         self.turn_off_relay = False
         self.motor_enable_state = False
         self.lights_state = False
         self.rear_lights_board_pins_state = 0
         self.front_lights_board_pins_state = 0
+        self.button_power_state = 0

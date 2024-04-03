@@ -127,7 +127,7 @@ battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
 motor_current_previous_x100 = 9999
 motor_power_previous = 9999
-motor_temperature_sensor_x10_previous = 9999
+motor_temperature_x10_previous = 9999
 vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
 brakes_are_active_previous = False
@@ -204,18 +204,32 @@ def decrease_assist_level():
     assist_level -= 1
 
 def button_power_click_start_cb():
-  pass
-
+  system_data.button_power_state |= 1
+  
+  # flip bit state
+  if system_data.button_power_state & 0x0100:
+    system_data.button_power_state &= ~0x0100
+  else:
+    system_data.button_power_state |= 0x0100
+    
 def button_power_click_release_cb():
-  pass
+  system_data.button_power_state &= ~1
 
 def button_power_long_click_start_cb():
   # only turn off after initial motor enable
-  if system_data.motor_enable_state and system_data.wheel_speed == 0.0:
+  if system_data.motor_enable_state and system_data.wheel_speed < 2.0:
     turn_off()
+  else:
+    system_data.button_power_state |= 2
+    
+  # flip bit state
+  if system_data.button_power_state & 0x0200:
+    system_data.button_power_state &= ~0x0200
+  else:
+    system_data.button_power_state |= 0x0200
 
 def button_power_long_click_release_cb():
-  pass
+  system_data.button_power_state &= ~2
 
 def button_left_click_start_cb():
   system_data.rear_lights_board_pins_state |= rear_light_pin_turn_left_bit
