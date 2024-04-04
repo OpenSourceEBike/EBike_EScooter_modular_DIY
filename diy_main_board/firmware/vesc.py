@@ -57,7 +57,8 @@ class Vesc(object):
         if self._uart.in_waiting:
             self._uart.reset_input_buffer()
 
-    def _pack_and_send(self, buf, response_len):
+    def _pack_and_send(self, buf, vesc_command, response_len):
+        buf[0] = vesc_command
 
         #start byte + len + data + CRC 16 bits + end byte
         lenght = len(buf)
@@ -93,12 +94,12 @@ class Vesc(object):
             if data[1] != 74:
                 self._uart_maybe_reset_input_buffer()
                 return None
-            
-            # check for expected COMM_GET_VALUES = 4
-            if data[2] != 4:
+
+            # check for expected vesc_command
+            if data[2] != vesc_command:
                 self._uart_maybe_reset_input_buffer()
                 return None
-            
+
             # check for CRC
             crc_calculated = self._crc16(data[2:-3])
             crc = (data[-3] * 256) + data[-2]
@@ -113,9 +114,10 @@ class Vesc(object):
             
     def refresh_data(self):
         """Read VESC motor data and update vesc_motor_data"""
-        # COMM_GET_VALUES = 4; 81 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
+        vesc_command = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
+        
         command = bytearray([4])
-        response = self._pack_and_send(command, 81)
+        response = self._pack_and_send(command, vesc_command, 79)
 
         if response is not None:
             # for debug
@@ -135,39 +137,55 @@ class Vesc(object):
     def set_motor_current_amps(self, value):
         """Set battery Amps"""
         value = value * 1000 # current in mA
-
-        # COMM_SET_CURRENT = 6; no response
+        vesc_command = 6 # COMM_SET_CURRENT = 6; no response
+        
         command = bytearray(5)
-        command[0] = 6
         struct.pack_into('>l', command, 1, int(value))
-        self._pack_and_send(command, 0)
+        self._pack_and_send(command, vesc_command, 0)
     
     def set_motor_current_brake_amps(self, value):
         """Set battery brake / regen Amps"""
         value = value * 1000 # current in mA
+        vesc_command = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
 
-        # COMM_SET_CURRENT_BRAKE = 7; no response
         command = bytearray(5)
-        command[0] = 7
         struct.pack_into('>l', command, 1, int(value))
-        self._pack_and_send(command, 0)
+        self._pack_and_send(command, vesc_command, 0)
 
     def set_motor_speed_rpm(self, value):
         """Set motor speed in RPM"""
-        # COMM_SET_RPM = 8; no response
+        vesc_command = 8 # COMM_SET_RPM = 8; no response
+        
         command = bytearray(5)
-        command[0] = 8
         struct.pack_into('>l', command, 1, int(value))
-        self._pack_and_send(command, 0)
+        self._pack_and_send(command, vesc_command, 0)
+        
+    def set_motor_current_limit_min(self, value):
+        value = value * 1000 # current in mA
+        # VESC custom command on custom firmware+
+        vesc_command = 200 # no response
+
+        command = bytearray(5)
+        struct.pack_into('>l', command, 1, int(value))
+        self._pack_and_send(command, vesc_command, 0)
+
+    def set_motor_current_limit_max(self, value):
+        value = value * 1000 # current in mA
+        # VESC custom command on custom firmware
+        vesc_command = 201 # no response
+        
+        command = bytearray(5)
+        struct.pack_into('>l', command, 1, int(value))
+        self._pack_and_send(command, vesc_command, 0)
 
     def brake(self):
         """ Brake: will set the motor current to 0 amps, efectivly coasting"""
-        # COMM_SET_CURRENT_BRAKE = 7; no response
+        vesc_command = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
+        
         command = bytearray(5)
-        command[0] = 7
         struct.pack_into('>l', command, 1, 0)
 
         # send 3x to avoid possibility of VESC missing receiving this command
-        self._pack_and_send(command, 0)
-        self._pack_and_send(command, 0)
-        self._pack_and_send(command, 0)
+        self._pack_and_send(command, vesc_command, 0)
+        self._pack_and_send(command, vesc_command, 0)
+        self._pack_and_send(command, vesc_command, 0)
