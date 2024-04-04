@@ -121,14 +121,10 @@ def utils_step_towards(current_value, target_value, step):
 # don't know why, but if this objects related to ESPNow are started earlier, system will enter safemode
 display = DisplayESPnow.Display(display_mac_address, system_data)
 
-async def task_vesc_display_refresh_data():
+async def task_vesc_refresh_data():
     while True:
         # ask for VESC latest data
         vesc.refresh_data()
-        gc.collect()
-
-        # send data to the display
-        display.update()
         gc.collect()
 
         # idle 100ms
@@ -136,6 +132,10 @@ async def task_vesc_display_refresh_data():
 
 async def task_display_refresh_data():
     while True:
+        # send data to the display
+        display.update()
+        gc.collect()
+        
         # process received data from the display
         display.process_data()
         gc.collect()
@@ -305,6 +305,31 @@ async def task_control_motor():
 
         # idle 20ms
         await asyncio.sleep(0.02)
+        
+async def task_control_motor_limit_current():
+    while True:
+        ##########################################################################################
+        motor_target_current_limit_max = simpleio.map_range(
+            system_data.wheel_speed,
+            0.0, # min input
+            35.0, # max input
+            135, # min output
+            50) # max output
+        
+        motor_target_current_limit_min = -1.0 * simpleio.map_range(
+            system_data.wheel_speed,
+            0.0, # min input
+            35.0, # max input
+            70, # min output
+            50) # max output
+        
+        vesc.set_motor_current_limit_max(motor_target_current_limit_max)
+        vesc.set_motor_current_limit_min(motor_target_current_limit_min)
+
+        gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
+
+        # idle 1 second
+        await asyncio.sleep(1.0)
 
 wheel_speed_previous_motor_speed_erpm = 0
 async def task_various_0_5s():
@@ -336,13 +361,15 @@ async def main():
     watchdog.timeout = 1
     watchdog.mode = WatchDogMode.RESET
 
-    vesc_display_refresh_data_task = asyncio.create_task(task_vesc_display_refresh_data())
+    vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
     display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
+    control_motor_limit_current_task = asyncio.create_task(task_control_motor_limit_current())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     various_0_5s_task = asyncio.create_task(task_various_0_5s())
 
-    await asyncio.gather(vesc_display_refresh_data_task,
+    await asyncio.gather(vesc_refresh_data_task,
                         display_refresh_data_task,
+                        control_motor_limit_current_task,
                         read_sensors_control_motor_task,
                         various_0_5s_task)
 
