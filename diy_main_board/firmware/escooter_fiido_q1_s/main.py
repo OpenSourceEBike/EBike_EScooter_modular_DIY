@@ -16,16 +16,13 @@ import wifi
 import supervisor
 supervisor.runtime.autoreload = False
 
-wifi.radio.enabled = True
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 wifi.radio.mac_address = bytearray(my_mac_address)
+wifi.radio.enabled = True
 
 class MotorControlScheme:
     CURRENT = 0
     SPEED_CURRENT = 1
-
-# while True:
-#     pass
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -47,17 +44,25 @@ throttle_adc_min = 16400 # this is a value that should be a bit superior than th
 throttle_adc_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 throttle_adc_over_max_error = 51500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
-motor_min_current_start = 10.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 150.0 # max value, be careful to not burn your motor
+motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
+
+# To reduce motor temperature, motor current limits are higher at startup and low at higer speeds
+# motor current limits will be adjusted on this values, depending on the speed
+# like at startup will have 'motor_current_limit_max_max' and then will reduce linearly
+# up to the 'motor_current_limit_max_min', when wheel speed is
+# 'motor_current_limit_max_min_speed'
+motor_current_limit_max_max = 135.0
+motor_current_limit_max_min = 50.0
+motor_current_limit_max_min_speed = 35.0
+
+# this are the values for regen
+motor_current_limit_min_min = -70.0
+motor_current_limit_min_max = -50.0
+motor_current_limit_min_max_speed = 35.0
 
 # motor_control_scheme = MotorControlScheme.CURRENT
 motor_control_scheme = MotorControlScheme.SPEED_CURRENT
-
-# ramp up and down constants
-current_ramp_up_time = 0.00001 # ram up time for each 1A
-current_ramp_down_time = 0.00001 # ram down time for each 1A
-speed_ramp_up_time = 0.00001 # ram up time for each 1 erpm
-speed_ramp_down_time = 0.00001 # ram down time for each 1 erpm
 
 # MAC Address value needed for the wireless communication with the display
 display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
@@ -69,11 +74,9 @@ brake_sensor = Brake.Brake(
 
 # if brakes are active at startup, block here
 # this is needed for development, to help keep the motor and the UART disable
-# if brake_sensor.value:
-#     while True:
-#         print('brake at start')
-#         time.sleep(1)
-#         pass
+while brake_sensor.value:
+    print('brake at start')
+    time.sleep(1)
 
 throttle = Throttle.Throttle(
     board.IO11, # ADC pin for throttle
@@ -202,11 +205,11 @@ async def task_control_motor():
 
         # low pass filter torque sensor value to smooth it,
         # because the easy DIY hardware lacks such low pass filter on purpose
-        #throttle_value_filtered = lowpass_filter(throttle.value, 0.25)
-        #if throttle_value_filtered < 1.0:
+        # throttle_value_filtered = lowpass_filter(throttle.value, 0.02)
+        # if throttle_value_filtered < 0.01:
         #   throttle_value_filtered = 0
         throttle_value_filtered = throttle.value
-
+  
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
@@ -217,20 +220,19 @@ async def task_control_motor():
             vesc.set_motor_current_amps(0)
             vesc.set_motor_current_amps(0)
             vesc.set_motor_current_amps(0)
-            print(f"throttle_adc_previous_value: {throttle_adc_previous_value}")
-            raise Exception("throttle value is over max, this can be dangerous!")
+            raise Exception(f'throttle value: {throttle_adc_previous_value} -- is over max, this can be dangerous!')
     
         # Apply cruise control
         throttle_value_filtered = cruise_control(throttle_value_filtered)
     
-        motor_target_current = simpleio.map_range(
+        system_data.motor_target_current = simpleio.map_range(
             throttle_value_filtered,
             0.0, # min input
             1000.0, # max input
             motor_min_current_start, # min output
             motor_max_current_target) # max output
         
-        motor_target_speed = simpleio.map_range(
+        system_data.motor_target_speed = simpleio.map_range(
             throttle_value_filtered,
             0.0, # min input
             1000.0, # max input
@@ -239,33 +241,12 @@ async def task_control_motor():
         ##########################################################################################
 
         # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-        if motor_target_current < (motor_min_current_start + 1):
-            motor_target_current = 0.0
+        if system_data.motor_target_current < (motor_min_current_start + 1):
+            system_data.motor_target_current = 0.0
 
-        if motor_target_speed < 500.0:
-            motor_target_speed = 0.0
+        if system_data.motor_target_speed < 500.0:
+            system_data.motor_target_speed = 0.0
     
-        # apply ramp up / down factor: faster when ramp down
-        if motor_target_current > system_data.motor_target_current:
-            ramp_time_current = current_ramp_up_time
-        else:
-            ramp_time_current = current_ramp_down_time
-
-        if motor_target_speed > system_data.motor_target_speed:
-            ramp_time_speed = speed_ramp_up_time
-        else:
-            ramp_time_speed = speed_ramp_down_time
-            
-        time_now = time.monotonic_ns()
-        ramp_step = (time_now - system_data.ramp_current_last_time) / (ramp_time_current * 40_000_000)
-        system_data.ramp_current_last_time = time_now
-        system_data.motor_target_current = utils_step_towards(system_data.motor_target_current, motor_target_current, ramp_step)
-
-        time_now = time.monotonic_ns()
-        ramp_step = (time_now - system_data.ramp_speed_last_time) / (ramp_time_speed * 40_000_000)
-        system_data.ramp_speed_last_time = time_now
-        system_data.motor_target_speed = utils_step_towards(system_data.motor_target_speed, motor_target_speed, ramp_step)
-
         # let's limit the value
         if system_data.motor_target_current > motor_max_current_limit:
             system_data.motor_target_current = motor_max_current_limit
@@ -307,21 +288,23 @@ async def task_control_motor():
         await asyncio.sleep(0.02)
         
 async def task_control_motor_limit_current():
+    
     while True:
         ##########################################################################################
         motor_target_current_limit_max = simpleio.map_range(
             system_data.wheel_speed,
-            0.0, # min input
-            35.0, # max input
-            135, # min output
-            50) # max output
+            0.0,
+            motor_current_limit_max_min_speed,
+            motor_current_limit_max_max,
+            motor_current_limit_max_min)
         
-        motor_target_current_limit_min = -1.0 * simpleio.map_range(
+        
+        motor_target_current_limit_min = simpleio.map_range(
             system_data.wheel_speed,
-            0.0, # min input
-            35.0, # max input
-            70, # min output
-            50) # max output
+            0.0,
+            motor_current_limit_min_max_speed,
+            motor_current_limit_min_min,
+            motor_current_limit_min_max)
         
         vesc.set_motor_current_limit_max(motor_target_current_limit_max)
         vesc.set_motor_current_limit_min(motor_target_current_limit_min)
@@ -339,15 +322,14 @@ async def task_various_0_5s():
         if system_data.motor_speed_erpm != wheel_speed_previous_motor_speed_erpm:
             wheel_speed_previous_motor_speed_erpm = system_data.motor_speed_erpm
         
-            if system_data.motor_speed_erpm > 150:
-                # Fiido Q1S with installed Luneye motor 2000W
-                # calculate the wheel speed
-                wheel_radius = 0.165 # measured as 16.5cms
-                perimeter = 6.28 * wheel_radius # 2*pi = 6.28
-                motor_rpm = system_data.motor_speed_erpm / motor_poles_pair
-                system_data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
+            # Fiido Q1S with installed Luneye motor 2000W
+            # calculate the wheel speed
+            wheel_radius = 0.165 # measured as 16.5cms
+            perimeter = 6.28 * wheel_radius # 2*pi = 6.28
+            motor_rpm = system_data.motor_speed_erpm / motor_poles_pair
+            system_data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
 
-            else:
+            if abs(system_data.wheel_speed < 3.5):
                 system_data.wheel_speed = 0.0
 
         await asyncio.sleep(0.5)

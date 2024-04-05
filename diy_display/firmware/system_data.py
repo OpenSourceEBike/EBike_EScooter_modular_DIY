@@ -8,8 +8,7 @@ class SystemData(object):
         self.battery_current_x100 = 0
         self.motor_power = 0
         self.motor_current_x100 = 0
-        self.motor_speed_erpm = 0
-        self.wheel_speed = 0.0
+        self.wheel_speed_x10 = 0
         self.previous_motor_current_target = True
         self.brakes_are_active = False
         self.torque_weight = 0
