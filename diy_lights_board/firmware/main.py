@@ -19,14 +19,9 @@ if lights_board is FRONT_VERSION:
   # front lights board ESPNow MAC Address
   my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
-  # front lights board ESPNow messages ID = 8
-  message_id = 16
 elif lights_board is REAR_VERSION:
   # rear lights board ESPNow MAC Address
   my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
-
-  # rear lights board ESPNow messages ID = 8
-  message_id = 8
 
 ################################################################
 
@@ -47,7 +42,7 @@ for index in range (number_of_pins):
   switch_pins[index].direction = digitalio.Direction.OUTPUT
   switch_pins[index].value = False
 
-espnow_comms = espnow_comms.ESPNowComms(my_mac_address, message_id)
+espnow_comms = espnow_comms.ESPNowComms(my_mac_address)
 
 io_pins_target = 0
 io_pins_target_previous = 0

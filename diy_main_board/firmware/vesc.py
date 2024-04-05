@@ -128,8 +128,8 @@ class Vesc(object):
             # store the motor controller data
             self._app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
             self._app_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
-            self._app_data.motor_current_x100 = (struct.unpack_from('>l', response, 7)[0]) * -1.0 # for some reason, the current is inverted
-            self._app_data.battery_current_x100 = (struct.unpack_from('>l', response, 11)[0]) * -1.0 # for some reason, the current is inverted
+            self._app_data.motor_current_x100 = (struct.unpack_from('>l', response, 7)[0])
+            self._app_data.battery_current_x100 = (struct.unpack_from('>l', response, 11)[0])
             self._app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
             self._app_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
             self._app_data.vesc_fault_code = response[55]
