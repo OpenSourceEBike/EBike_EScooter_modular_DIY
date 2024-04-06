@@ -1,5 +1,7 @@
 import espnow as ESPNow
-from ....firmware_common.boards_ids import BoardsIds
+
+# firmware_common/boards_ids.py should be placed on the root path
+from firmware_common.boards_ids import BoardsIds
 
 class Display(object):
     """Display"""

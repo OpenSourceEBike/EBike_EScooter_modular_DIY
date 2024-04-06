@@ -138,6 +138,7 @@ motor_power_previous = 9999
 motor_temperature_x10_previous = 9999
 vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
+wheel_speed_x10_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
@@ -353,26 +354,28 @@ while True:
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # calculate the motor power
-        if system_data.motor_speed_erpm < 100:
-            system_data.battery_current_x100 = 0
+        # if system_data.wheel_speed_x10 == 0:
+        #     system_data.battery_current_x100 = 0
+        # 
+        # system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+        # if motor_power_previous != system_data.motor_power:
+        #     motor_power_previous = system_data.motor_power
+        #     motor_power = filter_motor_power(system_data.motor_power)
+        #     label_1.text = f"{motor_power:5}"
 
-        system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-        if motor_power_previous != system_data.motor_power:
-            motor_power_previous = system_data.motor_power
-            motor_power = filter_motor_power(system_data.motor_power)
-            label_1.text = f"{motor_power:5}"
+        if motor_current_previous_x100 != system_data.motor_current_x100 or label_1.text != str(motor_current):
+            motor_current_previous_x100 = system_data.motor_current_x100
 
-        # if motor_current_previous_x100 != system_data.motor_current_x100:
-        #     motor_current_previous_x100 = s ystem_data.motor_current_x100
-
-        #     motor_current = int(system_data.motor_current_x100 / 100.0)
-        #     label_1.text = f"{motor_current:5}"
+            motor_current = int(system_data.motor_current_x100 / 100)
+            label_1.text = str(motor_current)
         
-        if motor_temperature_x10_previous != system_data.motor_temperature_x10:
+        if motor_temperature_x10_previous != system_data.motor_temperature_x10 or label_2.text != f"{int(system_data.motor_temperature_x10 / 10.0): 2}":
             motor_temperature_x10_previous = system_data.motor_temperature_x10  
             label_2.text = f"{int(system_data.motor_temperature_x10 / 10.0): 2}"
 
-        label_3.text = f"{float(system_data.wheel_speed_x10 / 10.0)}"
+        if wheel_speed_x10_previous != system_data.wheel_speed_x10 or label_3.text != f"{float(system_data.wheel_speed_x10 / 10.0)}":
+            wheel_speed_x10_previous = system_data.wheel_speed_x10  
+            label_3.text = f"{float(system_data.wheel_speed_x10 / 10.0)}"
 
     now = time.monotonic()
     if (now - ebike_rx_tx_data_time_previous) > 0.05:
@@ -398,8 +401,8 @@ while True:
         lights_send_data_time_previous = now
 
         # if we are braking, enable brake light
-        # braking current < 20A
-        if system_data.brakes_are_active or system_data.motor_current_x100 < -2000.0:
+        # braking current < 15A
+        if system_data.brakes_are_active or system_data.motor_current_x100 < -1500.0:
             system_data.rear_lights_board_pins_state |= rear_light_pin_stop_bit
         else:
             system_data.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit

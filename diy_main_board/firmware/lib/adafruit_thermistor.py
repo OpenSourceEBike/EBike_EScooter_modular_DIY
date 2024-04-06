@@ -46,7 +46,7 @@ try:
 except ImportError:
     pass
 
-__version__ = "3.4.7"
+__version__ = "3.4.10"
 __repo__ = "https://github.com/adafruit/Adafruit_CircuitPython_Thermistor.git"
 
 

@@ -1,7 +1,11 @@
 import wifi
 import espnow
 from .main import lights_board, FRONT_VERSION, REAR_VERSION
-from ...firmware_common.boards_ids import BoardsIds
+
+try:
+    from firmware_common.boards_ids import BoardsIds
+except ImportError:
+    raise Exception('error importing file: firmware_common/boards_ids.py\nPlace the folder: firmware_common on the root path')
 
 class ESPNowComms(object):
     def __init__(self, mac_address):
