@@ -1,2 +1,2 @@
-import microcontroller
-microcontroller.reset()
+# import microcontroller
+# microcontroller.reset()

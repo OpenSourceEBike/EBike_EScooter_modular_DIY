@@ -22,7 +22,7 @@ wifi.radio.enabled = True
 
 class MotorControlScheme:
     CURRENT = 0
-    SPEED_CURRENT = 1
+    SPEED = 1
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -37,15 +37,17 @@ motor_poles_pair = 15
 # tire RPM: 884
 # motor poles: 15
 # motor ERPM: 13263 to get 55kms/h wheel speed
-motor_max_speed_limit = 13263 # 55kms/h
+motor_erpm_max_speed_limit = 13263 # 55kms/h
+motor_max_speed_limit = 16 # don't know why need to be 16 to be limited to 55 # 55kms/h
 
 # throttle value of original Fiido Q1S throttle
 throttle_adc_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
 throttle_adc_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 throttle_adc_over_max_error = 51500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
-motor_min_current_start = 5.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
+motor_min_current_start = 15.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
 motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
+motor_max_current_regen = -50.0 # max regen current
 
 # To reduce motor temperature, motor current limits are higher at startup and low at higer speeds
 # motor current limits will be adjusted on this values, depending on the speed
@@ -53,16 +55,16 @@ motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
 # up to the 'motor_current_limit_max_min', when wheel speed is
 # 'motor_current_limit_max_min_speed'
 motor_current_limit_max_max = 135.0
-motor_current_limit_max_min = 50.0
-motor_current_limit_max_min_speed = 35.0
+motor_current_limit_max_min = 40.0
+motor_current_limit_max_min_speed = 30.0
 
 # this are the values for regen
-motor_current_limit_min_min = -70.0
-motor_current_limit_min_max = -50.0
-motor_current_limit_min_max_speed = 35.0
+motor_current_limit_min_min = -50.0
+motor_current_limit_min_max = -30.0
+motor_current_limit_min_max_speed = 30.0
 
-# motor_control_scheme = MotorControlScheme.CURRENT
-motor_control_scheme = MotorControlScheme.SPEED_CURRENT
+# default as speed control
+motor_control_scheme = MotorControlScheme.SPEED
 
 # MAC Address value needed for the wireless communication with the display
 display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
@@ -195,13 +197,23 @@ def cruise_control(throttle_value):
         
     return throttle_value
 
+# initialize here this variables - they hold values that will change real time depending on the wheel speed, like 'motor_target_current_limit_max' will be max at startup
+motor_target_current_limit_max = motor_max_current_limit
+motor_target_current_limit_min = motor_max_current_regen
+button_press_state_previous = True
 async def task_control_motor():
+    global motor_target_current_limit_max
+    global motor_target_current_limit_min
+    global button_press_state_previous
+    global motor_control_scheme
+    
+    # let's limit the wheel speed, so even in current control mode, the speed will be limited
+    vesc.set_motor_limit_speed(motor_max_speed_limit)
+    
     while True:
         ##########################################################################################
         # Throttle
         # map torque value
-        motor_max_current_target = motor_max_current_limit
-        motor_max_speed_target = motor_max_speed_limit
 
         # low pass filter torque sensor value to smooth it,
         # because the easy DIY hardware lacks such low pass filter on purpose
@@ -224,24 +236,36 @@ async def task_control_motor():
     
         # Apply cruise control
         throttle_value_filtered = cruise_control(throttle_value_filtered)
+        
+        # If button was pressed, switch the motor_control_scheme
+        button_press_state = True if system_data.button_power_state & 0x0100 else False
+        if button_press_state != button_press_state_previous:
+            button_press_state_previous = button_press_state
+            
+            if motor_control_scheme == MotorControlScheme.CURRENT:
+                motor_control_scheme = MotorControlScheme.SPEED
+            elif motor_control_scheme == MotorControlScheme.SPEED:
+                motor_control_scheme = MotorControlScheme.CURRENT
     
         system_data.motor_target_current = simpleio.map_range(
             throttle_value_filtered,
-            0.0, # min input
-            1000.0, # max input
-            motor_min_current_start, # min output
-            motor_max_current_target) # max output
+            0.0,
+            1000.0,
+            0.0,
+            motor_target_current_limit_max)
+        
+        system_data.motor_target_current_regen = motor_target_current_limit_min
         
         system_data.motor_target_speed = simpleio.map_range(
             throttle_value_filtered,
-            0.0, # min input
-            1000.0, # max input
-            500.0, # min output
-            motor_max_speed_target) # max output
+            0.0,
+            1000.0,
+            0.0,
+            motor_erpm_max_speed_limit)
         ##########################################################################################
 
         # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-        if system_data.motor_target_current < (motor_min_current_start + 1):
+        if system_data.motor_target_current < motor_min_current_start:
             system_data.motor_target_current = 0.0
 
         if system_data.motor_target_speed < 500.0:
@@ -250,9 +274,12 @@ async def task_control_motor():
         # let's limit the value
         if system_data.motor_target_current > motor_max_current_limit:
             system_data.motor_target_current = motor_max_current_limit
+            
+        if system_data.motor_target_current_regen < motor_max_current_regen:
+            system_data.motor_target_current_regen = motor_max_current_regen
 
-        if system_data.motor_target_speed > motor_max_speed_limit:
-            system_data.motor_target_speed = motor_max_speed_limit
+        if system_data.motor_target_speed > motor_erpm_max_speed_limit:
+            system_data.motor_target_speed = motor_erpm_max_speed_limit
             
         # limit very small and negative values
         if system_data.motor_target_current < 1.0:
@@ -261,11 +288,18 @@ async def task_control_motor():
         if system_data.motor_target_speed < 500.0: # 2 kms/h
             system_data.motor_target_speed = 0.0
 
-        # if brakes are active, set our motor target as zero
+        # if brakes are active, try stop the wheel
         if brake_sensor.value:
-            system_data.motor_target_current = 0.0
-            system_data.motor_target_speed = 0.0
             system_data.brakes_are_active = True
+            system_data.motor_target_speed = 0.0
+            
+            # # avoid making the wheel / motor rotate backwards
+            # if system_data.wheel_speed > 5.0:
+            #     system_data.motor_target_current = system_data.motor_target_current_regen
+            # else:
+            #     system_data.motor_target_current = 0.0
+        
+        # brakes not active    
         else:
             system_data.brakes_are_active = False
 
@@ -276,7 +310,7 @@ async def task_control_motor():
 
         if motor_control_scheme == MotorControlScheme.CURRENT:
             vesc.set_motor_current_amps(system_data.motor_target_current)
-        elif motor_control_scheme == MotorControlScheme.SPEED_CURRENT:
+        elif motor_control_scheme == MotorControlScheme.SPEED:
             vesc.set_motor_speed_rpm(system_data.motor_target_speed)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
@@ -288,20 +322,21 @@ async def task_control_motor():
         await asyncio.sleep(0.02)
         
 async def task_control_motor_limit_current():
+    global motor_target_current_limit_max
+    global motor_target_current_limit_min
     
     while True:
         ##########################################################################################
         motor_target_current_limit_max = simpleio.map_range(
             system_data.wheel_speed,
-            0.0,
+            10.0,
             motor_current_limit_max_min_speed,
             motor_current_limit_max_max,
             motor_current_limit_max_min)
         
-        
         motor_target_current_limit_min = simpleio.map_range(
             system_data.wheel_speed,
-            0.0,
+            10.0,
             motor_current_limit_min_max_speed,
             motor_current_limit_min_min,
             motor_current_limit_min_max)

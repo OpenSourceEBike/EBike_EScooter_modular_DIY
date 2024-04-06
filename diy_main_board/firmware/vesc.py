@@ -177,6 +177,14 @@ class Vesc(object):
         command = bytearray(5)
         struct.pack_into('>l', command, 1, int(value))
         self._pack_and_send(command, vesc_command, 0)
+        
+    def set_motor_limit_speed(self, value):
+        # VESC custom command on custom firmware
+        vesc_command = 202 # no response
+        
+        command = bytearray(5)
+        struct.pack_into('>l', command, 1, int(value))
+        self._pack_and_send(command, vesc_command, 0)
 
     def brake(self):
         """ Brake: will set the motor current to 0 amps, efectivly coasting"""

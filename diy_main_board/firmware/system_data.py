@@ -19,6 +19,7 @@ class SystemData(object):
         self.ramp_current_last_time = float(time.monotonic_ns())
         self.ramp_speed_last_time = self.ramp_current_last_time
         self.motor_target_current = 0.0
+        self.motor_target_current_regen = 0.0
         self.motor_target_speed = 0.0
         self.assist_level = 0
         self.throttle_value = 0
