@@ -23,6 +23,7 @@ wifi.radio.enabled = True
 class MotorControlScheme:
     CURRENT = 0
     SPEED = 1
+    SPEED_NO_REGEN = 2
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
@@ -56,7 +57,8 @@ motor_max_current_regen = -50.0 # max regen current
 # 'motor_current_limit_max_min_speed'
 motor_current_limit_max_max = 135.0
 motor_current_limit_max_min = 40.0
-motor_current_limit_max_min_speed = 30.0
+motor_current_limit_max_min_speed = 10.0
+motor_current_limit_max_max_speed = 30.0
 
 # this are the values for regen
 motor_current_limit_min_min = -50.0
@@ -85,12 +87,12 @@ throttle = Throttle.Throttle(
     min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
     max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
 
-system_data = SystemData.SystemData()
+sdata = SystemData.SystemData()
 
 vesc = Vesc.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
-    system_data)
+    sdata)
 
 throttle_lowpass_filter_state = None
 def lowpass_filter(sample, filter_constant):
@@ -124,7 +126,7 @@ def utils_step_towards(current_value, target_value, step):
     return value
 
 # don't know why, but if this objects related to ESPNow are started earlier, system will enter safemode
-display = DisplayESPnow.Display(display_mac_address, system_data)
+display = DisplayESPnow.Display(display_mac_address, sdata)
 
 async def task_vesc_refresh_data():
     while True:
@@ -158,7 +160,7 @@ def cruise_control(throttle_value):
     global cruise_control_button_press_previous_state
     global cruise_control_throttle_value
     
-    button_long_press_state = system_data.button_power_state & 0x0200
+    button_long_press_state = sdata.button_power_state & 0x0200
     
     # Set initial variables values
     if cruise_control_state == 0:     
@@ -167,27 +169,27 @@ def cruise_control(throttle_value):
     
     # Wait for conditions to start cruise control
     if cruise_control_state == 1:        
-        if (button_long_press_state != cruise_control_button_long_press_previous_state) and system_data.wheel_speed > 4.0:
+        if (button_long_press_state != cruise_control_button_long_press_previous_state) and sdata.wheel_speed > 4.0:
             cruise_control_button_long_press_previous_state = button_long_press_state
             
             cruise_control_throttle_value = throttle_value
             cruise_control_state = 3
             
     if cruise_control_state == 2:
-        cruise_control_button_press_previous_state = system_data.button_power_state & 0x0100
+        cruise_control_button_press_previous_state = sdata.button_power_state & 0x0100
         cruise_control_state = 3
             
     # Cruise control is active
     if cruise_control_state == 3:
         # Check for button pressed
         cruise_control_button_pressed = False
-        button_press_state = system_data.button_power_state & 0x0100
+        button_press_state = sdata.button_power_state & 0x0100
         if button_press_state != cruise_control_button_press_previous_state:
             cruise_control_button_press_previous_state = button_press_state
             cruise_control_button_pressed = True
         
         # Check for conditions to stop cruise control
-        if system_data.brakes_are_active or cruise_control_button_pressed or throttle_value > (cruise_control_throttle_value * 1.15):
+        if sdata.brakes_are_active or cruise_control_button_pressed or throttle_value > (cruise_control_throttle_value * 1.15):
             cruise_control_button_long_press_previous_state = button_long_press_state
             cruise_control_state = 1
         else:
@@ -238,25 +240,27 @@ async def task_control_motor():
         throttle_value_filtered = cruise_control(throttle_value_filtered)
         
         # If button was pressed, switch the motor_control_scheme
-        button_press_state = True if system_data.button_power_state & 0x0100 else False
+        button_press_state = True if sdata.button_power_state & 0x0100 else False
         if button_press_state != button_press_state_previous:
             button_press_state_previous = button_press_state
             
             if motor_control_scheme == MotorControlScheme.CURRENT:
                 motor_control_scheme = MotorControlScheme.SPEED
             elif motor_control_scheme == MotorControlScheme.SPEED:
+                motor_control_scheme = MotorControlScheme.SPEED_NO_REGEN
+            elif motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
                 motor_control_scheme = MotorControlScheme.CURRENT
     
-        system_data.motor_target_current = simpleio.map_range(
+        sdata.motor_target_current = simpleio.map_range(
             throttle_value_filtered,
             0.0,
             1000.0,
             0.0,
             motor_target_current_limit_max)
         
-        system_data.motor_target_current_regen = motor_target_current_limit_min
+        sdata.motor_target_current_regen = motor_target_current_limit_min
         
-        system_data.motor_target_speed = simpleio.map_range(
+        sdata.motor_target_speed = simpleio.map_range(
             throttle_value_filtered,
             0.0,
             1000.0,
@@ -265,53 +269,67 @@ async def task_control_motor():
         ##########################################################################################
 
         # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-        if system_data.motor_target_current < motor_min_current_start:
-            system_data.motor_target_current = 0.0
+        if sdata.motor_target_current < motor_min_current_start:
+            sdata.motor_target_current = 0.0
 
-        if system_data.motor_target_speed < 500.0:
-            system_data.motor_target_speed = 0.0
+        if sdata.motor_target_speed < 500.0:
+            sdata.motor_target_speed = 0.0
     
         # let's limit the value
-        if system_data.motor_target_current > motor_max_current_limit:
-            system_data.motor_target_current = motor_max_current_limit
+        if sdata.motor_target_current > motor_max_current_limit:
+            sdata.motor_target_current = motor_max_current_limit
             
-        if system_data.motor_target_current_regen < motor_max_current_regen:
-            system_data.motor_target_current_regen = motor_max_current_regen
+        if sdata.motor_target_current_regen < motor_max_current_regen:
+            sdata.motor_target_current_regen = motor_max_current_regen
 
-        if system_data.motor_target_speed > motor_erpm_max_speed_limit:
-            system_data.motor_target_speed = motor_erpm_max_speed_limit
+        if sdata.motor_target_speed > motor_erpm_max_speed_limit:
+            sdata.motor_target_speed = motor_erpm_max_speed_limit
             
         # limit very small and negative values
-        if system_data.motor_target_current < 1.0:
-            system_data.motor_target_current = 0.0
+        if sdata.motor_target_current < 1.0:
+            sdata.motor_target_current = 0.0
 
-        if system_data.motor_target_speed < 500.0: # 2 kms/h
-            system_data.motor_target_speed = 0.0
+        if sdata.motor_target_speed < 500.0: # 2 kms/h
+            sdata.motor_target_speed = 0.0
 
-        # if brakes are active, try stop the wheel
+        # if brakes are active, set values to try stop the wheel
         if brake_sensor.value:
-            system_data.brakes_are_active = True
-            system_data.motor_target_speed = 0.0
+            sdata.brakes_are_active = True
             
-            # # avoid making the wheel / motor rotate backwards
-            # if system_data.wheel_speed > 5.0:
-            #     system_data.motor_target_current = system_data.motor_target_current_regen
-            # else:
-            #     system_data.motor_target_current = 0.0
-        
+            # set specific motor current when braking
+            if motor_control_scheme == MotorControlScheme.CURRENT:
+                if sdata.wheel_speed > 5.0:
+                    sdata.motor_target_current = sdata.motor_target_current_regen
+                else:
+                    # avoid making the wheel / motor rotate backwards
+                    sdata.motor_target_current = 0.0
+                    
+            # set specific motor speed when braking
+            else: # motor_control_scheme == MotorControlScheme.SPEED or \
+                # motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
+                    sdata.motor_target_speed = 0.0
+                
         # brakes not active    
         else:
-            system_data.brakes_are_active = False
+            sdata.brakes_are_active = False
+        
+        # in SPEED_NO_REGEN mode, set motor_current_limit_min to 0 to disable regen
+        if motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
+            if brake_sensor.value:
+                vesc.set_motor_current_limit_min(sdata.motor_target_current_regen)
+            else:
+                vesc.set_motor_current_limit_min(0.0)
 
         # if motor state is off, set our motor target as zero
-        if system_data.motor_enable_state == False:
-            system_data.motor_target_current = 0.0
-            system_data.motor_target_speed = 0.0
+        if sdata.motor_enable_state == False:
+            sdata.motor_target_current = 0.0
+            sdata.motor_target_speed = 0.0
 
         if motor_control_scheme == MotorControlScheme.CURRENT:
-            vesc.set_motor_current_amps(system_data.motor_target_current)
-        elif motor_control_scheme == MotorControlScheme.SPEED:
-            vesc.set_motor_speed_rpm(system_data.motor_target_speed)
+            vesc.set_motor_current_amps(sdata.motor_target_current)
+        else: # motor_control_scheme == MotorControlScheme.SPEED or \
+                # motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
+            vesc.set_motor_speed_rpm(sdata.motor_target_speed)
 
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
@@ -328,21 +346,24 @@ async def task_control_motor_limit_current():
     while True:
         ##########################################################################################
         motor_target_current_limit_max = simpleio.map_range(
-            system_data.wheel_speed,
-            10.0,
+            sdata.wheel_speed,
             motor_current_limit_max_min_speed,
+            motor_current_limit_max_max_speed,
             motor_current_limit_max_max,
             motor_current_limit_max_min)
         
         motor_target_current_limit_min = simpleio.map_range(
-            system_data.wheel_speed,
-            10.0,
-            motor_current_limit_min_max_speed,
+            sdata.wheel_speed,
+            motor_current_limit_max_min_speed,
+            motor_current_limit_max_max_speed,
             motor_current_limit_min_min,
             motor_current_limit_min_max)
         
         vesc.set_motor_current_limit_max(motor_target_current_limit_max)
-        vesc.set_motor_current_limit_min(motor_target_current_limit_min)
+        
+        # In SPEED_NO_REGEN mode, the motor_current_limit_min should not be set here
+        if motor_control_scheme != MotorControlScheme.SPEED_NO_REGEN:
+            vesc.set_motor_current_limit_min(motor_target_current_limit_min)
 
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
 
@@ -354,18 +375,18 @@ async def task_various_0_5s():
     global wheel_speed_previous_motor_speed_erpm
     
     while True:
-        if system_data.motor_speed_erpm != wheel_speed_previous_motor_speed_erpm:
-            wheel_speed_previous_motor_speed_erpm = system_data.motor_speed_erpm
+        if sdata.motor_speed_erpm != wheel_speed_previous_motor_speed_erpm:
+            wheel_speed_previous_motor_speed_erpm = sdata.motor_speed_erpm
         
             # Fiido Q1S with installed Luneye motor 2000W
             # calculate the wheel speed
             wheel_radius = 0.165 # measured as 16.5cms
             perimeter = 6.28 * wheel_radius # 2*pi = 6.28
-            motor_rpm = system_data.motor_speed_erpm / motor_poles_pair
-            system_data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
+            motor_rpm = sdata.motor_speed_erpm / motor_poles_pair
+            sdata.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60)
 
-            if abs(system_data.wheel_speed < 3.5):
-                system_data.wheel_speed = 0.0
+            if abs(sdata.wheel_speed < 3.5):
+                sdata.wheel_speed = 0.0
 
         await asyncio.sleep(0.5)
 

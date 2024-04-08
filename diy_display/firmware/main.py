@@ -363,17 +363,17 @@ while True:
         #     motor_power = filter_motor_power(system_data.motor_power)
         #     label_1.text = f"{motor_power:5}"
 
-        if motor_current_previous_x100 != system_data.motor_current_x100 or label_1.text != str(motor_current):
+        if motor_current_previous_x100 != system_data.motor_current_x100:
             motor_current_previous_x100 = system_data.motor_current_x100
 
             motor_current = int(system_data.motor_current_x100 / 100)
             label_1.text = str(motor_current)
         
-        if motor_temperature_x10_previous != system_data.motor_temperature_x10 or label_2.text != f"{int(system_data.motor_temperature_x10 / 10.0): 2}":
+        if motor_temperature_x10_previous != system_data.motor_temperature_x10:
             motor_temperature_x10_previous = system_data.motor_temperature_x10  
             label_2.text = f"{int(system_data.motor_temperature_x10 / 10.0): 2}"
 
-        if wheel_speed_x10_previous != system_data.wheel_speed_x10 or label_3.text != f"{float(system_data.wheel_speed_x10 / 10.0)}":
+        if wheel_speed_x10_previous != system_data.wheel_speed_x10:
             wheel_speed_x10_previous = system_data.wheel_speed_x10  
             label_3.text = f"{float(system_data.wheel_speed_x10 / 10.0)}"
 
