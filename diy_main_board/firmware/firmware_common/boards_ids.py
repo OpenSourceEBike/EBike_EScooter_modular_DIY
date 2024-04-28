@@ -4,4 +4,4 @@ class BoardsIds:
     POWER_SWITCH = 4
     REAR_LIGHTS = 8
     FRONT_LIGHTS = 16
-
+    
