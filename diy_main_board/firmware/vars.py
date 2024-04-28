@@ -1,6 +1,6 @@
 import time
 
-class SystemData(object):
+class Vars(object):
 
     def __init__(self):
         self.vesc_fault_code = 0
@@ -20,6 +20,8 @@ class SystemData(object):
         self.ramp_speed_last_time = self.ramp_current_last_time
         self.motor_target_current = 0.0
         self.motor_target_current_regen = 0.0
+        self.battery_target_current = 0.0
+        self.battery_target_current_regen = 0.0
         self.motor_target_speed = 0.0
         self.assist_level = 0
         self.throttle_value = 0
