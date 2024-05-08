@@ -27,7 +27,7 @@ class MotorBoard(object):
 
                 # only process packages for us                
                 # must have 8 elements: message_id + 7 variables
-                if int(data_list[0]) == int(BoardsIds.DISPLAY) and len(data_list) == 8:
+                if data_list[0] == int(BoardsIds.DISPLAY) and len(data_list) == 8:
                     self._system_data.battery_voltage_x10 = data_list[1]
                     self._system_data.battery_current_x100 = data_list[2]
                     self._system_data.motor_current_x100 = data_list[3]
@@ -35,6 +35,7 @@ class MotorBoard(object):
                     self._system_data.brakes_are_active = True if data_list[5] == 1 else False
                     self._system_data.vesc_temperature_x10 = data_list[6]
                     self._system_data.motor_temperature_x10 = data_list[7]
+                    
         except:
             pass
 

@@ -11,6 +11,7 @@ import power_switch_espnow
 import rear_lights_espnow
 import front_lights_espnow
 import wifi
+import os
 import espnow as _ESPNow
 
 import supervisor
@@ -22,6 +23,7 @@ print("Starting Display")
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication
+my_dhcp_host_name = 'Display-EScooter-CAS' # no spaces, no underscores, max 30 chars
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 mac_address_power_switch_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
 mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
@@ -31,10 +33,9 @@ mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
 system_data = _SystemData.SystemData()
 
-wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
-wifi.radio.start_ap(ssid="NO_SSID", channel=1)
-wifi.radio.stop_ap()
+wifi.radio.hostname = my_dhcp_host_name
+wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
 
 _espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
@@ -332,6 +333,9 @@ while True:
       # motor board will now enable the motor
       system_data.motor_enable_state = True
       break
+    
+# reset the button_power_state, as it was changed previously
+system_data.button_power_state = 0
 
 # show main screen
 text_group = displayio.Group()
@@ -354,20 +358,17 @@ while True:
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # calculate the motor power
-        # if system_data.wheel_speed_x10 == 0:
-        #     system_data.battery_current_x100 = 0
-        # 
-        # system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-        # if motor_power_previous != system_data.motor_power:
-        #     motor_power_previous = system_data.motor_power
-        #     motor_power = filter_motor_power(system_data.motor_power)
-        #     label_1.text = f"{motor_power:5}"
+        system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
+        if motor_power_previous != system_data.motor_power:
+            motor_power_previous = system_data.motor_power
+            motor_power = filter_motor_power(system_data.motor_power)
+            label_1.text = f"{motor_power:5}"
 
-        if motor_current_previous_x100 != system_data.motor_current_x100:
-            motor_current_previous_x100 = system_data.motor_current_x100
+        # if motor_current_previous_x100 != system_data.motor_current_x100:
+        #     motor_current_previous_x100 = system_data.motor_current_x100
 
-            motor_current = int(system_data.motor_current_x100 / 100)
-            label_1.text = str(motor_current)
+        #     motor_current = int(system_data.motor_current_x100 / 100)
+        #     label_1.text = str(motor_current)
         
         if motor_temperature_x10_previous != system_data.motor_temperature_x10:
             motor_temperature_x10_previous = system_data.motor_temperature_x10  
@@ -382,6 +383,13 @@ while True:
         ebike_rx_tx_data_time_previous = now
         motor.send_data()
         motor.process_data()
+        
+        # VESC has an error for small numbers of negative currents - reset the current values if battery current is to much low
+        # if (system_data.battery_current_x100 < 0 and system_data.battery_current_x100 > -1000) or \
+        #         (system_data.motor_current_x100 < 0 and system_data.motor_current_x100 > -2500) or \
+        #         system_data.motor_current_x100 == 0 or system_data.motor_current_x100 == 0:
+        #     system_data.motor_current_x100 = 0
+        #     system_data.battery_current_x100 = 0
 
         if brakes_are_active_previous != system_data.brakes_are_active:
             brakes_are_active_previous = system_data.brakes_are_active
@@ -402,7 +410,7 @@ while True:
 
         # if we are braking, enable brake light
         # braking current < 15A
-        if system_data.brakes_are_active or system_data.motor_current_x100 < -1500.0:
+        if system_data.brakes_are_active or system_data.motor_current_x100 < -1500:
             system_data.rear_lights_board_pins_state |= rear_light_pin_stop_bit
         else:
             system_data.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
@@ -434,5 +442,6 @@ while True:
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
+
 
 

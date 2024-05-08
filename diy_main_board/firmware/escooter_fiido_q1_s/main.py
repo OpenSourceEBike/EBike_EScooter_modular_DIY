@@ -9,6 +9,7 @@ import Brake
 import throttle as Throttle
 from microcontroller import watchdog
 from watchdog import WatchDogMode
+import os
 import gc
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 import wifi
@@ -17,9 +18,13 @@ import escooter_fiido_q1_s.motor as motor
 import supervisor
 supervisor.runtime.autoreload = False
 
+# MAC Address value needed for the wireless communication
+my_dhcp_host_name = 'Mainboard-EScooter-CAS' # no spaces, no underscores, max 30 chars
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+
 wifi.radio.mac_address = bytearray(my_mac_address)
-wifi.radio.enabled = True
+wifi.radio.hostname = my_dhcp_host_name
+wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
 
 class MotorSingleDual:
     SINGLE = 0
@@ -466,5 +471,6 @@ async def main():
                         various_task)
 
 asyncio.run(main())
+
 
 
