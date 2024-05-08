@@ -12,6 +12,7 @@ from watchdog import WatchDogMode
 import gc
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 import wifi
+import escooter_fiido_q1_s.motor as motor
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -20,18 +21,15 @@ my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 wifi.radio.mac_address = bytearray(my_mac_address)
 wifi.radio.enabled = True
 
+class MotorSingleDual:
+    SINGLE = 0
+    DUAL = 1   
+
 class MotorControlScheme:
     SPEED = 0
     SPEED_NO_REGEN = 1
-    CURRENT = 2
-        
-# MotorControlScheme_len = len([attr for attr in dir(MotorControlScheme) if not attr.startswith('__')])
-MotorControlScheme_len = 3
-    
-class MotorSingleDual:
-    SINGLE = 0
-    DUAL = 1    
-
+    # CURRENT = 2
+ 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
 ###############################################
@@ -53,9 +51,13 @@ throttle_adc_min = 16400 # this is a value that should be a bit superior than th
 throttle_adc_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 throttle_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
+throttle_regen_adc_min = 18000
+throttle_regen_adc_max = 49000
+throttle_regen_adc_over_max_error = 54500
+
 motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
 motor_min_current_start = 1.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_regen = -70.0 # max regen current
+motor_max_current_regen = -80.0 # max regen current
 
 battery_max_current_limit = 31.0 # about 2200W at 72V
 battery_max_current_regen = -14.0 # about 1000W at 72V
@@ -65,13 +67,13 @@ battery_max_current_regen = -14.0 # about 1000W at 72V
 # like at startup will have 'motor_current_limit_max_max' and then will reduce linearly
 # up to the 'motor_current_limit_max_min', when wheel speed is
 # 'motor_current_limit_max_min_speed'
-motor_current_limit_max_max = 135.0
+motor_current_limit_max_max = 120.0
 motor_current_limit_max_min = 60.0
 motor_current_limit_max_min_speed = 25.0
 
 # this are the values for regen
-motor_current_limit_min_min = -70.0
-motor_current_limit_min_max = -50.0
+motor_current_limit_min_min = -80.0
+motor_current_limit_min_max = -80.0
 motor_current_limit_min_max_speed = 25.0
 
 ## Battery currents
@@ -84,21 +86,22 @@ battery_current_limit_min_min = -14.0
 battery_current_limit_min_max = -12.0 # about xx% less
 battery_current_limit_min_max_speed = 25.0
 
-
-# default as speed control
-motor_control_scheme = MotorControlScheme.SPEED
-
 # Single or Dual motor setup
 # motor_single_dual = MotorSingleDual.SINGLE
 motor_single_dual = MotorSingleDual.DUAL
 motor_1_dual_factor = 0.6
-motor_2_dual_factor = 0.4
+motor_2_dual_factor = 0.6
 motor_can_id = 101
+
+# default motor control scheme
+motor_control_scheme = MotorControlScheme.SPEED
 
 # MAC Address value needed for the wireless communication with the display
 display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 ###############################################
+
+MotorControlScheme_len = len([attr for attr in dir(MotorControlScheme) if not attr.startswith('__')])
 
 brake_sensor = Brake.Brake(
    board.IO12) # brake sensor pin
@@ -114,6 +117,11 @@ throttle = Throttle.Throttle(
     min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
     max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
 
+throttle_regen = Throttle.Throttle(
+    board.IO10, # ADC pin for throttle
+    min = throttle_regen_adc_min, # min ADC value that throttle reads, plus some margin
+    max = throttle_regen_adc_max) # max ADC value that throttle reads, minus some margin
+
 vars = Vars.Vars()
 
 vesc = Vesc.Vesc(
@@ -121,17 +129,17 @@ vesc = Vesc.Vesc(
     board.IO14, # UART RX pin that connect to VESC
     vars)
 
-throttle_lowpass_filter_state = None
-def lowpass_filter(sample, filter_constant):
-    global throttle_lowpass_filter_state
-
-    # initialization
-    if throttle_lowpass_filter_state is None:
-        throttle_lowpass_filter_state = sample
-
-    throttle_lowpass_filter_state = throttle_lowpass_filter_state - ((filter_constant) * ((throttle_lowpass_filter_state) - (sample)))
-    
-    return throttle_lowpass_filter_state
+if motor_single_dual == MotorSingleDual.SINGLE:
+    motor = motor.Motor(
+        vesc,
+        False) # this is a single motor
+else:
+    motor = motor.Motor(
+        vesc,
+        True, # this is a dual motor
+        motor_1_dual_factor,
+        motor_2_dual_factor,
+        motor_can_id)
 
 def utils_step_towards(current_value, target_value, step):
     """ Move current_value towards the target_value, by increasing / decreasing by step
@@ -222,12 +230,32 @@ def cruise_control(throttle_value):
         
     return throttle_value
 
+button_press_state_previous = False
+def process_motor_control_scheme(motor_control_scheme):
+    global button_press_state_previous
+    
+    button_press_state = True if vars.button_power_state & 0x0100 else False
+    if button_press_state != button_press_state_previous:
+        button_press_state_previous = button_press_state
+        
+        if motor_control_scheme < (MotorControlScheme_len - 1):
+            motor_control_scheme += 1
+        else:
+            motor_control_scheme = 0
+                        
+        # # force speed limit
+        # if motor_control_scheme == MotorControlScheme.CURRENT:
+        #     motor.set_motor_limit_speed(motor_max_speed_limit)
+            
+        print(f'motor_control_scheme: {motor_control_scheme}')
+            
+    return motor_control_scheme 
+
 # initialize here this variables - they hold values that will change real time depending on the wheel speed, like 'motor_target_current_limit_max' will be max at startup
 motor_target_current_limit_max = motor_max_current_limit
 motor_target_current_limit_min = motor_max_current_regen
 battery_target_current_limit_max = battery_max_current_limit
 battery_target_current_limit_min = battery_max_current_regen
-button_press_state_previous = False
 async def task_control_motor():
     global motor_target_current_limit_max
     global motor_target_current_limit_min
@@ -237,62 +265,52 @@ async def task_control_motor():
     global motor_control_scheme
     
     # let's limit the wheel speed, so even in current control mode, the speed will be limited
-    vesc.set_motor_limit_speed(motor_max_speed_limit)
-    if motor_single_dual == MotorSingleDual.DUAL: vesc.set_can_motor_limit_speed(motor_max_speed_limit, motor_can_id)
+    motor.set_motor_limit_speed(motor_max_speed_limit)
     
     while True:
-        # See if we want to switch the motor_control_scheme
-        button_press_state = True if vars.button_power_state & 0x0100 else False
-        if button_press_state != button_press_state_previous:
-            button_press_state_previous = button_press_state
-            
-            if motor_control_scheme < (MotorControlScheme_len - 1):
-                motor_control_scheme += 1
-            else:
-                motor_control_scheme = 0
-                
-            # force speed limit
-            if motor_control_scheme == MotorControlScheme.CURRENT:
-                vesc.set_motor_limit_speed(motor_max_speed_limit)
-                if motor_single_dual == MotorSingleDual.DUAL: vesc.set_can_motor_limit_speed(motor_max_speed_limit, motor_can_id)
         
+        # See if we want to switch the motor_control_scheme
+        motor_control_scheme = process_motor_control_scheme(motor_control_scheme)
+
         ##########################################################################################
         # Throttle
-        # map torque value
+        
+        throttle_value = throttle.value
+        throttle_regen_value = throttle_regen.value
 
-        # low pass filter torque sensor value to smooth it,
-        # because the easy DIY hardware lacks such low pass filter on purpose
-        # throttle_value_filtered = lowpass_filter(throttle.value, 0.02)
-        # if throttle_value_filtered < 0.01:
-        #   throttle_value_filtered = 0
-        throttle_value_filtered = throttle.value
-  
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
         throttle_adc_previous_value = throttle.adc_previous_value
-        if throttle_adc_previous_value > throttle_adc_over_max_error:
+        throttle_regen_adc_previous_value = throttle_regen.adc_previous_value
+        if throttle_adc_previous_value > throttle_adc_over_max_error or \
+                throttle_regen_adc_previous_value > throttle_regen_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
-            vesc.set_motor_current_amps(0)
-            if motor_single_dual == MotorSingleDual.DUAL: vesc.set_can_motor_current_amps(0, motor_can_id)
-            vesc.set_motor_current_amps(0)
-            if motor_single_dual == MotorSingleDual.DUAL: vesc.set_can_motor_current_amps(0, motor_can_id)
-            vesc.set_motor_current_amps(0)
-            if motor_single_dual == MotorSingleDual.DUAL: vesc.set_can_motor_current_amps(0, motor_can_id)
-            raise Exception(f'throttle value: {throttle_adc_previous_value} -- is over max, this can be dangerous!')
+            motor.set_motor_current_amps(0)
+            motor.set_motor_current_amps(0)
+            motor.set_motor_current_amps(0)
+            
+            if throttle_adc_previous_value > throttle_adc_over_max_error:
+                message = f'throttle value: {throttle_adc_previous_value} -- is over max, this can be dangerous!'
+            else:
+                message = f'throttle regen value: {throttle_regen_adc_previous_value} -- is over max, this can be dangerous!'
+            raise Exception(message)
     
         # Apply cruise control
-        throttle_value_filtered = cruise_control(throttle_value_filtered)
-    
-        # map throttle value to target currents and wheel speed
-        vars.motor_target_current = simpleio.map_range(throttle_value_filtered, 0.0, 1000.0, 0.0, motor_target_current_limit_max)
-        vars.battery_target_current = simpleio.map_range(throttle_value_filtered, 0.0, 1000.0, 0.0, battery_target_current_limit_max)
+        throttle_value = cruise_control(throttle_value)
         
-        vars.motor_target_current_regen = motor_target_current_limit_min
-        vars.battery_target_current_regen = battery_target_current_limit_min        
+        # current
+        vars.motor_target_current = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, motor_target_current_limit_max)
+
+        # brake regen current
+        if motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
+            vars.motor_target_current_regen = simpleio.map_range(throttle_regen_value, 0.0, 1000.0, 0.0, motor_target_current_limit_min)
+        else:
+            vars.motor_target_current_regen = motor_target_current_limit_min        
         
-        vars.motor_target_speed = simpleio.map_range(throttle_value_filtered, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit)
+        # speed
+        vars.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit)
         ##########################################################################################
 
         ## Limit mins and max values
@@ -300,9 +318,6 @@ async def task_control_motor():
         if vars.motor_target_current < motor_min_current_start: vars.motor_target_current = 0.0
         if vars.motor_target_current > motor_max_current_limit: vars.motor_target_current = motor_max_current_limit
         if vars.motor_target_current_regen < motor_max_current_regen: vars.motor_target_current_regen = motor_max_current_regen
-        
-        if vars.battery_target_current > battery_max_current_limit: vars.battery_target_current = battery_max_current_limit
-        if vars.battery_target_current_regen < battery_max_current_regen: vars.battery_target_current_regen = battery_max_current_regen
 
         if vars.motor_target_speed < 500.0: vars.motor_target_speed = 0.0
         if vars.motor_target_speed > motor_erpm_max_speed_limit: vars.motor_target_speed = motor_erpm_max_speed_limit
@@ -311,124 +326,54 @@ async def task_control_motor():
         if vars.motor_target_current < 1.0: vars.motor_target_current = 0.0
         if vars.motor_target_current_regen > -1.0: vars.motor_target_current_regen = 0.0
         
-        if vars.battery_target_current < 0.1: vars.battery_target_current = 0.0
-        if vars.battery_target_current_regen > -0.1: vars.battery_target_current_regen = 0.0
-
-        if vars.motor_target_speed < 500.0: vars.motor_target_speed = 0.0 # 2 kms/h
-
-        # if brakes are active, set values to try stop the wheel
+        # check if brakes are active
+        vars.brakes_are_active = False
         if brake_sensor.value:
             vars.brakes_are_active = True
-            
-            # set specific motor current when braking
-            if motor_control_scheme == MotorControlScheme.CURRENT:
-                if vars.wheel_speed > 2.0:
-                    vars.motor_target_current = vars.motor_target_current_regen
-                    vars.battery_target_current = vars.battery_target_current_regen
-                else:
-                    # avoid making the wheel / motor rotate backwards
-                    vars.motor_target_current = 0.0
-                    vars.battery_target_current = 0.0
-                
-            # set specific motor current when braking
-            elif motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
-                vars.motor_target_current = vars.motor_target_current_regen
-                vars.battery_target_current = vars.battery_target_current_regen
-                vars.motor_target_speed = 0.0
-                    
-            # set specific motor speed when braking
-            else:
-                vars.motor_target_speed = 0.0
-                
-        # brakes not active    
-        else:
-            vars.brakes_are_active = False
         
-        # in SPEED_NO_REGEN mode, set motor_current_limit_min to 0 to disable regen
-        motor_current_limit_min = vars.motor_target_current_regen
-        battery_current_limit_min = vars.battery_target_current_regen
-        if motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
-            if brake_sensor.value == False:
-                vars.motor_target_current = 0.0
-                vars.battery_target_current = 0.0
-            
-        # if motor state is off, set our motor target as zero
+        # if motor state is disabled, set currents and speed to 0
         if vars.motor_enable_state == False:
             vars.motor_target_current = 0.0
-            vars.battery_target_current = 0.0
+            vars.motor_target_current_regen = 0
             vars.motor_target_speed = 0.0
-            motor_current_limit_min = 0.0
-            battery_current_limit_min = 0.0
             
-        # apply the current values            
-        if motor_control_scheme == MotorControlScheme.CURRENT:            
-            if motor_single_dual == MotorSingleDual.SINGLE:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max)
-                vesc.set_motor_current_limit_min(motor_current_limit_min)
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max)
-                vesc.set_battery_current_limit_min(battery_current_limit_min)
-                vesc.set_motor_current_amps(vars.motor_target_current)
-            else:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max * motor_1_dual_factor)
-                vesc.set_can_motor_current_limit_max(motor_target_current_limit_max * motor_2_dual_factor, motor_can_id)
+        # # apply the currents and speed values
+        # if motor_control_scheme == MotorControlScheme.CURRENT:
+        #     motor.set_motor_current_limit_max(motor_target_current_limit_max)
+        #     motor.set_motor_current_limit_min(motor_target_current_limit_min)
+        #     motor.set_battery_current_limit_max(battery_target_current_limit_max)
+        #     motor.set_battery_current_limit_min(battery_target_current_limit_min)
             
-                vesc.set_motor_current_limit_min(motor_current_limit_min)
-                vesc.set_can_motor_current_limit_min(motor_current_limit_min * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max)
-                vesc.set_can_battery_current_limit_max(battery_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_min(battery_current_limit_min)
-                vesc.set_can_battery_current_limit_min(battery_current_limit_min * motor_2_dual_factor, motor_can_id)
-    
-                vesc.set_motor_current_amps(vars.motor_target_current * motor_1_dual_factor)
-                vesc.set_can_motor_current_amps(vars.motor_target_current * motor_2_dual_factor, motor_can_id)
-            
+        #     if vars.brakes_are_active:                
+        #         motor.set_motor_current_brake_amps(0)
+        #     else:
+        #         motor.set_motor_current_amps(vars.motor_target_current)
+
         elif motor_control_scheme == MotorControlScheme.SPEED:            
-            if motor_single_dual == MotorSingleDual.SINGLE:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max)
-                vesc.set_motor_current_limit_min(motor_current_limit_min)
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max)
-                vesc.set_battery_current_limit_min(battery_current_limit_min)
-                vesc.set_motor_speed_rpm(vars.motor_target_speed)
+            motor.set_motor_current_limit_max(motor_target_current_limit_max)
+            motor.set_motor_current_limit_min(motor_target_current_limit_min)
+            motor.set_battery_current_limit_max(battery_target_current_limit_max)
+            motor.set_battery_current_limit_min(battery_target_current_limit_min)
+            if vars.brakes_are_active:
+                motor.set_motor_speed_rpm(0)
             else:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max * motor_1_dual_factor)
-                vesc.set_can_motor_current_limit_max(motor_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_motor_current_limit_min(motor_current_limit_min * motor_1_dual_factor)
-                vesc.set_can_motor_current_limit_min(motor_current_limit_min * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max * motor_1_dual_factor)
-                vesc.set_can_battery_current_limit_max(battery_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_min(battery_current_limit_min * motor_1_dual_factor)
-                vesc.set_can_battery_current_limit_min(battery_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_motor_speed_rpm(vars.motor_target_speed)
-                vesc.set_can_motor_speed_rpm(vars.motor_target_speed, motor_can_id)
+                motor.set_motor_speed_rpm(vars.motor_target_speed)
             
-        elif motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
-            if motor_single_dual == MotorSingleDual.SINGLE:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max)
-                vesc.set_motor_current_limit_min(vars.motor_target_current)
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max)
-                vesc.set_battery_current_limit_min(vars.battery_target_current)
-                vesc.set_motor_speed_rpm(vars.motor_target_speed)
+        elif motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:        
+            motor.set_motor_current_limit_max(motor_target_current_limit_max)
+            motor.set_battery_current_limit_max(battery_target_current_limit_max)
+            motor.set_battery_current_limit_min(battery_target_current_limit_min)
+        
+            if vars.brakes_are_active:
+                motor.set_motor_current_limit_min(motor_target_current_limit_min)
+                motor.set_motor_speed_rpm(0)
             else:
-                vesc.set_motor_current_limit_max(motor_target_current_limit_max * motor_1_dual_factor)
-                vesc.set_can_motor_current_limit_max(motor_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_motor_current_limit_min(vars.motor_target_current * motor_1_dual_factor)
-                vesc.set_can_motor_current_limit_min(vars.motor_target_current * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_max(battery_target_current_limit_max * motor_1_dual_factor)
-                vesc.set_can_battery_current_limit_max(battery_target_current_limit_max * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_battery_current_limit_min(vars.battery_target_current * motor_1_dual_factor)
-                vesc.set_can_battery_current_limit_min(vars.battery_target_current * motor_2_dual_factor, motor_can_id)
-                
-                vesc.set_motor_speed_rpm(vars.motor_target_speed)
-                vesc.set_can_motor_speed_rpm(vars.motor_target_speed, motor_can_id)
+                if (vars.motor_target_current_regen >= 0):
+                    motor.set_motor_current_limit_min(0)
+                    motor.set_motor_speed_rpm(vars.motor_target_speed)
+                else:
+                    motor.set_motor_current_limit_min(vars.motor_target_current_regen)
+                    motor.set_motor_speed_rpm(0)
             
         # we just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
