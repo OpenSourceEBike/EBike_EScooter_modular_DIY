@@ -155,7 +155,29 @@ class Vesc(object):
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
         self._pack_and_send(tx_command_buffer, 0)
-
+        
+    def set_motor_current_brake_amps(self, value):
+        """Set battery brake / regen Amps"""
+        value = value * 1000 # current in mA
+        
+        tx_command_buffer = bytearray(5)
+        tx_command_buffer[0] = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
+        struct.pack_into('>l', tx_command_buffer, 1, int(value))
+        self._pack_and_send(tx_command_buffer, 0)
+        
+    def set_can_motor_current_brake_amps(self, value, can_id):
+        value = value * 1000 # current in mA
+        
+        tx_command_buffer = bytearray(7)
+        
+        tx_command_buffer[0] = 34 # COMM_FORWARD_CAN
+        tx_command_buffer[1] = can_id
+        
+        tx_command_buffer[2] = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
+        
+        struct.pack_into('>l', tx_command_buffer, 3, int(value))
+        self._pack_and_send(tx_command_buffer, 0)
+        
     def set_motor_speed_rpm(self, value):
         """Set motor speed in RPM"""
         tx_command_buffer = bytearray(5)
