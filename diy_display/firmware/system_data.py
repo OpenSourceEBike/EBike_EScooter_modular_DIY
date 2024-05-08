@@ -24,4 +24,4 @@ class SystemData(object):
         self.lights_state = False
         self.rear_lights_board_pins_state = 0
         self.front_lights_board_pins_state = 0
-        self.button_power_state = 0
+        self.button_power_state = 0x0101 # this value 
