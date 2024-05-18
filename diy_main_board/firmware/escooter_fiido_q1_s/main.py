@@ -22,9 +22,13 @@ supervisor.runtime.autoreload = False
 my_dhcp_host_name = 'Mainboard-EScooter-CAS' # no spaces, no underscores, max 30 chars
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 
-wifi.radio.mac_address = bytearray(my_mac_address)
 wifi.radio.hostname = my_dhcp_host_name
-wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
+wifi.radio.mac_address = bytearray(my_mac_address)
+try:
+    wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
+    print('Connected to wifi')
+except:
+    print('Can not connect to wifi')
 
 class MotorSingleDual:
     SINGLE = 0
@@ -52,8 +56,8 @@ motor_erpm_max_speed_limit = 13263 # 55kms/h
 motor_max_speed_limit = 16 # don't know why need to be 16 to be limited to 55 # 55kms/h
 
 # throttle value of original Fiido Q1S throttle
-throttle_adc_min = 16400 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
-throttle_adc_max = 50540 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
+throttle_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
+throttle_adc_max = 49800 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 throttle_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
 throttle_regen_adc_min = 18000
