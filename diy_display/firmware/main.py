@@ -33,9 +33,13 @@ mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
 system_data = _SystemData.SystemData()
 
-wifi.radio.mac_address = bytearray(my_mac_address)
 wifi.radio.hostname = my_dhcp_host_name
-wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
+wifi.radio.mac_address = bytearray(my_mac_address)
+try:
+    wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
+    print('Connected to wifi')
+except:
+    print('Can not connect to wifi')
 
 _espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
@@ -442,6 +446,4 @@ while True:
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
-
-
 
