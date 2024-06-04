@@ -1,9 +1,26 @@
+#########################################################
+# Make a beep at boot
+import time
 import board
-import digitalio
+from buzzer import Buzzer
+
+buzzer_pins = [
+  board.IO40,
+  board.IO38,
+  board.IO36,
+  board.IO34,
+  board.IO21,
+  board.IO17
+]
+buzzer = Buzzer(buzzer_pins)
+buzzer.duty_cycle = 0.1
+time.sleep(0.5)  
+buzzer.duty_cycle = 0.0
+#########################################################
+
 import display as Display
 import motor_board_espnow
 import system_data as _SystemData
-import time
 import displayio
 from adafruit_display_text import label
 import terminalio
