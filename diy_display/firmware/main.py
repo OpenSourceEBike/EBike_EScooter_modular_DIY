@@ -1,4 +1,5 @@
 import board
+import digitalio
 import display as Display
 import motor_board_espnow
 import system_data as _SystemData
@@ -52,16 +53,27 @@ system_data.display_communication_counter = (system_data.display_communication_c
 # just to check if is possible to send data to motor
 
 displayObject = Display.Display(
-        board.IO7, # CLK pin
-        board.IO9, # MOSI pin
-        board.IO5, # chip select pin, not used but for some reason there is an error if chip_select is None
-        board.IO12, # command pin
-        board.IO11, # reset pin
-        1000000) # spi clock frequency
+        board.IO11, # CLK pin
+        board.IO12, # MOSI pin
+        board.IO7, # chip select pin, not used but for some reason there is an error if chip_select is None
+        board.IO9, # command pin
+        board.IO5, # reset pin
+        board.IO3, # backlight pin
+        100000) # spi clock frequency
 display = displayObject.display
 
-DISPLAY_WIDTH = 64  
-DISPLAY_HEIGHT = 128
+# show init screen
+label_x = 10
+label_y = 18
+label_init_screen = label.Label(terminalio.FONT, text='0')
+label_init_screen.anchor_point = (0.0, 0.0)
+label_init_screen.anchored_position = (label_x, label_y)
+label_init_screen.scale = 1
+label_init_screen.text = "Ready to power on"
+screen1_group = displayio.Group()
+screen1_group.append(label_init_screen)
+display.root_group = screen1_group
+
 TEXT = "0"
 
 def filter_motor_power(motor_power):
@@ -338,6 +350,9 @@ while True:
       system_data.motor_enable_state = True
       break
     
+    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    time.sleep(0.025)
+    
 # reset the button_power_state, as it was changed previously
 system_data.button_power_state = 0
 
@@ -446,4 +461,6 @@ while True:
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
-
+    
+    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    time.sleep(0.01)
