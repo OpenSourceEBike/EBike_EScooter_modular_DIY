@@ -13,7 +13,7 @@ buzzer_pins = [
   board.IO17
 ]
 buzzer = Buzzer(buzzer_pins)
-buzzer.duty_cycle = 0.1
+buzzer.duty_cycle = 0.03
 time.sleep(0.5)  
 buzzer.duty_cycle = 0.0
 #########################################################
@@ -36,6 +36,17 @@ import supervisor
 supervisor.runtime.autoreload = False
 
 print("Starting Display")
+
+
+# import digitalio
+# lights_button = digitalio.DigitalInOut(board.IO33)
+# lights_button.direction = digitalio.Direction.INPUT
+
+# while True:
+#   print(1 if lights_button.value else 0)
+  
+#   time.sleep(1)
+
 
 ########################################
 # CONFIGURATIONS
@@ -164,6 +175,7 @@ display_time_previous = now
 ebike_rx_tx_data_time_previous = now
 lights_send_data_time_previous = now
 power_switch_send_data_time_previous = now
+turn_lights_buzzer_time_previous = now
 
 battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
@@ -182,6 +194,8 @@ rear_light_pin_turn_left_bit = 4
 rear_light_pin_turn_right_bit = 8
 
 front_light_pin_head_bit = 1
+
+turn_lights_buzzer_state = False
 
 # keep tail light always on
 system_data.rear_lights_board_pins_state = 0
@@ -251,6 +265,9 @@ def button_power_click_start_cb():
   else:
     system_data.button_power_state |= 0x0100
     
+  if system_data.motor_enable_state:
+    system_data.lights_state = not system_data.lights_state
+    
 def button_power_click_release_cb():
   system_data.button_power_state &= ~1
 
@@ -283,25 +300,28 @@ def button_right_click_release_cb():
   system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
 
 def button_lights_click_start_cb():
-  system_data.lights_state = True
+  # system_data.lights_state = True
+  pass
 
 def button_lights_click_release_cb():
-  system_data.lights_state = False
-
-def button_switch_click_start_cb():
+  # system_data.lights_state = False
   pass
 
-def button_switch_click_release_cb():
-  pass
+# def button_switch_click_start_cb():
+#   pass
+
+# def button_switch_click_release_cb():
+#   pass
 
 ### Setup buttons ###
-button_POWER, button_LEFT, button_RIGHT, button_LIGHTS, button_SWITCH = range(5)
+# button_POWER, button_LEFT, button_RIGHT, button_LIGHTS, button_SWITCH = range(5)
+button_POWER, button_LEFT, button_RIGHT, button_LIGHTS = range(4)
 buttons_pins = [
   board.IO39, # button_POWER
   board.IO37, # button_LEFT   
   board.IO35, # button_RIGHT
   board.IO33, # button_LIGHTS 
-  board.IO18  # button_SWITCH
+  # board.IO18  # button_SWITCH
 ]
 
 buttons_callbacks = {
@@ -319,9 +339,9 @@ buttons_callbacks = {
   button_LIGHTS: {
     'click_start': button_lights_click_start_cb,
     'click_release': button_lights_click_release_cb},
-  button_SWITCH: {
-    'click_start': button_switch_click_start_cb,
-    'click_release': button_switch_click_release_cb}
+  # button_SWITCH: {
+  #   'click_start': button_switch_click_start_cb,
+  #   'click_release': button_switch_click_release_cb}
 }
 
 nr_buttons = len(buttons_pins)
@@ -461,6 +481,25 @@ while True:
 
         front_lights.update()
         rear_lights.update()
+
+
+    now = time.monotonic()  
+    if system_data.rear_lights_board_pins_state & rear_light_pin_turn_left_bit or \
+        system_data.rear_lights_board_pins_state & rear_light_pin_turn_right_bit:
+          
+          if (now - turn_lights_buzzer_time_previous) > 0.5:
+              turn_lights_buzzer_time_previous = now
+          
+              if turn_lights_buzzer_state:
+                  buzzer.duty_cycle = 0.03
+              else:
+                  buzzer.duty_cycle = 0.0
+              
+              turn_lights_buzzer_state = not turn_lights_buzzer_state
+            
+    else:
+        buzzer.duty_cycle = 0.0
+        turn_lights_buzzer_state = True
 
     now = time.monotonic()
     if (now - power_switch_send_data_time_previous) > 0.5:

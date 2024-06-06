@@ -67,8 +67,14 @@
     "visible_layers": "fffffff_ffffffff",
     "zone_display_mode": 0
   },
+  "git": {
+    "repo_password": "",
+    "repo_type": "",
+    "repo_username": "",
+    "ssh_key": ""
+  },
   "meta": {
-    "filename": "schematic-OLED_SPI-VESC-ESP32-S2.kicad_prl",
+    "filename": "schematic-LCD12864_SPI-VESC-ESP32-S2.kicad_pro.kicad_prl",
     "version": 3
   },
   "project": {
