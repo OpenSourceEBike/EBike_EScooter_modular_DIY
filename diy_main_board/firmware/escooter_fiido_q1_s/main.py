@@ -18,6 +18,11 @@ import escooter_fiido_q1_s.motor as motor
 import supervisor
 supervisor.runtime.autoreload = False
 
+print()
+print("Booting EBike/EScooter software")
+print()
+boot_init_time = time.monotonic()
+
 # MAC Address value needed for the wireless communication
 my_dhcp_host_name = 'Mainboard-EScooter-CAS' # no spaces, no underscores, max 30 chars
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
@@ -56,13 +61,13 @@ motor_erpm_max_speed_limit = 13263 # 55kms/h
 motor_max_speed_limit = 16 # don't know why need to be 16 to be limited to 55 # 55kms/h
 
 # throttle value of original Fiido Q1S throttle
-throttle_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
-throttle_adc_max = 49800 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
-throttle_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
+throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
+throttle_1_adc_max = 49800 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
+throttle_1_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
-throttle_regen_adc_min = 18000
-throttle_regen_adc_max = 49000
-throttle_regen_adc_over_max_error = 54500
+throttle_2_adc_min = 18000
+throttle_2_adc_max = 49000
+throttle_2_adc_over_max_error = 54500
 
 motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
 motor_min_current_start = 1.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
@@ -121,15 +126,15 @@ while brake_sensor.value:
     print('brake at start')
     time.sleep(1)
 
-throttle = Throttle.Throttle(
+throttle_1 = Throttle.Throttle(
     board.IO11, # ADC pin for throttle
-    min = throttle_adc_min, # min ADC value that throttle reads, plus some margin
-    max = throttle_adc_max) # max ADC value that throttle reads, minus some margin
+    min = throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
 
-throttle_regen = Throttle.Throttle(
+throttle_2 = Throttle.Throttle(
     board.IO10, # ADC pin for throttle
-    min = throttle_regen_adc_min, # min ADC value that throttle reads, plus some margin
-    max = throttle_regen_adc_max) # max ADC value that throttle reads, minus some margin
+    min = throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
+    max = throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
 
 vars = Vars.Vars()
 
@@ -279,34 +284,36 @@ async def task_control_motor():
     while True:
         
         # See if we want to switch the motor_control_scheme
-        motor_control_scheme = process_motor_control_scheme(motor_control_scheme)
+        # DISABLED as left throttle is not anymore a regen throttle
+        # motor_control_scheme = process_motor_control_scheme(motor_control_scheme)
 
         ##########################################################################################
         # Throttle
         
-        throttle_value = throttle.value
-        throttle_regen_value = throttle_regen.value
+        # read 1st and 2nd throttle, and use the max value of both
+        throttle_value = max(throttle_1.value, throttle_2.value)
 
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
-        throttle_adc_previous_value = throttle.adc_previous_value
-        throttle_regen_adc_previous_value = throttle_regen.adc_previous_value
-        if throttle_adc_previous_value > throttle_adc_over_max_error or \
-                throttle_regen_adc_previous_value > throttle_regen_adc_over_max_error:
+        throttle_adc_previous_value = throttle_1.adc_previous_value
+        throttle_2_adc_previous_value = throttle_2.adc_previous_value
+        if throttle_adc_previous_value > throttle_1_adc_over_max_error or \
+                throttle_2_adc_previous_value > throttle_2_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             motor.set_motor_current_amps(0)
             motor.set_motor_current_amps(0)
             motor.set_motor_current_amps(0)
             
-            if throttle_adc_previous_value > throttle_adc_over_max_error:
+            if throttle_adc_previous_value > throttle_1_adc_over_max_error:
                 message = f'throttle value: {throttle_adc_previous_value} -- is over max, this can be dangerous!'
             else:
-                message = f'throttle regen value: {throttle_regen_adc_previous_value} -- is over max, this can be dangerous!'
+                message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
             raise Exception(message)
     
         # Apply cruise control
+        # DISABLED UNTIL LIGHTS BUTTON IS NOT WORKING
         throttle_value = cruise_control(throttle_value)
         
         # current
@@ -314,8 +321,6 @@ async def task_control_motor():
 
         # brake regen current
         if motor_control_scheme == MotorControlScheme.SPEED_NO_REGEN:
-            vars.motor_target_current_regen = simpleio.map_range(throttle_regen_value, 0.0, 1000.0, 0.0, motor_target_current_limit_min)
-        else:
             vars.motor_target_current_regen = motor_target_current_limit_min        
         
         # speed
@@ -455,8 +460,6 @@ async def task_various():
 
 async def main():
 
-    print("Starting EBike/EScooter")
-
     # setup watchdog, to reset the system if watchdog is not feed in time
     # 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
     watchdog.timeout = 1
@@ -468,6 +471,14 @@ async def main():
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     various_task = asyncio.create_task(task_various())
 
+    print()
+    print('End of booting EBike/EScooter software')
+    print()
+    print(f'Boot total time: {(time.monotonic() - boot_init_time)}')
+    print()
+    print("Starting EBike/EScooter")
+    print()
+
     await asyncio.gather(vesc_refresh_data_task,
                         display_refresh_data_task,
                         control_motor_limit_current_task,
@@ -475,6 +486,5 @@ async def main():
                         various_task)
 
 asyncio.run(main())
-
 
 
