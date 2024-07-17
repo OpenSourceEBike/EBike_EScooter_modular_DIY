@@ -1,5 +1,6 @@
 import busio
 import struct
+import time
 
 class Vesc(object):
     """VESC"""
@@ -20,6 +21,9 @@ class Vesc(object):
             timeout = 0.005, # 5ms is enough for reading the UART
             # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
             receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
+
+        # assuming max packet size of 79, like the one to read motor data
+        self._vesc_data = bytearray(79 * 2)
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
@@ -53,10 +57,14 @@ class Vesc(object):
 
         return crc
     
-    def _uart_maybe_reset_input_buffer(self):
-        if self._uart.in_waiting:
-            self._uart.reset_input_buffer()
-
+    def _uart_maybe_reset_input_buffer(self):        
+        bytes_in_uart_buffer = self._uart.in_waiting
+        #read all bytes and discard
+        while bytes_in_uart_buffer:
+            # read 1 byte and discard
+            self._uart.read(bytes_in_uart_buffer)
+            bytes_in_uart_buffer = self._uart.in_waiting
+            
     def _pack_and_send(self, buf, response_len):
         vesc_command = buf[0]
 
@@ -76,44 +84,70 @@ class Vesc(object):
         # send packet to UART
         self._uart.write(data_array)
 
+        bytes_in_uart_buffer = self._uart.in_waiting
         # try to read response only if we expect it
-        if response_len > 0:
-            data = self._uart.read(response_len)  # read up to response_len bytes
+        if response_len > 0 and bytes_in_uart_buffer >= response_len:
 
-            # the data must have the lenght we are expecting, otherwise discard
-            if (data is None) or (len(data) != response_len):
-                self._uart_maybe_reset_input_buffer()
-                return None
+            while bytes_in_uart_buffer:
+                
+                byte_ = self._uart.read(1)[0]
+                # check for expected start byte 2
+                if byte_ != 2:
+                    bytes_in_uart_buffer = self._uart.in_waiting
+                    if bytes_in_uart_buffer:                        
+                        continue
+                    else:
+                        # exit if there are no more bytes to read
+                        return None
+                    
+                byte_ = self._uart.read(1)[0]
+                # check for expected packet lenght = 74
+                if byte_ != 74:
+                    bytes_in_uart_buffer = self._uart.in_waiting
+                    if bytes_in_uart_buffer:                        
+                        continue
+                    else:
+                        # exit if there are no more bytes to read
+                        return None
+                    
+                byte_ = self._uart.read(1)[0]
+                # check for expected vesc_command
+                if byte_ != vesc_command:
+                    bytes_in_uart_buffer = self._uart.in_waiting
+                    if bytes_in_uart_buffer:
+                        continue
+                    else:
+                        # exit if there are no more bytes to read
+                        return None
+                    
+                    
+                bytes_in_uart_buffer = self._uart.in_waiting
+                # if the UART buffer has no complete response, discard all buffer and exit
+                if bytes_in_uart_buffer < (response_len - 3):
+                    self._uart_maybe_reset_input_buffer()
+                    return None
 
-            # check for expected packet lenght ID = 2
-            if data[0] != 2:
-                self._uart_maybe_reset_input_buffer()
-                return None
-            
-            # check for expected packet lenght = 74
-            if data[1] != 74:
-                self._uart_maybe_reset_input_buffer()
-                return None
+                # here we hope we are syncronized and have the full packet
+                # insert the initial bytes at the begin
+                self._vesc_data[0] = 2
+                self._vesc_data[1] = 74
+                self._vesc_data[2] = vesc_command
+                self._vesc_data[3:] = self._uart.read(response_len - 3)
 
-            # check for expected vesc_command
-            if data[2] != vesc_command:
-                self._uart_maybe_reset_input_buffer()
-                return None
+                # check for CRC
+                crc_calculated = self._crc16(self._vesc_data[2:-3])
+                crc = (self._vesc_data[-3] * 256) + self._vesc_data[-2]
+                if crc != crc_calculated:
+                    self._uart_maybe_reset_input_buffer()
+                    return None
 
-            # check for CRC
-            crc_calculated = self._crc16(data[2:-3])
-            crc = (data[-3] * 256) + data[-2]
-            if crc != crc_calculated:
                 self._uart_maybe_reset_input_buffer()
-                return None
-            
-            self._uart_maybe_reset_input_buffer()
-            return data
+                return self._vesc_data
         else:
             return None
             
     def refresh_data(self):
-        """Read VESC motor data and update vesc_motor_data"""        
+        """Read VESC motor data and update vesc_motor_data"""
         tx_command_buffer = bytearray([4])
         tx_command_buffer[0] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         response = self._pack_and_send(tx_command_buffer, 79)
