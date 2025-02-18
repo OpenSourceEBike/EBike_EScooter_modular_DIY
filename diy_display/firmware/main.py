@@ -81,12 +81,12 @@ system_data.display_communication_counter = (system_data.display_communication_c
 # just to check if is possible to send data to motor
 
 displayObject = Display.Display(
-        board.IO11, # CLK pin
-        board.IO12, # MOSI pin
-        board.IO7, # chip select pin, not used but for some reason there is an error if chip_select is None
-        board.IO9, # command pin
-        board.IO5, # reset pin
-        board.IO3, # backlight pin
+        board.IO11, # CLK / SCK pin
+        board.IO12, # MOSI / SDI pin
+        board.IO7, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
+        board.IO9, # DC pin - command pin
+        board.IO5, # RST pin - reset pin
+        board.IO3, # LED pin - backlight pin
         100000) # spi clock frequency
 display = displayObject.display
 
