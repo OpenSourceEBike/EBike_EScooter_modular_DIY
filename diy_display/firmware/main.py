@@ -5,12 +5,7 @@ import board
 from buzzer import Buzzer
 
 buzzer_pins = [
-  board.IO40,
-  board.IO38,
-  board.IO36,
-  board.IO34,
-  board.IO21,
-  board.IO17
+  board.IO20,
 ]
 buzzer = Buzzer(buzzer_pins)
 buzzer.duty_cycle = 0.03
@@ -31,6 +26,8 @@ import front_lights_espnow
 import wifi
 import os
 import espnow as _ESPNow
+import rtc_date_time
+import asyncio
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -62,6 +59,11 @@ mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
 system_data = _SystemData.SystemData()
 
+
+rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
+print(rtc.date_time())
+
+
 wifi.radio.hostname = my_dhcp_host_name
 wifi.radio.mac_address = bytearray(my_mac_address)
 try:
@@ -81,12 +83,12 @@ system_data.display_communication_counter = (system_data.display_communication_c
 # just to check if is possible to send data to motor
 
 displayObject = Display.Display(
-        board.IO11, # CLK / SCK pin
-        board.IO12, # MOSI / SDI pin
-        board.IO7, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
-        board.IO9, # DC pin - command pin
-        board.IO5, # RST pin - reset pin
-        board.IO3, # LED pin - backlight pin
+        board.IO3, # CLK / SCK pin
+        board.IO4, # MOSI / SDI pin
+        board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
+        board.IO2, # DC pin - command pin
+        board.IO1, # RST pin - reset pin
+        board.IO21, # LED pin - backlight pin
         100000) # spi clock frequency
 display = displayObject.display
 
@@ -307,21 +309,13 @@ def button_lights_click_release_cb():
   # system_data.lights_state = False
   pass
 
-# def button_switch_click_start_cb():
-#   pass
-
-# def button_switch_click_release_cb():
-#   pass
-
 ### Setup buttons ###
-# button_POWER, button_LEFT, button_RIGHT, button_LIGHTS, button_SWITCH = range(5)
 button_POWER, button_LEFT, button_RIGHT, button_LIGHTS = range(4)
 buttons_pins = [
-  board.IO39, # button_POWER
-  board.IO37, # button_LEFT   
-  board.IO35, # button_RIGHT
-  board.IO33, # button_LIGHTS 
-  # board.IO18  # button_SWITCH
+  board.IO5, # button_POWER
+  board.IO6, # button_LEFT   
+  board.IO7, # button_RIGHT
+  board.IO10, # button_LIGHTS 
 ]
 
 buttons_callbacks = {
@@ -339,9 +333,6 @@ buttons_callbacks = {
   button_LIGHTS: {
     'click_start': button_lights_click_start_cb,
     'click_release': button_lights_click_release_cb},
-  # button_SWITCH: {
-  #   'click_start': button_switch_click_start_cb,
-  #   'click_release': button_switch_click_release_cb}
 }
 
 nr_buttons = len(buttons_pins)
@@ -370,25 +361,27 @@ display.root_group = screen1_group
 
 # let's wait for a first click on power button
 time_previous = time.monotonic()
-while True:
-  now = time.monotonic()
-  if (now - time_previous) > 0.05:
-    time_previous = now
+# while True:
+#   now = time.monotonic()
+#   if (now - time_previous) > 0.05:
+#     time_previous = now
 
-    buttons[button_POWER].tick()
+#     buttons[button_POWER].tick()
 
-    if buttons[button_POWER].buttonActive:
+#     if buttons[button_POWER].buttonActive:
 
-      # wait for user to release the button
-      while buttons[button_POWER].buttonActive:
-        buttons[button_POWER].tick()
+#       # wait for user to release the button
+#       while buttons[button_POWER].buttonActive:
+#         buttons[button_POWER].tick()
 
-      # motor board will now enable the motor
-      system_data.motor_enable_state = True
-      break
+#       # motor board will now enable the motor
+#       system_data.motor_enable_state = True
+#       break
     
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
-    time.sleep(0.025)
+#     # sleep some time to save energy and avoid ESP32-S2 to overheat
+#     time.sleep(0.025)
+
+system_data.motor_enable_state = True
     
 # reset the button_power_state, as it was changed previously
 system_data.button_power_state = 0
@@ -403,7 +396,9 @@ text_group.append(label_3)
 text_group.append(warning_area)
 display.root_group = text_group
 
-while True:
+async def main():
+
+  while True:
     now = time.monotonic()
     if (now - display_time_previous) > 0.1:
         display_time_previous = now
@@ -518,5 +513,7 @@ while True:
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
     
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
-    time.sleep(0.01)
+    # sleep some time to save energy and avoid ESP32-S2 to overheat    
+    await asyncio.sleep(0.01)
+
+asyncio.run(main())
