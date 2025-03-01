@@ -126,29 +126,36 @@ assist_level_area.scale = 2
 
 battery_voltage_area = label.Label(terminalio.FONT, text=TEXT)
 battery_voltage_area.anchor_point = (1.0, 0.0)
-battery_voltage_area.anchored_position = (129, 0)
+battery_voltage_area.anchored_position = (129 - 6, 53)
 battery_voltage_area.scale = 1
 
-label_x = 61
-label_y = 10 + 24
+label_x = 56
+label_y = 10 + 20
 label_1 = label.Label(terminalio.FONT, text=TEXT)
 label_1.anchor_point = (1.0, 0.0)
 label_1.anchored_position = (label_x, label_y)
 label_1.scale = 2
 
-label_x = 61
+label_x = 56
 label_y = 0
 label_2 = label.Label(terminalio.FONT, text=TEXT)
 label_2.anchor_point = (1.0, 0.0)
 label_2.anchored_position = (label_x, label_y)
 label_2.scale = 2
 
-label_x = 120
-label_y = 10 + 24
+label_x = 129 - 4
+label_y = 10 + 20
 label_3 = label.Label(terminalio.FONT, text=TEXT)
 label_3.anchor_point = (1.0, 0.0)
 label_3.anchored_position = (label_x, label_y)
 label_3.scale = 2
+
+label_x = 129 - 4
+label_y = 0
+label_4 = label.Label(terminalio.FONT, text=TEXT)
+label_4.anchor_point = (1.0, 0.0)
+label_4.anchored_position = (label_x, label_y)
+label_4.scale = 2
 
 warning_area = label.Label(terminalio.FONT, text=TEXT)
 warning_area.anchor_point = (0.0, 0.0)
@@ -166,6 +173,7 @@ power_switch_send_data_time_previous = now
 turn_lights_buzzer_time_previous = now
 update_date_time_previous = now
 update_date_time_once = False
+date_time_previous = now
 
 battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
@@ -381,6 +389,7 @@ text_group.append(battery_voltage_area)
 text_group.append(label_1)
 text_group.append(label_2)
 text_group.append(label_3)
+text_group.append(label_4)
 text_group.append(warning_area)
 display.root_group = text_group
 
@@ -413,7 +422,7 @@ while True:
 
         if wheel_speed_x10_previous != system_data.wheel_speed_x10:
             wheel_speed_x10_previous = system_data.wheel_speed_x10  
-            label_3.text = f"{float(system_data.wheel_speed_x10 / 10.0)}"
+            label_3.text = f"{int(system_data.wheel_speed_x10 / 10.0)}"
 
     now = time.monotonic()
     if (now - ebike_rx_tx_data_time_previous) > 0.05:
@@ -499,13 +508,20 @@ while True:
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
   
+    # update time on RTC just once
     if update_date_time_once is False:
       now = time.monotonic()
-      if (now - update_date_time_previous) > 5:
+      if (now - update_date_time_previous) > 5.0:
           update_date_time_once = True
           rtc.update_date_time_from_wifi_ntp()
-          
-          print('time set to:', rtc.date_time())
+    
+    # update time
+    now = time.monotonic()
+    if (now - date_time_previous) > 1.0:
+        date_time_previous = now
+
+        date_time = rtc.date_time()
+        label_4.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
 
     # sleep some time to save energy and avoid ESP32-S2 to overheat
     time.sleep(0.01)

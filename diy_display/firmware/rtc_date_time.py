@@ -12,26 +12,29 @@ class RTCDateTime(object):
         self._rtc = adafruit_ds3231.DS3231(i2c)
 
     def update_date_time_from_wifi_ntp(self):
-        
-        # get date time from wifi NTP
-        # get wifi AP credentials from a settings.toml file
+        # Get date and time from WiFi NTP
         wifi_ssid = "HomeSweetHome"
         wifi_password = "verygood"
 
-        if wifi_ssid is None:
-            raise ValueError("SSID not found in environment variables")
-
         try:
             wifi.radio.connect(wifi_ssid, wifi_password)
+            if not wifi.radio.ipv4_address:  # Double-check connection
+                print("Connected to WiFi, but no IP address assigned.")
+                return
+            print(f"Connected to WiFi: {wifi_ssid}")
         except ConnectionError:
             print("Failed to connect to WiFi with provided credentials")
-            raise
+            return
 
-        pool = socketpool.SocketPool(wifi.radio)
-        ntp = adafruit_ntp.NTP(pool, tz_offset=0, cache_seconds=3600)
-        
-        # Set the time date to RTC
-        self._rtc.datetime = ntp.datetime
+        try:
+            pool = socketpool.SocketPool(wifi.radio)
+            ntp = adafruit_ntp.NTP(pool, tz_offset=0, cache_seconds=3600)
+            
+            # Set the RTC time
+            self._rtc.datetime = ntp.datetime
+            print(f"RTC updated to: {self._rtc.datetime}")
+        except Exception as e:
+            print(f"Failed to fetch time from NTP server: {e}")
     
     def date_time(self):
         return self._rtc.datetime
