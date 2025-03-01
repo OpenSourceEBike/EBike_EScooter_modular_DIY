@@ -23,11 +23,8 @@ import thisbutton as tb
 import power_switch_espnow
 import rear_lights_espnow
 import front_lights_espnow
-import wifi
-import os
 import espnow as _ESPNow
 import rtc_date_time
-import asyncio
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -49,7 +46,6 @@ print("Starting Display")
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication
-my_dhcp_host_name = 'Display-EScooter-CAS' # no spaces, no underscores, max 30 chars
 my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 mac_address_power_switch_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
 mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
@@ -61,16 +57,6 @@ system_data = _SystemData.SystemData()
 
 
 rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
-print(rtc.date_time())
-
-
-wifi.radio.hostname = my_dhcp_host_name
-wifi.radio.mac_address = bytearray(my_mac_address)
-try:
-    wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
-    print('Connected to wifi')
-except:
-    print('Can not connect to wifi')
 
 _espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
@@ -178,6 +164,8 @@ ebike_rx_tx_data_time_previous = now
 lights_send_data_time_previous = now
 power_switch_send_data_time_previous = now
 turn_lights_buzzer_time_previous = now
+update_date_time_previous = now
+update_date_time_once = False
 
 battery_voltage_previous_x10 = 9999
 battery_current_previous_x100 = 9999
@@ -396,9 +384,7 @@ text_group.append(label_3)
 text_group.append(warning_area)
 display.root_group = text_group
 
-async def main():
-
-  while True:
+while True:
     now = time.monotonic()
     if (now - display_time_previous) > 0.1:
         display_time_previous = now
@@ -512,8 +498,14 @@ async def main():
 
         # system_data.assist_level = assist_level
         # assist_level_area.text = str(assist_level)
-    
-    # sleep some time to save energy and avoid ESP32-S2 to overheat    
-    await asyncio.sleep(0.01)
+  
+    if update_date_time_once is False:
+      now = time.monotonic()
+      if (now - update_date_time_previous) > 5:
+          update_date_time_once = True
+          rtc.update_date_time_from_wifi_ntp()
+          
+          print('time set to:', rtc.date_time())
 
-asyncio.run(main())
+    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    time.sleep(0.01)

@@ -3,7 +3,6 @@ import socketpool
 import adafruit_ntp
 import busio
 import adafruit_ds3231
-import asyncio
 
 class RTCDateTime(object):
 
@@ -11,15 +10,8 @@ class RTCDateTime(object):
 
         i2c = busio.I2C(rtc_scl_pin, rtc_sda_pin)
         self._rtc = adafruit_ds3231.DS3231(i2c)
-        
-        # start the task
-        asyncio.create_task(self.update_date_time())
 
-    # this task will only run once
-    async def update_date_time(self):
-        
-        # non-blocking delay some seconds to not block the boot time
-        await asyncio.sleep(5)
+    def update_date_time_from_wifi_ntp(self):
         
         # get date time from wifi NTP
         # get wifi AP credentials from a settings.toml file
