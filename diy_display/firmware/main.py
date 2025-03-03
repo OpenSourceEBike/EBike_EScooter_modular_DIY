@@ -13,6 +13,7 @@ time.sleep(0.5)
 buzzer.duty_cycle = 0.0
 #########################################################
 
+import wifi
 import display as Display
 import motor_board_espnow
 import system_data as _SystemData
@@ -55,6 +56,10 @@ mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 
 system_data = _SystemData.SystemData()
 
+wifi.radio.enabled = True
+wifi.radio.mac_address = bytearray(my_mac_address)
+wifi.radio.start_ap(ssid="NO_SSID", channel=1)
+wifi.radio.stop_ap()
 
 rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
@@ -156,6 +161,7 @@ label_4 = label.Label(terminalio.FONT, text=TEXT)
 label_4.anchor_point = (1.0, 0.0)
 label_4.anchored_position = (label_x, label_y)
 label_4.scale = 2
+label_4.text = '...'
 
 warning_area = label.Label(terminalio.FONT, text=TEXT)
 warning_area.anchor_point = (0.0, 0.0)
@@ -173,6 +179,7 @@ power_switch_send_data_time_previous = now
 turn_lights_buzzer_time_previous = now
 update_date_time_previous = now
 update_date_time_once = False
+date_time_updated = None
 date_time_previous = now
 
 battery_voltage_previous_x10 = 9999
@@ -263,8 +270,8 @@ def button_power_click_start_cb():
   else:
     system_data.button_power_state |= 0x0100
     
-  if system_data.motor_enable_state:
-    system_data.lights_state = not system_data.lights_state
+#  if system_data.motor_enable_state:
+#    system_data.lights_state = not system_data.lights_state
     
 def button_power_click_release_cb():
   system_data.button_power_state &= ~1
@@ -298,21 +305,22 @@ def button_right_click_release_cb():
   system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
 
 def button_lights_click_start_cb():
-  # system_data.lights_state = True
-  pass
+  system_data.lights_state = True
 
 def button_lights_click_release_cb():
-  # system_data.lights_state = False
-  pass
+  system_data.lights_state = False
 
 ### Setup buttons ###
-button_POWER, button_LEFT, button_RIGHT, button_LIGHTS = range(4)
 buttons_pins = [
   board.IO5, # button_POWER
-  board.IO6, # button_LEFT   
-  board.IO7, # button_RIGHT
-  board.IO10, # button_LIGHTS 
+  # board.IO6, # button_LEFT   
+  # board.IO7, # button_RIGHT
+  # board.IO10, # button_LIGHTS
+  board.IO6, # button_LIGHTS 
 ]
+nr_buttons = len(buttons_pins)
+#button_POWER, button_LEFT, button_RIGHT, button_LIGHTS = range(nr_buttons)
+button_POWER, button_LIGHTS = range(nr_buttons)
 
 buttons_callbacks = {
   button_POWER: {
@@ -320,18 +328,17 @@ buttons_callbacks = {
     'click_release': button_power_click_release_cb,
     'long_click_start': button_power_long_click_start_cb,
     'long_click_release': button_power_long_click_release_cb},
-  button_LEFT: {
-    'click_start': button_left_click_start_cb,
-    'click_release': button_left_click_release_cb},
-  button_RIGHT: {
-    'click_start': button_right_click_start_cb,
-    'click_release': button_right_click_release_cb},
+  # button_LEFT: {
+  #   'click_start': button_left_click_start_cb,
+  #   'click_release': button_left_click_release_cb},
+  # button_RIGHT: {
+  #   'click_start': button_right_click_start_cb,
+  #   'click_release': button_right_click_release_cb},
   button_LIGHTS: {
     'click_start': button_lights_click_start_cb,
     'click_release': button_lights_click_release_cb},
 }
 
-nr_buttons = len(buttons_pins)
 buttons = [0] * nr_buttons
 for index in range(nr_buttons):
   buttons[index] = tb.thisButton(buttons_pins[index], True)
@@ -357,25 +364,25 @@ display.root_group = screen1_group
 
 # let's wait for a first click on power button
 time_previous = time.monotonic()
-# while True:
-#   now = time.monotonic()
-#   if (now - time_previous) > 0.05:
-#     time_previous = now
+while True:
+  now = time.monotonic()
+  if (now - time_previous) > 0.05:
+    time_previous = now
 
-#     buttons[button_POWER].tick()
+    buttons[button_POWER].tick()
 
-#     if buttons[button_POWER].buttonActive:
+    if buttons[button_POWER].buttonActive:
 
-#       # wait for user to release the button
-#       while buttons[button_POWER].buttonActive:
-#         buttons[button_POWER].tick()
+      # wait for user to release the button
+      while buttons[button_POWER].buttonActive:
+        buttons[button_POWER].tick()
 
-#       # motor board will now enable the motor
-#       system_data.motor_enable_state = True
-#       break
+      # motor board will now enable the motor
+      system_data.motor_enable_state = True
+      break
     
-#     # sleep some time to save energy and avoid ESP32-S2 to overheat
-#     time.sleep(0.025)
+    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    time.sleep(0.025)
 
 system_data.motor_enable_state = True
     
@@ -511,9 +518,9 @@ while True:
     # update time on RTC just once
     if update_date_time_once is False:
       now = time.monotonic()
-      if (now - update_date_time_previous) > 5.0:
+      if (now - update_date_time_previous) > 2.0:
           update_date_time_once = True
-          rtc.update_date_time_from_wifi_ntp()
+          date_time_updated = rtc.update_date_time_from_wifi_ntp()
     
     # update time
     now = time.monotonic()
@@ -521,7 +528,10 @@ while True:
         date_time_previous = now
 
         date_time = rtc.date_time()
-        label_4.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
+        if date_time_updated is True:
+          label_4.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
+        elif date_time_updated is False:
+          label_4.text = f' '
 
     # sleep some time to save energy and avoid ESP32-S2 to overheat
     time.sleep(0.01)
