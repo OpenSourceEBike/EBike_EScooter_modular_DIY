@@ -1,10 +1,12 @@
+# Tested on a ESP32-S3-DevKitC-1-N8R2
+
 import board
 import time
 import supervisor
 import asyncio
 import simpleio
-import vars as Vars
-import vesc as Vesc
+from vars import Vars, MotorSingleDual, MotorControlScheme
+from vesc import Vesc
 import Brake
 import throttle as Throttle
 from microcontroller import watchdog
@@ -13,107 +15,17 @@ import os
 import gc
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 import wifi
-import escooter_fiido_q1_s.motor as motor
+import motor as Motor
+from configurations import cfg, front_motor_cfg, rear_motor_cfg, motor_single_dual, motor_control_scheme
 
-import supervisor
 supervisor.runtime.autoreload = False
 
 print()
 print("Booting EBike/EScooter software")
-print()
-boot_init_time = time.monotonic()
 
-# MAC Address value needed for the wireless communication
-my_dhcp_host_name = 'Mainboard-EScooter-CAS' # no spaces, no underscores, max 30 chars
-my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+vars = Vars()
 
-wifi.radio.hostname = my_dhcp_host_name
-wifi.radio.mac_address = bytearray(my_mac_address)
-try:
-    wifi.radio.connect(os.getenv("CIRCUITPY_WIFI_SSID"), os.getenv("CIRCUITPY_WIFI_PASSWORD"))
-    print('Connected to wifi')
-except:
-    print('Can not connect to wifi')
-
-class MotorSingleDual:
-    SINGLE = 0
-    DUAL = 1   
-
-class MotorControlScheme:
-    SPEED = 0
-    SPEED_NO_REGEN = 1
-    # CURRENT = 2
- 
-# Tested on a ESP32-S3-DevKitC-1-N8R2
-
-###############################################
-# OPTIONS
-
-# Lunyee 2000W motor 12 inches (not the original Fiido Q1S motor) has 15 poles pair
-motor_poles_pair = 15
-
-# max wheel speed in ERPM
-# tire diameter: 0.33 meters
-# tire RPM: 884
-# motor poles: 15
-# motor ERPM: 13263 to get 55kms/h wheel speed
-motor_erpm_max_speed_limit = 13263 # 55kms/h
-motor_max_speed_limit = 16 # don't know why need to be 16 to be limited to 55 # 55kms/h
-
-# throttle value of original Fiido Q1S throttle
-throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
-throttle_1_adc_max = 49800 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
-throttle_1_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
-
-throttle_2_adc_min = 18000
-throttle_2_adc_max = 49000
-throttle_2_adc_over_max_error = 54500
-
-motor_max_current_limit = 135.0 # max value, be careful to not burn your motor
-motor_min_current_start = 1.0 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_regen = -80.0 # max regen current
-
-battery_max_current_limit = 31.0 # about 2200W at 72V
-battery_max_current_regen = -14.0 # about 1000W at 72V
-
-# To reduce motor temperature, motor current limits are higher at startup and low at higer speeds
-# motor current limits will be adjusted on this values, depending on the speed
-# like at startup will have 'motor_current_limit_max_max' and then will reduce linearly
-# up to the 'motor_current_limit_max_min', when wheel speed is
-# 'motor_current_limit_max_min_speed'
-motor_current_limit_max_max = 120.0
-motor_current_limit_max_min = 60.0
-motor_current_limit_max_min_speed = 25.0
-
-# this are the values for regen
-motor_current_limit_min_min = -80.0
-motor_current_limit_min_max = -80.0
-motor_current_limit_min_max_speed = 25.0
-
-## Battery currents
-battery_current_limit_max_max = 31.0 # about 2200W at 72V
-battery_current_limit_max_min = 27.0 # about 20% less
-battery_current_limit_max_min_speed = 25.0
-
-# this are the values for regen
-battery_current_limit_min_min = -14.0
-battery_current_limit_min_max = -12.0 # about xx% less
-battery_current_limit_min_max_speed = 25.0
-
-# Single or Dual motor setup
-# motor_single_dual = MotorSingleDual.SINGLE
-motor_single_dual = MotorSingleDual.DUAL
-motor_1_dual_factor = 0.6
-motor_2_dual_factor = 0.6
-motor_can_id = 101
-
-# default motor control scheme
-motor_control_scheme = MotorControlScheme.SPEED
-
-# MAC Address value needed for the wireless communication with the display
-display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
-
-###############################################
+vesc = Vesc(rear_motor_cfg.uart_tx_pin, rear_motor_cfg.uart_rx_pin, rear_motor_cfg.uart_baudrate, vars)
 
 MotorControlScheme_len = len([attr for attr in dir(MotorControlScheme) if not attr.startswith('__')])
 
@@ -128,62 +40,32 @@ while brake_sensor.value:
 
 throttle_1 = Throttle.Throttle(
     board.IO11, # ADC pin for throttle
-    min = throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
-    max = throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
+    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
 
 throttle_2 = Throttle.Throttle(
     board.IO10, # ADC pin for throttle
-    min = throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
-    max = throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
-
-vars = Vars.Vars()
-
-vesc = Vesc.Vesc(
-    board.IO13, # UART TX pin that connect to VESC
-    board.IO14, # UART RX pin that connect to VESC
-    vars)
+    min = cfg.throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
 
 if motor_single_dual == MotorSingleDual.SINGLE:
-    motor = motor.Motor(
+    motor = Motor.Motor(
         vesc,
         False) # this is a single motor
 else:
-    motor = motor.Motor(
+    motor = Motor.Motor(
         vesc,
-        True, # this is a dual motor
-        motor_1_dual_factor,
-        motor_2_dual_factor,
-        motor_can_id)
-
-def utils_step_towards(current_value, target_value, step):
-    """ Move current_value towards the target_value, by increasing / decreasing by step
-    """
-    value = current_value
-
-    if current_value < target_value:
-        if (current_value + step) < target_value:
-            value += step
-        else:
-            value = target_value
-    
-    elif current_value > target_value:
-        if (current_value - step) > target_value:
-            value -= step
-        else:
-            value = target_value
-
-    return value
+        True) # this is a dual motor
 
 # don't know why, but if this objects related to ESPNow are started earlier, system will enter safemode
-display = DisplayESPnow.Display(display_mac_address, vars)
+display = DisplayESPnow.Display(cfg.display_mac_address, vars)
 
 async def task_vesc_refresh_data():
     while True:
         # ask for VESC latest data
         vesc.refresh_data()
+        
         gc.collect()
-
-        # idle 100ms
         await asyncio.sleep(0.1)
 
 async def task_display_refresh_data():
@@ -271,10 +153,6 @@ motor_target_current_limit_min = motor_max_current_regen
 battery_target_current_limit_max = battery_max_current_limit
 battery_target_current_limit_min = battery_max_current_regen
 async def task_control_motor():
-    global motor_target_current_limit_max
-    global motor_target_current_limit_min
-    global battery_target_current_limit_max
-    global battery_target_current_limit_min
     global button_press_state_previous
     global motor_control_scheme
     
@@ -299,14 +177,14 @@ async def task_control_motor():
         # the raise Exception() will reset the system
         throttle_adc_previous_value = throttle_1.adc_previous_value
         throttle_2_adc_previous_value = throttle_2.adc_previous_value
-        if throttle_adc_previous_value > throttle_1_adc_over_max_error or \
-                throttle_2_adc_previous_value > throttle_2_adc_over_max_error:
+        if throttle_adc_previous_value > cfg.throttle_1_adc_over_max_error or \
+                throttle_2_adc_previous_value > cfg.throttle_2_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             motor.set_motor_current_amps(0)
             motor.set_motor_current_amps(0)
             motor.set_motor_current_amps(0)
             
-            if throttle_adc_previous_value > throttle_1_adc_over_max_error:
+            if throttle_adc_previous_value > cfg.throttle_1_adc_over_max_error:
                 message = f'throttle value: {throttle_adc_previous_value} -- is over max, this can be dangerous!'
             else:
                 message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
@@ -393,49 +271,74 @@ async def task_control_motor():
         watchdog.feed() # avoid system reset because watchdog timeout
 
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
-
-        # idle 20ms
         await asyncio.sleep(0.02)
         
 async def task_control_motor_limit_current():
-    global motor_target_current_limit_max
-    global motor_target_current_limit_min
-    global battery_target_current_limit_max
-    global battery_target_current_limit_min
+    global front_motor_cfg
+    global rear_motor_cfg
     
     while True:
         ##########################################################################################
-        motor_target_current_limit_max = simpleio.map_range(
+        front_motor_cfg.motor_target_current_limit_max = simpleio.map_range(
             vars.wheel_speed,
             5.0,
-            motor_current_limit_max_min_speed,
-            motor_current_limit_max_max,
-            motor_current_limit_max_min)
+            front_motor.motor_current_limit_max_min_speed,
+            front_motor.motor_current_limit_max_max,
+            front_motor.motor_current_limit_max_min)
         
-        motor_target_current_limit_min = simpleio.map_range(
+        rear_motor_cfg.motor_target_current_limit_max = simpleio.map_range(
             vars.wheel_speed,
             5.0,
-            motor_current_limit_min_max_speed,
-            motor_current_limit_min_min,
-            motor_current_limit_min_max)
+            rear_motor.motor_current_limit_max_min_speed,
+            rear_motor.motor_current_limit_max_max,
+            rear_motor.motor_current_limit_max_min)
         
-        battery_target_current_limit_max = simpleio.map_range(
-            vars.wheel_speed,
-            5.0,
-            battery_current_limit_max_min_speed,
-            battery_current_limit_max_max,
-            battery_current_limit_max_min)
         
-        battery_target_current_limit_min = simpleio.map_range(
+        front_motor_cfg.motor_target_current_limit_min = simpleio.map_range(
             vars.wheel_speed,
             5.0,
-            battery_current_limit_min_max_speed,
-            battery_current_limit_min_min,
-            battery_current_limit_min_max)
+            front_motor.motor_current_limit_min_min_speed,
+            front_motor.motor_current_limit_min_max,
+            front_motor.motor_current_limit_mini_min)
+        
+        rear_motor_cfg.motor_target_current_limit_min = simpleio.map_range(
+            vars.wheel_speed,
+            5.0,
+            rear_motor.motor_current_limit_min_min_speed,
+            rear_motor.motor_current_limit_min_max,
+            rear_motor.motor_current_limit_min_min)
+        
+        
+        front_motor_cfg.battery_target_current_limit_max = simpleio.map_range(
+            vars.wheel_speed,
+            5.0,
+            front_motor.battery_current_limit_max_min_speed,
+            front_motor.battery_current_limit_max_max,
+            front_motor.battery_current_limit_max_min)
+        
+        rear_motor_cfg.battery_target_current_limit_max = simpleio.map_range(
+            vars.wheel_speed,
+            5.0,
+            rear_motor.battery_current_limit_max_min_speed,
+            rear_motor.battery_current_limit_max_max,
+            rear_motor.battery_current_limit_max_min)
+        
+        
+        front_motor_cfg.battery_target_current_limit_min = simpleio.map_range(
+            vars.wheel_speed,
+            5.0,
+            front_motor.battery_current_limit_min_min_speed,
+            front_motor.battery_current_limit_min_max,
+            front_motor.battery_current_limit_min_min)
+        
+        rear_motor_cfg.battery_target_current_limit_min = simpleio.map_range(
+            vars.wheel_speed,
+            5.0,
+            rear_motor.battery_current_limit_min_min_speed,
+            rear_motor.battery_current_limit_min_max,
+            rear_motor.battery_current_limit_min_min)
         
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
-
-        # idle 100 ms
         await asyncio.sleep(0.1)
         
 wheel_speed_previous_motor_speed_erpm = 0
@@ -456,6 +359,7 @@ async def task_various():
             if abs(vars.wheel_speed < 2.0):
                 vars.wheel_speed = 0.0
 
+        gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
         await asyncio.sleep(0.1)
 
 async def main():
@@ -471,11 +375,6 @@ async def main():
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
     various_task = asyncio.create_task(task_various())
 
-    print()
-    print('End of booting EBike/EScooter software')
-    print()
-    print(f'Boot total time: {(time.monotonic() - boot_init_time)}')
-    print()
     print("Starting EBike/EScooter")
     print()
 
@@ -486,5 +385,6 @@ async def main():
                         various_task)
 
 asyncio.run(main())
+
 
 
