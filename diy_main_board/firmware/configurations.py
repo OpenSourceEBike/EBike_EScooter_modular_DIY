@@ -1,9 +1,9 @@
 import board
 from vars import Cfg, MotorCfg, MotorSingleDual, MotorControlScheme
 cfg = Cfg()
-front_motor_cfg = MotorCfg()
-rear_motor_cfg = MotorCfg()
-
+# 0 for front motor, 1 for rear motor
+front_motor_cfg = MotorCfg(0)
+rear_motor_cfg = MotorCfg(1)
 
 # right handlebar throttle
 cfg.throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
@@ -25,12 +25,9 @@ cfg.display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 # motor_single_dual = MotorSingleDual.SINGLE
 motor_single_dual = MotorSingleDual.DUAL
 
-# default motor control scheme
-motor_control_scheme = MotorControlScheme.SPEED
-
 # Lunyee 2000W motor 12 inches (not the original Fiido Q1S motor) has 15 poles pair
-front_motor_cfg.motor_poles_pair = 15
-rear_motor_cfg.motor_poles_pair = 15
+front_motor_cfg.poles_pair = 15
+rear_motor_cfg.poles_pair = 15
 
 # max wheel speed in ERPM
 # tire diameter: 0.33 meters
