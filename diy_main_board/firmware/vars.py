@@ -1,7 +1,57 @@
 import time
 
-class Vars(object):
 
+        # self.can_id = None
+        # self.uart_tx_pin = None
+        # self.uart_rx_pin = None
+        # self.uart_baudrate = None
+
+class MotorSingleDual:
+    SINGLE = 0
+    DUAL = 1
+
+class MotorControlScheme:
+    SPEED = 0
+    SPEED_NO_REGEN = 1
+
+class Cfg(object):
+    def __init__(self):
+        self.throttle_1_adc_min = 0
+        self.throttle_1_adc_max = 0
+        self.throttle_1_adc_over_max_error = 0
+        self.throttle_2_adc_min = 0
+        self.throttle_2_adc_max = 0
+        self.throttle_2_adc_over_max_error = 0
+        self.my_mac_address = 0
+        self.display_mac_address = 0
+
+class MotorCfg(object):
+    def __init__(self):
+        self.motor_current_limit_max_max = 0
+        self.motor_current_limit_max_min = 0
+        self.motor_current_limit_max_min_speed = 0
+        self.motor_current_limit_min_max = 0
+        self.motor_current_limit_min_min = 0
+        self.motor_current_limit_min_min_speed = 0
+        self.battery_current_limit_max_max = 0
+        self.battery_current_limit_max_min = 0
+        self.battery_current_limit_max_min_speed = 0
+        self.battery_current_limit_min_max = 0
+        self.battery_current_limit_min_min = 0
+        self.battery_current_limit_min_min_speed = 0
+        
+        self.motor_target_current_limit_max = 0
+        self.motor_target_current_limit_min = 0
+        self.battery_target_current_limit_max = 0
+        self.battery_target_current_limit_min = 0
+        self.motor_poles_pair = 0
+        self.motor_erpm_max_speed_limit = 0
+        self.motor_max_speed_limit = 0
+        self.motor_min_current_start = 0
+        self.motor_max_current_regen = 0
+        self.battery_max_current_regen = 0
+
+class Vars(object):
     def __init__(self):
         self.vesc_fault_code = 0
         self.vesc_temperature_x10 = 0
