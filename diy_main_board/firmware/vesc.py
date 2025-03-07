@@ -6,14 +6,16 @@ class Vesc(object):
 
     EXPECTED_PACKET_LENGTH = 74
 
-    def __init__(self, uart_tx_pin, uart_rx_pin, uart_baudrate, app_data):
-        self.__app_data = app_data
+    def __init__(self, vars, front_motor_cfg, rear_motor_cfg):
+        self.__vars = vars
+        self.__front_motor = front_motor_cfg
+        self.__rear_motor = rear_motor_cfg
 
         # configure UART for communications with VESC
         self.__uart = busio.UART(
-            uart_tx_pin,
-            uart_rx_pin,
-            baudrate = uart_baudrate,
+            self.__rear_motor.uart_tx_pin,
+            self.__rear_motor.uart_rx_pin,
+            baudrate = self.__rear_motor.uart_baudrate,
             timeout = 0.005, # 5ms is enough for reading the UART
             # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
             receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
@@ -154,13 +156,13 @@ class Vesc(object):
             #     print(str(index) + ": " + str(data))
 
             # store the motor controller data
-            self.__app_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
-            self.__app_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
-            self.__app_data.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
-            self.__app_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
-            self.__app_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self.__app_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
-            self.__app_data.vesc_fault_code = response[55]
+            self.__vars.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
+            self.__vars.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
+            self.__vars.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
+            self.__vars.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
+            self.__vars.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self.__vars.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
+            self.__vars.vesc_fault_code = response[55]
 
     def set_motor_current_amps(self, value):
         """Set battery Amps"""

@@ -1,5 +1,5 @@
 import board
-from vars import Cfg, MotorCfg, MotorSingleDual, MotorControlScheme
+from vars import Cfg, MotorCfg
 cfg = Cfg()
 # 0 for front motor, 1 for rear motor
 front_motor_cfg = MotorCfg(0)
@@ -15,19 +15,21 @@ cfg.throttle_2_adc_min = 18000
 cfg.throttle_2_adc_max = 49000
 cfg.throttle_2_adc_over_max_error = 54500
 
+# This board MAC Address
+cfg.my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+
 # MAC Address value needed for the wireless communication with the display
 cfg.display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 
 
 #### Motors configurations ####
 
-# Single or Dual motor setup
-# motor_single_dual = MotorSingleDual.SINGLE
-motor_single_dual = MotorSingleDual.DUAL
-
 # Lunyee 2000W motor 12 inches (not the original Fiido Q1S motor) has 15 poles pair
 front_motor_cfg.poles_pair = 15
 rear_motor_cfg.poles_pair = 15
+
+# measured as 16.5cms, 3.00-8 tire
+rear_motor_cfg.wheel_radius = 0.165
 
 # max wheel speed in ERPM
 # tire diameter: 0.33 meters
@@ -38,29 +40,25 @@ rear_motor_cfg.poles_pair = 15
 front_motor_cfg.motor_erpm_max_speed_limit = 13263 
 rear_motor_cfg.motor_erpm_max_speed_limit = 13263
 
-# don't know why need to be 16 to be limited to 55 # 55kms/h
-front_motor_cfg.motor_max_speed_limit = 16
-rear_motor_cfg.motor_max_speed_limit = 16
-
  # max value, be careful to not burn your motor
-front_motor_cfg.motor_max_current_limit = 150.0
-rear_motor_cfg.motor_max_current_limit = 135.0
+front_motor_cfg.motor_max_current_limit_max = 150.0
+rear_motor_cfg.motor_max_current_limit_max = 135.0
 
 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
 front_motor_cfg.motor_min_current_start = 4.0
 rear_motor_cfg.motor_min_current_start = 1.5
 
 # max regen current
-front_motor_cfg.motor_max_current_regen = -80.0 
-rear_motor_cfg.motor_max_current_regen = -80.0
+front_motor_cfg.motor_max_current_limit_min = -80.0 
+rear_motor_cfg.motor_max_current_limit_min = -80.0
 
 # about 1000W at 72V
-front_motor_cfg.battery_max_current_limit = 15.0
-rear_motor_cfg.battery_max_current_limit = 15.0
+front_motor_cfg.battery_max_current_limit_max = 15.0
+rear_motor_cfg.battery_max_current_limit_max = 15.0
 
 # about 500W at 72V
-front_motor_cfg.battery_max_current_regen = -7.0 
-rear_motor_cfg.battery_max_current_regen = -7.0
+front_motor_cfg.battery_max_current_limit_min = -7.0 
+rear_motor_cfg.battery_max_current_limit_min = -7.0
 
 
 # To reduce motor temperature, motor current limits are higher at startup and low at higer speeds
@@ -68,33 +66,35 @@ rear_motor_cfg.battery_max_current_regen = -7.0
 # like at startup will have 'motor_current_limit_max_max' and then will reduce linearly
 # up to the 'motor_current_limit_max_min', when wheel speed is
 # 'motor_current_limit_max_min_speed'
-front_motor_cfg.motor_current_limit_max_max = 10.0 # front motor start with low current to avoid skidding
+front_motor_cfg.motor_current_limit_max_max = 20.0 # front motor start with low current to avoid skidding
 front_motor_cfg.motor_current_limit_max_min = 70.0
-front_motor_cfg.motor_current_limit_max_min_speed = 20.0
+front_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
 rear_motor_cfg.motor_current_limit_max_max = 120.0
 rear_motor_cfg.motor_current_limit_max_min = 40.0
-rear_motor_cfg.motor_current_limit_max_min_speed = 20.0
+rear_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
 # this are the values for regen
 front_motor_cfg.motor_current_limit_min_min = -40.0
 front_motor_cfg.motor_current_limit_min_max = -40.0
-front_motor_cfg.motor_current_limit_min_max_speed = 20.0
+front_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
 rear_motor_cfg.motor_current_limit_min_min = -60.0
 rear_motor_cfg.motor_current_limit_min_max = -60.0
-rear_motor_cfg.motor_current_limit_min_max_speed = 20.0
+rear_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
 ## Battery currents
 # Max total: 30A --> 2000W
 # Min total: 22.5A --> 1600Wbattery_current_limit_max_min_speed
 
-front_motor_cfg.battery_current_limit_max_max = 15.0 # about 1000W at 72V
-front_motor_cfg.battery_current_limit_max_min = 11.25 # about 25% less
+# the idea is to have a higher power at startup on rear motor and lower at front motor,
+# then gradually shiffing 
+front_motor_cfg.battery_current_limit_max_max = 7.5 # about 500W at 72V
+front_motor_cfg.battery_current_limit_max_min = 11.25 # about 800W at 72V
 front_motor_cfg.battery_current_limit_max_min_speed = 30.0
 
-rear_motor_cfg.battery_current_limit_max_max = 15.0 # about 1000W at 72V
-rear_motor_cfg.battery_current_limit_max_min = 11.25 # about 25% less
+rear_motor_cfg.battery_current_limit_max_max = 22.5 # about 1500W at 72V
+rear_motor_cfg.battery_current_limit_max_min = 18.75 # about 1300W at 72V
 rear_motor_cfg.battery_current_limit_max_min_speed = 30.0
 
 # this are the values for regen
