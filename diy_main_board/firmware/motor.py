@@ -1,58 +1,82 @@
+from vesc import Vesc
+
 class Motor(object):
-    def __init__(self, vesc, motor_cfg):
-        self.__vesc = vesc
-        self.__motor_cfg = motor_cfg
+    _front_motor_data = None
+    _rear_motor_data = None
+    _vesc = None
+    
+    def __init__(self, motor_data):
+        
+        self.data = motor_data
+        
+        if motor_data.cfg.number == 0:
+            Motor._front_motor_data = motor_data
+            
+        if motor_data.cfg.number == 1:
+            Motor._rear_motor_data = motor_data
+        
+        # Must be dual motor: front and rear motors
+        if Motor._front_motor_data is not None and Motor._rear_motor_data is not None:
+            Motor._vesc = Vesc(Motor._front_motor_data, Motor._rear_motor_data) 
+            
+        self._cfg = motor_data.cfg
+        
+    def update_motor_data(self):
+        if self._cfg.number == 0:
+            Motor._vesc.update_can_motor_data()
+        else:
+            Motor._vesc.update_motor_data()
             
     def set_motor_current_limit_max(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_current_limit_max(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_current_limit_max(value)
         else:
-            self.__vesc.set_can_motor_current_limit_max(value)
+            Motor._vesc.set_motor_current_limit_max(value)
    
     def set_motor_current_limit_min(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_current_limit_min(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_current_limit_min(value)
         else:
-            self.__vesc.set_can_motor_current_limit_min(value)
+            Motor._vesc.set_motor_current_limit_min(value)
             
     def set_battery_current_limit_max(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_battery_current_limit_max(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_battery_current_limit_max(value)
         else:
-            self.__vesc.set_can_battery_current_limit_max(value)
+            Motor._vesc.set_battery_current_limit_max(value)
             
     def set_battery_current_limit_min(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_battery_current_limit_min(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_battery_current_limit_min(value)
         else:
-            self.__vesc.set_can_battery_current_limit_min(value)
+            Motor._vesc.set_battery_current_limit_min(value)
             
     def set_motor_current_amps(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_current_amps(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_current_amps(value)
         else:
-            self.__vesc.set_can_motor_current_amps(value)
+            Motor._vesc.set_motor_current_amps(value)
             
     def set_motor_current_brake_amps(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_current_brake_amps(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_current_brake_amps(value)
         else:
-            self.__vesc.set_can_motor_current_brake_amps(value)
+            Motor._vesc.set_motor_current_brake_amps(value)
             
     def set_motor_limit_speed(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_limit_speed(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_limit_speed(value)
         else:
-            self.__vesc.set_can_motor_limit_speed(value)
+            Motor._vesc.set_motor_limit_speed(value)
             
     def set_motor_speed_rpm(self, value):
-        if self.__motor_cfg.number == 1:
-            self.__vesc.set_motor_speed_rpm(value)
+        if self._cfg.number == 0:
+            Motor._vesc.set_can_motor_speed_rpm(value)
         else:
-            self.__vesc.set_can_motor_speed_rpm(value)
+            Motor._vesc.set_motor_speed_rpm(value)
             
 class MotorData(object):
-     def __init__(self):           
+    def __init__(self, cfg):           
         self.motor_target_current_limit_max = 0
         self.motor_target_current_limit_min = 0
         self.battery_target_current_limit_max = 0
@@ -61,3 +85,11 @@ class MotorData(object):
         self.speed_erpm = 0
         self.wheel_speed = 0
         self.motor_target_speed = 0.0
+        self.cfg = cfg
+        self.vesc_temperature_x10 = 0
+        self.motor_temperature_x10 = 0
+        self.motor_current_x100 = 0
+        self.battery_current_x100 = 0
+        self.battery_voltage_x10 = 0
+        self.vesc_fault_code = 0
+        
