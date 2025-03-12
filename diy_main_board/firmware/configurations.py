@@ -1,9 +1,9 @@
 import board
 from vars import Cfg, MotorCfg
 cfg = Cfg()
-# 0 for front motor, 1 for rear motor
-front_motor_cfg = MotorCfg(0)
-rear_motor_cfg = MotorCfg(1)
+# 1 for front motor, 0 for rear motor
+front_motor_cfg = MotorCfg(1)
+rear_motor_cfg = MotorCfg(0)
 
 # right handlebar throttle
 cfg.throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
@@ -66,17 +66,17 @@ rear_motor_cfg.battery_max_current_limit_min = -7.0
 # like at startup will have 'motor_current_limit_max_max' and then will reduce linearly
 # up to the 'motor_current_limit_max_min', when wheel speed is
 # 'motor_current_limit_max_min_speed'
-front_motor_cfg.motor_current_limit_max_max = 20.0 # front motor start with low current to avoid skidding
-front_motor_cfg.motor_current_limit_max_min = 70.0
+front_motor_cfg.motor_current_limit_max_max = 30.0 # front motor start with low current to avoid skidding
+front_motor_cfg.motor_current_limit_max_min = 80.0
 front_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
 rear_motor_cfg.motor_current_limit_max_max = 120.0
-rear_motor_cfg.motor_current_limit_max_min = 40.0
+rear_motor_cfg.motor_current_limit_max_min = 50.0
 rear_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
 # this are the values for regen
-front_motor_cfg.motor_current_limit_min_min = -40.0
-front_motor_cfg.motor_current_limit_min_max = -40.0
+front_motor_cfg.motor_current_limit_min_min = -50.0
+front_motor_cfg.motor_current_limit_min_max = -50.0
 front_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
 rear_motor_cfg.motor_current_limit_min_min = -60.0
@@ -89,12 +89,12 @@ rear_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
 # the idea is to have a higher power at startup on rear motor and lower at front motor,
 # then gradually shiffing 
-front_motor_cfg.battery_current_limit_max_max = 7.5 # about 500W at 72V
-front_motor_cfg.battery_current_limit_max_min = 11.25 # about 800W at 72V
+front_motor_cfg.battery_current_limit_max_max = 10.0 # about 700W at 72V
+front_motor_cfg.battery_current_limit_max_min = 12.5 # about 900W at 72V
 front_motor_cfg.battery_current_limit_max_min_speed = 30.0
 
-rear_motor_cfg.battery_current_limit_max_max = 22.5 # about 1500W at 72V
-rear_motor_cfg.battery_current_limit_max_min = 18.75 # about 1300W at 72V
+rear_motor_cfg.battery_current_limit_max_max = 20.0 # about 1400W at 72V
+rear_motor_cfg.battery_current_limit_max_min = 15.0 # about 1100W at 72V
 rear_motor_cfg.battery_current_limit_max_min_speed = 30.0
 
 # this are the values for regen
@@ -108,10 +108,13 @@ rear_motor_cfg.battery_current_limit_min_min = -7.0
 rear_motor_cfg.battery_current_limit_min_max = -5.25 # about 25% less
 rear_motor_cfg.battery_current_limit_min_max_speed = 30.0
 
-# front motor VESC is connected by CAN
-front_motor_cfg.can_id = 101
+# Front motor VESC is connected by CAN to rear motor VESC
+# Rear motor is the master on CAN, so has ID = 0
+# Front motor is the first slave in CAN, so has ID = 1
+front_motor_cfg.can_id = 1
 
 # rear motor VESC is connected by UART
 rear_motor_cfg.uart_tx_pin = board.IO13 # UART TX pin that connect to VESC
 rear_motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
 rear_motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
+

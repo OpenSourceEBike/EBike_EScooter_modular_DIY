@@ -57,14 +57,14 @@ front_motor = Motor(front_motor_data)
 rear_motor = Motor(rear_motor_data)
 
 # initialize the variables with the configuration values
-front_motor.data.motor_target_current_limit_max = front_motor.cfg.motor_max_current_limit_max
-front_motor.data.motor_target_current_limit_min = front_motor.cfg.motor_max_current_limit_min
-front_motor.data.battery_target_current_limit_max = front_motor.cfg.battery_max_current_limit_max
-front_motor.data.battery_target_current_limit_min = front_motor.cfg.battery_max_current_limit_min
-rear_motor.data.motor_target_current_limit_max = rear_motor.cfg.motor_max_current_limit_max
-rear_motor.data.motor_target_current_limit_min = rear_motor.cfg.motor_max_current_limit_min
-rear_motor.data.battery_target_current_limit_max = rear_motor.cfg.battery_max_current_limit_max
-rear_motor.data.battery_target_current_limit_min = rear_motor.cfg.battery_max_current_limit_min
+front_motor.data.motor_target_current_limit_max = front_motor.data.cfg.motor_max_current_limit_max
+front_motor.data.motor_target_current_limit_min = front_motor.data.cfg.motor_max_current_limit_min
+front_motor.data.battery_target_current_limit_max = front_motor.data.cfg.battery_max_current_limit_max
+front_motor.data.battery_target_current_limit_min = front_motor.data.cfg.battery_max_current_limit_min
+rear_motor.data.motor_target_current_limit_max = rear_motor.data.cfg.motor_max_current_limit_max
+rear_motor.data.motor_target_current_limit_min = rear_motor.data.cfg.motor_max_current_limit_min
+rear_motor.data.battery_target_current_limit_max = rear_motor.data.cfg.battery_max_current_limit_max
+rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_max_current_limit_min
 
 # object to communicate with the display wireless by ESPNow
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
@@ -77,10 +77,12 @@ async def task_vesc_refresh_data():
     while True:
         # refresh latest for VESC data
         front_motor.update_motor_data()
+        await asyncio.sleep(0.05)
         rear_motor.update_motor_data()
+        await asyncio.sleep(0.05)
         
         gc.collect()
-        await asyncio.sleep(0.1)
+
 
 async def task_display_refresh_data():
     global gc
@@ -168,7 +170,7 @@ async def task_control_motor():
             front_motor.set_motor_current_amps(0)
             rear_motor.set_motor_current_amps(0)
                 
-            if throttle_1_adc_previous_value > vars.throttle_1_adc_over_max_error:
+            if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error:
                 message = f'throttle 1 value: {throttle_1_adc_previous_value} -- is over max, this can be dangerous!'
             else:
                 message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
@@ -178,15 +180,15 @@ async def task_control_motor():
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
         
         # Calculate target speed
-        front_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, front_motor.cfg.motor_erpm_max_speed_limit)
-        rear_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, rear_motor.cfg.motor_erpm_max_speed_limit)
+        front_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, front_motor.data.cfg.motor_erpm_max_speed_limit)
+        rear_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit)
 
         # Limit mins and max values
         if front_motor.data.motor_target_speed < 500.0: front_motor.data.motor_target_speed = 0.0
         if rear_motor.data.motor_target_speed < 500.0: rear_motor.data.motor_target_speed = 0.0
         
-        if front_motor.data.motor_target_speed > front_motor.cfg.motor_erpm_max_speed_limit: front_motor.data.motor_target_speed = front_motor.cfg.motor_erpm_max_speed_limit
-        if rear_motor.data.motor_target_speed > rear_motor.cfg.motor_erpm_max_speed_limit: rear_motor.data.motor_target_speed = rear_motor.cfg.motor_erpm_max_speed_limit
+        if front_motor.data.motor_target_speed > front_motor.data.cfg.motor_erpm_max_speed_limit: front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
+        if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit: rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
 
         # Set motor max target currents        
         front_motor.set_motor_current_limit_max(front_motor.data.motor_target_current_limit_max)
@@ -197,7 +199,7 @@ async def task_control_motor():
         
         front_motor.set_battery_current_limit_max(front_motor.data.battery_target_current_limit_max)
         rear_motor.set_battery_current_limit_max(rear_motor.data.battery_target_current_limit_max)
-        
+
         front_motor.set_battery_current_limit_min(front_motor.data.battery_target_current_limit_min)
         rear_motor.set_battery_current_limit_min(rear_motor.data.battery_target_current_limit_min)
         
@@ -236,62 +238,62 @@ async def task_control_motor_limit_current():
         front_motor.data.motor_target_current_limit_max = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            front_motor.cfg.motor_current_limit_max_min_speed,
-            front_motor.cfg.motor_current_limit_max_max,
-            front_motor.cfg.motor_current_limit_max_min)
+            front_motor.data.cfg.motor_current_limit_max_min_speed,
+            front_motor.data.cfg.motor_current_limit_max_max,
+            front_motor.data.cfg.motor_current_limit_max_min)
         
         rear_motor.data.motor_target_current_limit_max = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            rear_motor.cfg.motor_current_limit_max_min_speed,
-            rear_motor.cfg.motor_current_limit_max_max,
-            rear_motor.cfg.motor_current_limit_max_min)
+            rear_motor.data.cfg.motor_current_limit_max_min_speed,
+            rear_motor.data.cfg.motor_current_limit_max_max,
+            rear_motor.data.cfg.motor_current_limit_max_min)
         
         
         front_motor.data.motor_target_current_limit_min = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            front_motor.cfg.motor_current_limit_min_max_speed,
-            front_motor.cfg.motor_current_limit_min_max,
-            front_motor.cfg.motor_current_limit_min_min)
+            front_motor.data.cfg.motor_current_limit_min_max_speed,
+            front_motor.data.cfg.motor_current_limit_min_max,
+            front_motor.data.cfg.motor_current_limit_min_min)
         
         rear_motor.data.motor_target_current_limit_min = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            rear_motor.cfg.motor_current_limit_min_max_speed,
-            rear_motor.cfg.motor_current_limit_min_max,
-            rear_motor.cfg.motor_current_limit_min_min)
+            rear_motor.data.cfg.motor_current_limit_min_max_speed,
+            rear_motor.data.cfg.motor_current_limit_min_max,
+            rear_motor.data.cfg.motor_current_limit_min_min)
         
         
         front_motor.data.battery_target_current_limit_max = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            front_motor.cfg.battery_current_limit_max_min_speed,
-            front_motor.cfg.battery_current_limit_max_max,
-            front_motor.cfg.battery_current_limit_max_min)
+            front_motor.data.cfg.battery_current_limit_max_min_speed,
+            front_motor.data.cfg.battery_current_limit_max_max,
+            front_motor.data.cfg.battery_current_limit_max_min)
         
         rear_motor.data.battery_target_current_limit_max = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            rear_motor.cfg.battery_current_limit_max_min_speed,
-            rear_motor.cfg.battery_current_limit_max_max,
-            rear_motor.cfg.battery_current_limit_max_min)
+            rear_motor.data.cfg.battery_current_limit_max_min_speed,
+            rear_motor.data.cfg.battery_current_limit_max_max,
+            rear_motor.data.cfg.battery_current_limit_max_min)
         
         
         front_motor.data.battery_target_current_limit_min = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            front_motor.cfg.battery_current_limit_min_max_speed,
-            front_motor.cfg.battery_current_limit_min_max,
-            front_motor.cfg.battery_current_limit_min_min)
+            front_motor.data.cfg.battery_current_limit_min_max_speed,
+            front_motor.data.cfg.battery_current_limit_min_max,
+            front_motor.data.cfg.battery_current_limit_min_min)
         
         
         rear_motor.data.battery_target_current_limit_min = simpleio.map_range(
             rear_motor.data.wheel_speed,
             5.0,
-            rear_motor.cfg.battery_current_limit_min_max_speed,
-            rear_motor.cfg.battery_current_limit_min_max,
-            rear_motor.cfg.battery_current_limit_min_min)
+            rear_motor.data.cfg.battery_current_limit_min_max_speed,
+            rear_motor.data.cfg.battery_current_limit_min_max,
+            rear_motor.data.cfg.battery_current_limit_min_min)
         
         gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
         await asyncio.sleep(0.1)
@@ -310,8 +312,8 @@ async def task_various():
         
             # Fiido Q1S with installed Luneye motor 2000W
             # calculate the wheel speed in km/h
-            perimeter = 6.28 * rear_motor.cfg.wheel_radius # 2*pi = 6.28
-            motor_rpm = rear_motor.data.speed_erpm / rear_motor.cfg.poles_pair
+            perimeter = 6.28 * rear_motor.data.cfg.wheel_radius # 2*pi = 6.28
+            motor_rpm = rear_motor.data.speed_erpm / rear_motor.data.cfg.poles_pair
             rear_motor.data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60.0)
 
             if abs(rear_motor.data.wheel_speed < 2.0):
