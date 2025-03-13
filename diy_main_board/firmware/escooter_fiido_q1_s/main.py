@@ -1,3 +1,16 @@
+# The following code is useful for development
+# import supervisor
+# if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
+#     # If not a soft reload, exit immediately
+#     print("Code not run at startup. Press Ctrl+D to run.")
+#     while True:
+#          pass # Or use time.sleep(1000) to keep the device from doing anything.
+# else:
+#     # Your code that should run only on Ctrl+D goes here
+#     print("Running on Ctrl+D (soft reload).")
+#     # ... your main code ...
+
+
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
 import board
@@ -77,12 +90,10 @@ async def task_vesc_refresh_data():
     while True:
         # refresh latest for VESC data
         front_motor.update_motor_data()
-        await asyncio.sleep(0.05)
         rear_motor.update_motor_data()
-        await asyncio.sleep(0.05)
         
         gc.collect()
-
+        await asyncio.sleep(0.1)
 
 async def task_display_refresh_data():
     global gc
