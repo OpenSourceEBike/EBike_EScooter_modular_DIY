@@ -1,5 +1,6 @@
 import busio
 import struct
+import time
 
 # Singleton class as can only exist one object to communicate with VESC
 class Vesc(object):
@@ -53,15 +54,26 @@ class Vesc(object):
 
         return crc
     
-    def _uart_maybe_reset_input_buffer(self):        
-        bytes_in_uart_buffer = self._uart.in_waiting
-        #read all bytes and discard
-        while bytes_in_uart_buffer:
-            # read 1 byte and discard
-            self._uart.read(bytes_in_uart_buffer)
-            bytes_in_uart_buffer = self._uart.in_waiting
-            
-    def _pack_and_send(self, buf, response_len):
+    def _process_response(self, response):
+        # Check for the controler ID on the message, to figure out of
+        # which motor the data belongs to
+        controller_id = response[60]
+        if controller_id == 0:
+            motor_data = self._rear_motor_data
+        else:
+            motor_data = self._front_motor_data
+        
+        # store the motor controller data
+        motor_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
+        motor_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
+        motor_data.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
+        motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
+        motor_data.speed_erpm = struct.unpack_from('>l', response, 25)[0]
+        motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
+        motor_data.vesc_fault_code = response[55]
+        motor_data.controller_id = response[60]
+                
+    def _pack_and_send(self, buf, response_len, delay):
         start_byte = 2
                 
         # if command is COMM_FORWARD_CAN, then get the real command
@@ -84,6 +96,8 @@ class Vesc(object):
         
         # send packet to UART
         self._uart.write(data_array)
+        
+        time.sleep(delay)
 
         bytes_in_uart_buffer = self._uart.in_waiting
         # try to read response only if we expect it
@@ -94,42 +108,38 @@ class Vesc(object):
                 # check for expected start byte 2
                 if self._uart.read(1)[0] != start_byte:
                     bytes_in_uart_buffer = self._uart.in_waiting
-                    if bytes_in_uart_buffer == 0:
+                    if bytes_in_uart_buffer > 0:
                         # restart the while loop
-                        self._uart_maybe_reset_input_buffer()
                         continue
                     else:
                         # exit if there are no more bytes to read
-                        self._uart_maybe_reset_input_buffer()
-                        print('a', bytes_in_uart_buffer)
+                        # print('a')
                         return None
                 
                 # check for expected payload lenght
                 payload_len = response_len - 5
                 if self._uart.read(1)[0] != payload_len:
                     bytes_in_uart_buffer = self._uart.in_waiting
-                    if bytes_in_uart_buffer:     
-                        self._uart_maybe_reset_input_buffer()                   
+                    if bytes_in_uart_buffer > 0:
                         continue
                     else:
-                        print('b')
+                        # print('b')
                         return None
                     
                 # check for expected vesc_command
                 if self._uart.read(1)[0] != vesc_command:
                     bytes_in_uart_buffer = self._uart.in_waiting
                     if bytes_in_uart_buffer:
-                        self._uart_maybe_reset_input_buffer()
                         continue
                     else:
-                        print('c')
+                        # print('c')
                         return None
                     
                 # if the UART buffer has no complete response, discard all buffer and exit
                 bytes_in_uart_buffer = self._uart.in_waiting
                 if bytes_in_uart_buffer < (response_len - 3):
-                    self._uart_maybe_reset_input_buffer()
-                    print('d')
+                    self._uart.reset_input_buffer()
+                    # print('d')
                     return None
 
                 # here we hope we are syncronized and have the full packet
@@ -143,11 +153,11 @@ class Vesc(object):
                 crc_calculated = self._crc16(self._vesc_data[2:-3])
                 crc = (self._vesc_data[-3] * 256) + self._vesc_data[-2]
                 if crc != crc_calculated:
-                    self._uart_maybe_reset_input_buffer()
-                    print('f')
+                    self._uart.reset_input_buffer()
+                    # print('f')
                     return None
 
-                self._uart_maybe_reset_input_buffer()
+                self._uart.reset_input_buffer()
                 return self._vesc_data
         else:
             return None
@@ -156,22 +166,15 @@ class Vesc(object):
         
         tx_command_buffer = bytearray(1)
         tx_command_buffer[0] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
-        response = self._pack_and_send(tx_command_buffer, 79)
+        response = self._pack_and_send(tx_command_buffer, 79, 0.01)
         
-        if response is not None:
-            print('r uart ok')
-        else:
-            print('r uart Nok')
+        # if response is not None:
+        #     print('uart k')
+        # else:
+        #     print('uart Nk')
             
-        if response is not None:
-            # store the motor controller data
-            self._rear_motor_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
-            self._rear_motor_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
-            self._rear_motor_data.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
-            self._rear_motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
-            self._rear_motor_data.speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self._rear_motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
-            self._rear_motor_data.vesc_fault_code = response[55]
+        if response is not None:            
+            self._process_response(response)
         
     def update_can_motor_data(self):
         
@@ -179,22 +182,15 @@ class Vesc(object):
         tx_command_buffer[0] = 34 # COMM_FORWARD_CAN
         tx_command_buffer[1] = self._front_motor_data.cfg.can_id
         tx_command_buffer[2] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
-        response = self._pack_and_send(tx_command_buffer, 79)
+        response = self._pack_and_send(tx_command_buffer, 79, 0.02)
+
+        # if response is not None:
+        #     print('can k')
+        # else:
+        #     print('can Nk')
 
         if response is not None:
-            print('r can ok')
-        else:
-            print('r can Nok')
-
-        if response is not None:
-            # store the motor controller data
-            self._front_motor_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
-            self._front_motor_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
-            self._front_motor_data.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
-            self._front_motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
-            self._front_motor_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
-            self._front_motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
-            self._front_motor_data.vesc_fault_code = response[55]  
+            self._process_response(response)
       
     def set_motor_current_amps(self, value):
         """Set battery Amps"""
@@ -203,7 +199,7 @@ class Vesc(object):
         tx_command_buffer = bytearray(5)
         tx_command_buffer[0] = 6 # COMM_SET_CURRENT = 6; no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_motor_current_amps(self, value):
         """Set battery Amps"""
@@ -217,7 +213,7 @@ class Vesc(object):
         tx_command_buffer[2] = 6 # COMM_SET_CURRENT = 6; no response
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_motor_current_brake_amps(self, value):
         """Set battery brake / regen Amps"""
@@ -226,7 +222,7 @@ class Vesc(object):
         tx_command_buffer = bytearray(5)
         tx_command_buffer[0] = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_motor_current_brake_amps(self, value):
         """Set battery brake / regen Amps for CAN bus"""
@@ -240,14 +236,14 @@ class Vesc(object):
         tx_command_buffer[2] = 7 # COMM_SET_CURRENT_BRAKE = 7; no response
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_motor_speed_rpm(self, value):
         """Set motor speed in RPM"""
         tx_command_buffer = bytearray(5)
         tx_command_buffer[0] = 8 # COMM_SET_RPM = 8; no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_motor_speed_rpm(self, value):
         tx_command_buffer = bytearray(7)
@@ -259,7 +255,7 @@ class Vesc(object):
         tx_command_buffer[2] = 8 # COMM_SET_RPM = 8; no response
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_motor_current_limit_min(self, value):
         value = value * 1000 # current in mA
@@ -268,7 +264,7 @@ class Vesc(object):
         # VESC custom tx_command_buffer on custom firmware
         tx_command_buffer[0] = 200 # no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_motor_current_limit_min(self, value):
         value = value * 1000 # current in mA
@@ -282,7 +278,7 @@ class Vesc(object):
         tx_command_buffer[2] = 200 # no response
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
 
     def set_motor_current_limit_max(self, value):
         value = value * 1000 # current in mA
@@ -291,7 +287,7 @@ class Vesc(object):
         # VESC custom tx_command_buffer on custom firmware
         tx_command_buffer[0] = 201 # no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_motor_current_limit_max(self, value):
         value = value * 1000 # current in mA
@@ -305,7 +301,7 @@ class Vesc(object):
         tx_command_buffer[2] = 201 # no response
 
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_battery_current_limit_min(self, value):
         value = value * 1000 # current in mA
@@ -314,7 +310,7 @@ class Vesc(object):
         # VESC custom tx_command_buffer on custom firmware
         tx_command_buffer[0] = 202 # no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
     
     def set_can_battery_current_limit_min(self, value):
         value = value * 1000 # current in mA
@@ -328,7 +324,7 @@ class Vesc(object):
         tx_command_buffer[2] = 202 # no response
 
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
 
     def set_battery_current_limit_max(self, value):
         value = value * 1000 # current in mA
@@ -337,7 +333,7 @@ class Vesc(object):
         # VESC custom tx_command_buffer on custom firmware
         tx_command_buffer[0] = 203 # no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
         
     def set_can_battery_current_limit_max(self, value):
         value = value * 1000 # current in mA
@@ -351,14 +347,14 @@ class Vesc(object):
         tx_command_buffer[2] = 203 # no response
 
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)        
+        self._pack_and_send(tx_command_buffer, 0, 0.001)        
         
     def set_motor_limit_speed(self, value):        
         tx_command_buffer = bytearray(5)
         # VESC custom tx_command_buffer on custom firmware
         tx_command_buffer[0] = 204 # no response
         struct.pack_into('>l', tx_command_buffer, 1, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
     
     def set_can_motor_limit_speed(self, value):                
         tx_command_buffer = bytearray(7)
@@ -370,5 +366,4 @@ class Vesc(object):
         tx_command_buffer[2] = 204 # no response
         
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
-        self._pack_and_send(tx_command_buffer, 0)
-
+        self._pack_and_send(tx_command_buffer, 0, 0.001)
