@@ -6,10 +6,9 @@ from firmware_common.boards_ids import BoardsIds
 class Display(object):
     """Display"""
 
-    def __init__(self, vars, front_motor_data, rear_motor_data, display_mac_address):
+    def __init__(self, vars, motor_data, display_mac_address):
         self._vars = vars
-        self._front_motor_data = front_motor_data
-        self._rear_motor_data = rear_motor_data
+        self._motor_data = motor_data
         
         self._espnow = ESPNow.ESPNow()
         peer = ESPNow.Peer(mac=bytes(display_mac_address), channel=1)
@@ -36,6 +35,7 @@ class Display(object):
                 if int(data_list[0]) == int(BoardsIds.MAIN_BOARD) and len(data_list) == 3:
                     self._vars.motors_enable_state = True if data_list[1] != 0 else False
                     self._vars.buttons_state = data_list[2]
+                    self._vars.assist_level = data_list[3]
         except Exception as e:
             print(f"ESPNow display read error: {e}")
 
@@ -43,15 +43,15 @@ class Display(object):
         if self._espnow is not None:
             try:
                 brakes_are_active = 1 if self._vars.brakes_are_active else 0            
-                battery_current_x100 = int(self._front_motor_data.battery_current_x100 + self._rear_motor_data.battery_current_x100)
-                motor_current_x100 = int(self._front_motor_data.motor_current_x100 + self._rear_motor_data.motor_current_x100)
+                battery_current_x100 = int(self._motor_data.battery_current_x100)
+                motor_current_x100 = int(self._motor_data.motor_current_x100)
                 
                 # Send the max value only
-                vesc_temperature_x10 = max(self._front_motor_data.vesc_temperature_x10, self._rear_motor_data.vesc_temperature_x10)
-                motor_temperature_x10 = max(self._front_motor_data.motor_temperature_x10, self._rear_motor_data.motor_temperature_x10)
+                vesc_temperature_x10 = self._motor_data.vesc_temperature_x10
+                motor_temperature_x10 = self._motor_data.motor_temperature_x10
                 
                 # Assuming battery voltage and wheel speed are the same for both motors
-                self._espnow.send(f"{int(BoardsIds.DISPLAY)} {int(self._rear_motor_data.battery_voltage_x10)} {battery_current_x100} {motor_current_x100} {int(self._rear_motor_data.wheel_speed * 10)} {int(brakes_are_active)} {int(vesc_temperature_x10)} {int(motor_temperature_x10)}")
+                self._espnow.send(f"{int(BoardsIds.DISPLAY)} {int(self._motor_data.battery_voltage_x10)} {battery_current_x100} {motor_current_x100} {int(self._motor_data.wheel_speed * 10)} {int(brakes_are_active)} {int(vesc_temperature_x10)} {int(motor_temperature_x10)}")
             
             except Exception as e:
                 print(f"ESPNow display send error: {e}")

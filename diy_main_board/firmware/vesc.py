@@ -113,7 +113,6 @@ class Vesc(object):
                         continue
                     else:
                         # exit if there are no more bytes to read
-                        # print('a')
                         return None
                 
                 # check for expected payload lenght
@@ -123,7 +122,6 @@ class Vesc(object):
                     if bytes_in_uart_buffer > 0:
                         continue
                     else:
-                        # print('b')
                         return None
                     
                 # check for expected vesc_command
@@ -132,14 +130,12 @@ class Vesc(object):
                     if bytes_in_uart_buffer:
                         continue
                     else:
-                        # print('c')
                         return None
                     
                 # if the UART buffer has no complete response, discard all buffer and exit
                 bytes_in_uart_buffer = self._uart.in_waiting
                 if bytes_in_uart_buffer < (response_len - 3):
                     self._uart.reset_input_buffer()
-                    # print('d')
                     return None
 
                 # here we hope we are syncronized and have the full packet
@@ -154,7 +150,6 @@ class Vesc(object):
                 crc = (self._vesc_data[-3] * 256) + self._vesc_data[-2]
                 if crc != crc_calculated:
                     self._uart.reset_input_buffer()
-                    # print('f')
                     return None
 
                 self._uart.reset_input_buffer()
@@ -167,11 +162,6 @@ class Vesc(object):
         tx_command_buffer = bytearray(1)
         tx_command_buffer[0] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         response = self._pack_and_send(tx_command_buffer, 79, 0.01)
-        
-        # if response is not None:
-        #     print('uart k')
-        # else:
-        #     print('uart Nk')
             
         if response is not None:            
             self._process_response(response)
@@ -183,11 +173,6 @@ class Vesc(object):
         tx_command_buffer[1] = self._front_motor_data.cfg.can_id
         tx_command_buffer[2] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         response = self._pack_and_send(tx_command_buffer, 79, 0.02)
-
-        # if response is not None:
-        #     print('can k')
-        # else:
-        #     print('can Nk')
 
         if response is not None:
             self._process_response(response)

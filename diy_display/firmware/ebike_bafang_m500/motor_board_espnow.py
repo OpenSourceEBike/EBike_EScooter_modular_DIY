@@ -46,7 +46,7 @@ class MotorBoard(object):
                 self._espnow.peers.append(self._peer)
 
                 motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-                self._espnow.send(f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.button_power_state}")
+                self._espnow.send(f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.buttons_state}")
 
                 # now remove the peer
                 self._espnow.peers.remove(self._peer)

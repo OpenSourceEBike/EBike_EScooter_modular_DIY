@@ -9,7 +9,6 @@ class SystemData(object):
         self.motor_power = 0
         self.motor_current_x100 = 0
         self.wheel_speed_x10 = 0
-        self.previous_motor_current_target = True
         self.brakes_are_active = False
         self.torque_weight = 0
         self.cadence = 0
@@ -24,4 +23,4 @@ class SystemData(object):
         self.lights_state = False
         self.rear_lights_board_pins_state = 0
         self.front_lights_board_pins_state = 0
-        self.button_power_state = 0x0101 # this value 
+        self.buttons_state = 0x0101 # this value 

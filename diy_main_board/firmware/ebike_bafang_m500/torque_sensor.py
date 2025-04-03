@@ -41,62 +41,39 @@ class TorqueSensor(object):
         """Torque sensor weight value and cadence
         return: torque weight and cadence
         """
+        cadence = None
+        torque_x10 = None
+        
         with self._can_bus.listen(timeout=1.0) as listener:
             
             msg = bytearray()
-            cadence = None
-            torque = None
             now = time.monotonic()
             counter = 0
 
-            while True:
-                if listener.in_waiting():
-                    msg = listener.receive()
+            if listener.in_waiting():
+                msg = listener.receive()
 
-                    cadence = msg.data[2]
-                    if cadence > 0:
-                        # we got a new cadence value
-                        self._cadence_previous_time = now
-                        self._cadence_previous = cadence
+                cadence = msg.data[2]
+                if cadence > 0:
+                    # we got a new cadence value
+                    self._cadence_previous_time = now
+                    self._cadence_previous = cadence
 
-                        torque_x10 = (msg.data[1] * 256) + msg.data[0]
-                        torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
+                    torque_x10 = (msg.data[1] * 256) + msg.data[0]
+                    torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
 
-                        # ignore previous messages, just clean them
-                        while listener.in_waiting():
-                            listener.receive()
-
-                        return torque_x10, cadence
-                    
-                    else:
-                        # cadence is 0
-                      
-                        counter += 1
-                        # check if previous 5 messages are always 0, if so, stop here
-                        if counter > 5:
-                            # check for cadence timeout
-                            timeout = True if now > (self._cadence_previous_time + self._cadence_timeout) else False
-                            if timeout:
-                                self._cadence_previous = 0
-                                self._cadence_previous_time = now
-                            else:
-                                # keep cadence with previous value
-                                cadence = self._cadence_previous
-
-                            torque_x10 = (msg.data[1] * 256) + msg.data[0]
-                            torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
-                            
-                            # ignore previous messages, just clean them
-                            while listener.in_waiting():
-                                listener.receive()
-
-                            return torque_x10, cadence
-                          
+                    # ignore previous messages, just clean them
+                    while listener.in_waiting():
+                        listener.receive()
+                
                 else:
-                # check for cadence timeout
-                    timeout = True if now > (self._cadence_previous_time + self._cadence_timeout) else False
-                    if cadence == 0:
-                        # we got cadence = 0
+                    # cadence is 0
+                    
+                    counter += 1
+                    # check if previous 5 messages are always 0, if so, stop here
+                    if counter > 5:
+                        # check for cadence timeout
+                        timeout = True if now > (self._cadence_previous_time + self._cadence_timeout) else False
                         if timeout:
                             self._cadence_previous = 0
                             self._cadence_previous_time = now
@@ -106,13 +83,10 @@ class TorqueSensor(object):
 
                         torque_x10 = (msg.data[1] * 256) + msg.data[0]
                         torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
-
-                    else:
-                        # we got no new values from torque sensor
-                        if timeout:
-                            self._cadence_previous = 0
-                            self._cadence_previous_time = now
-                        else:
-                            cadence = self._cadence_previous
-
-                    return torque_x10, cadence
+                        
+                        # ignore previous messages, just clean them
+                        while listener.in_waiting():
+                            listener.receive()
+                            
+        # Always go through here             
+        return torque_x10, cadence

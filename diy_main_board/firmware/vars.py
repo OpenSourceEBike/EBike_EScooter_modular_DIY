@@ -52,8 +52,9 @@ class Vars(object):
         self.throttle_value = 0
         self.brakes_value = 0
         self.motors_enable_state = False
-        self.button_power_state = 0
+        self.buttons_state = 0
         self.cruise_control = CruiseControl()
+        self.assist_level = 0
         
         
 
