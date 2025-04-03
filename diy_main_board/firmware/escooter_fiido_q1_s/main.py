@@ -82,7 +82,7 @@ rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_m
 # object to communicate with the display wireless by ESPNow
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
 
-async def task_vesc_refresh_data():
+async def task_motors_refresh_data():
     global gc
     global front_motor
     global rear_motor
@@ -111,7 +111,7 @@ async def task_display_refresh_data():
 
 
 def cruise_control(vars, wheel_speed, throttle_value):
-    button_long_press_state = vars.button_power_state & 0x0200
+    button_long_press_state = vars.buttons_state & 0x0200
     
     # Set initial variables values
     if vars.cruise_control.state == 0:     
@@ -130,7 +130,7 @@ def cruise_control(vars, wheel_speed, throttle_value):
     if vars.cruise_control.state == 2:
         # Check for button pressed
         vars.cruise_control.button_pressed = False
-        button_press_state = vars.button_power_state & 0x0100
+        button_press_state = vars.buttons_state & 0x0100
         if button_press_state != vars.cruise_control.button_press_previous_state:
             vars.cruise_control.button_press_previous_state = button_press_state
             vars.cruise_control.button_pressed = True
@@ -341,7 +341,7 @@ async def main():
     watchdog.timeout = 1
     watchdog.mode = WatchDogMode.RESET
 
-    vesc_refresh_data_task = asyncio.create_task(task_vesc_refresh_data())
+    motors_refresh_data_task = asyncio.create_task(task_motors_refresh_data())
     display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
     control_motor_limit_current_task = asyncio.create_task(task_control_motor_limit_current())
     read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
@@ -350,7 +350,7 @@ async def main():
     print("Starting EBike/EScooter")
     print()
 
-    await asyncio.gather(vesc_refresh_data_task,
+    await asyncio.gather(motors_refresh_data_task,
                         display_refresh_data_task,
                         control_motor_limit_current_task,
                         read_sensors_control_motor_task,
