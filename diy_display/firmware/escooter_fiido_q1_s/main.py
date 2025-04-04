@@ -78,7 +78,7 @@ displayObject = Display.Display(
         board.IO4, # MOSI / SDI pin
         board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
         board.IO2, # DC pin - command pin
-        board.IO1, # RST pin - reset pin
+        board.IO0, # RST pin - reset pin
         board.IO21, # LED pin - backlight pin
         100000) # spi clock frequency
 display = displayObject.display
@@ -414,7 +414,7 @@ while True:
         if motor_power_previous != system_data.motor_power:
             motor_power_previous = system_data.motor_power
             motor_power = filter_motor_power(system_data.motor_power)
-            label_1.text = f"{motor_power:5}"
+            label_1.text = f"{motor_power:4}"
 
         # if motor_current_previous_x100 != system_data.motor_current_x100:
         #     motor_current_previous_x100 = system_data.motor_current_x100
