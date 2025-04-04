@@ -31,8 +31,8 @@ class Display(object):
                 data_list = [int(n) for n in data.msg.split()]
                 
                 # only process packages for us
-                # must have 3 elements: message_id + 2 variables                    
-                if int(data_list[0]) == int(BoardsIds.MAIN_BOARD) and len(data_list) == 3:
+                # must have 4 elements: message_id + 3 variables                    
+                if int(data_list[0]) == int(BoardsIds.MAIN_BOARD) and len(data_list) == 4:
                     self._vars.motors_enable_state = True if data_list[1] != 0 else False
                     self._vars.buttons_state = data_list[2]
                     self._vars.assist_level = data_list[3]

@@ -4,9 +4,10 @@ import supervisor
 import simpleio
 import asyncio
 import Brake
-import torque_sensor
+import ebike_bafang_m500.torque_sensor as torque_sensor
 import ebike_bafang_m500.display_espnow as DisplayESPnow
 import wifi
+import gc
 from vars import Vars, Cfg, MotorCfg
 from motor import MotorData, Motor
 
@@ -19,10 +20,10 @@ print("Booting EBike/EScooter software")
 
 # This board MAC Address
 cfg = Cfg()
-cfg.my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+cfg.my_mac_address =      [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb2]
 
 # MAC Address value needed for the wireless communication with the display
-cfg.display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
+cfg.display_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb3]
 
 # setup radio MAC Adreess
 wifi.radio.enabled = True
@@ -81,6 +82,11 @@ motor_cfg.uart_tx_pin = board.IO13 # UART TX pin that connect to VESC
 motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
 motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
 motor_data = MotorData(motor_cfg)
+
+motor_dummy_cfg = MotorCfg(1)
+motor_dummy_data = MotorData(motor_dummy_cfg)
+motor_dummy = Motor(motor_dummy_data)
+
 motor = Motor(motor_data)
 
 # object to communicate with the display wireless by ESPNow
@@ -96,8 +102,6 @@ def check_brakes():
     
     if vars.brakes_are_active == False and brake.value == True:
         # brake / coast the motor
-        motor.set_motor_current_amps(0)
-        motor.set_motor_current_amps(0)
         motor.set_motor_current_amps(0)
         motor_current_target = 0
         vars.brakes_are_active = True
@@ -156,15 +160,16 @@ async def task_motors_refresh_data():
         await asyncio.sleep(0.1)
 
 motor_current_target_previous = 0
-assist_level = 0
 ramp_last_time = time.monotonic_ns()
 def motor_control():
+    global vars
     global motor_max_current_limit
     global torque_sensor_weight_min_to_start_x10
     global torque_sensor_weight_max_x10
     global assist_level_factor_table
     global assist_level
     global ramp_last_time
+    global motor_current_target_previous
     
     check_brakes()
     
@@ -186,7 +191,7 @@ def motor_control():
             motor_max_current_limit) # max output
 
         # apply the assist level
-        assist_level_factor = assist_level_factor_table[assist_level]
+        assist_level_factor = assist_level_factor_table[vars.assist_level]
         motor_current_target = motor_current_target * assist_level_factor
     ##########################################################################################
 
@@ -216,7 +221,7 @@ def motor_control():
     if vars.brakes_are_active == True:
         motor_current_target = 0
 
-    # let's update the motor current, only if the target value changed
+    # let's update the motor current
     motor.set_motor_current_amps(motor_current_target)
     
     # keep track of motor_current_target

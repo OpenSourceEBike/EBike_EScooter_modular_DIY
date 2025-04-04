@@ -81,12 +81,12 @@ class TorqueSensor(object):
                             # keep cadence with previous value
                             cadence = self._cadence_previous
 
-                        torque_x10 = (msg.data[1] * 256) + msg.data[0]
-                        torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
-                        
-                        # ignore previous messages, just clean them
-                        while listener.in_waiting():
-                            listener.receive()
+                    torque_x10 = (msg.data[1] * 256) + msg.data[0]
+                    torque_x10 = int((torque_x10 - 750) / 6.1) # convert to kgs
+                    
+                    # ignore previous messages, just clean them
+                    while listener.in_waiting():
+                        listener.receive()
                             
-        # Always go through here             
+        # Always go through here
         return torque_x10, cadence

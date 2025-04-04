@@ -22,8 +22,8 @@ print("Starting Display")
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication
-my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
-mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+my_mac_address =          [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb3]
+mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb2]
 ########################################
 
 system_data = _SystemData.SystemData()
@@ -34,14 +34,14 @@ wifi.radio.start_ap(ssid="NO_SSID", channel=1)
 wifi.radio.stop_ap()
 
 _espnow = _ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
+motor_board = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
 
 displayObject = Display.Display(
         board.IO3, # CLK / SCK pin
         board.IO4, # MOSI / SDI pin
         board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
         board.IO2, # DC pin - command pin
-        board.IO1, # RST pin - reset pin
+        board.IO0, # RST pin - reset pin
         board.IO21, # LED pin - backlight pin
         100000) # spi clock frequency
 display = displayObject.display
@@ -109,7 +109,7 @@ warning_area.scale = 1
 now = time.monotonic()
 buttons_time_previous = now
 display_time_previous = now
-ebike_rx_tx_data_time_previous = now
+motor_board_data_time_previous = now
 
 assist_level_previous = 9999
 battery_voltage_previous_x10 = 9999
@@ -118,7 +118,7 @@ brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
 def turn_off_execute():
-  motor.send_data()
+  motor_board.send_data()
 
 def turn_off():
   # new values when turn off the system
@@ -300,14 +300,14 @@ while True:
         if motor_power_previous != system_data.motor_power:
             motor_power_previous = system_data.motor_power
             motor_power = filter_motor_power(system_data.motor_power)
-            motor_power_area.text = f"{motor_power:5}"
+            motor_power_area.text = f"{motor_power:4}"
 
     # Motor main board
     now = time.monotonic()
-    if (now - ebike_rx_tx_data_time_previous) > 0.05:
-        ebike_rx_tx_data_time_previous = now
-        motor.send_data()
-        motor.process_data()
+    if (now - motor_board_data_time_previous) > 0.05:
+        motor_board_data_time_previous = now
+        motor_board.send_data()
+        motor_board.process_data()
 
         if brakes_are_active_previous != system_data.brakes_are_active:
             brakes_are_active_previous = system_data.brakes_are_active
