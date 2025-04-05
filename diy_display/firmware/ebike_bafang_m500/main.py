@@ -13,6 +13,8 @@ import terminalio
 import thisbutton as tb
 import espnow as _ESPNow
 import microcontroller
+from microcontroller import watchdog
+from watchdog import WatchDogMode
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -241,7 +243,7 @@ def button_up_long_click_start_cb():
 
 ### Setup buttons ###
 buttons_pins = [
-  board.IO5, # button_POWER
+  board.IO8, # button_POWER
   board.IO6, # button_LEFT   
   board.IO7, # button_RIGHT
 ]
@@ -314,6 +316,11 @@ if vars.assist_level > 20:
   vars.assist_level = 20
 if vars.assist_level < 0:
   vars.assist_level = 0
+  
+# setup watchdog, to reset the system if watchdog is not feed in time
+# 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
+watchdog.timeout = 1
+watchdog.mode = WatchDogMode.RESET
 
 while True:
     now = time.monotonic()
@@ -371,6 +378,9 @@ while True:
 
         for index in range(nr_buttons):
             buttons[index].tick()
+
+    # Let's feed the watchdog to avoid a system reset
+    watchdog.feed() # avoid system reset because watchdog timeout
 
     # sleep some time to save energy and avoid ESP32-C3 to overheat
     time.sleep(0.01)
