@@ -37,7 +37,8 @@ class Display(object):
                     self._vars.buttons_state = data_list[2]
                     self._vars.assist_level = data_list[3]
         except Exception as e:
-            print(f"ESPNow display read error: {e}")
+            # print(f"ESPNow display read error: {e}")
+            pass
 
     def update(self):
         if self._espnow is not None:
@@ -54,4 +55,5 @@ class Display(object):
                 self._espnow.send(f"{int(BoardsIds.DISPLAY)} {int(self._motor_data.battery_voltage_x10)} {battery_current_x100} {motor_current_x100} {int(self._motor_data.wheel_speed * 10)} {int(brakes_are_active)} {int(vesc_temperature_x10)} {int(motor_temperature_x10)}")
             
             except Exception as e:
-                print(f"ESPNow display send error: {e}")
+                # print(f"ESPNow display send error: {e}")
+                pass
