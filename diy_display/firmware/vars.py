@@ -1,6 +1,6 @@
 import time
 
-class SystemData(object):
+class Vars(object):
 
     def __init__(self):
         self.vesc_fault_code = 0

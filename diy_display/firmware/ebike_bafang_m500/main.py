@@ -6,12 +6,13 @@ import board
 import wifi
 import display as Display
 import ebike_bafang_m500.motor_board_espnow as motor_board_espnow
-import system_data as _SystemData
+import vars as Vars
 import displayio
 from adafruit_display_text import label
 import terminalio
 import thisbutton as tb
 import espnow as _ESPNow
+import microcontroller
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -26,7 +27,7 @@ my_mac_address =          [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb3]
 mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xa7, 0xb2]
 ########################################
 
-system_data = _SystemData.SystemData()
+vars = Vars.Vars()
 
 wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
@@ -34,7 +35,7 @@ wifi.radio.start_ap(ssid="NO_SSID", channel=1)
 wifi.radio.stop_ap()
 
 _espnow = _ESPNow.ESPNow()
-motor_board = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
+motor_board = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
 
 displayObject = Display.Display(
         board.IO3, # CLK / SCK pin
@@ -47,13 +48,11 @@ displayObject = Display.Display(
 display = displayObject.display
 
 # show init screen
-label_x = 10
-label_y = 18
 label_init_screen = label.Label(terminalio.FONT, text='0')
-label_init_screen.anchor_point = (0.0, 0.0)
-label_init_screen.anchored_position = (label_x, label_y)
-label_init_screen.scale = 1
-label_init_screen.text = "Ready to power on"
+label_init_screen.anchor_point = (0.5, 0.5)
+label_init_screen.anchored_position = (128/2, 64/2)
+label_init_screen.scale = 2
+label_init_screen.text = "Ready to POWER ON"
 screen1_group = displayio.Group()
 screen1_group.append(label_init_screen)
 display.root_group = screen1_group
@@ -121,15 +120,20 @@ def turn_off_execute():
   motor_board.send_data()
 
 def turn_off():
-  # new values when turn off the system
-  system_data.motor_enable_state = False
+  global vars
+  global display
+  global buttons
+  
+  # Store assist_level in Non-Volatile Memory
+  microcontroller.nvm[0] = vars.assist_level
 
-  label_x = 10
-  label_y = 18
-  label_1 = label.Label(terminalio.FONT, text="Shutting down")
-  label_1.anchor_point = (0.0, 0.0)
-  label_1.anchored_position = (label_x, label_y)
-  label_1.scale = 1
+  # new values when turn off the system
+  vars.motor_enable_state = False
+
+  label_1 = label.Label(terminalio.FONT, text="Ready to POWER OFF")
+  label_1.anchor_point = (0.5, 0.5)
+  label_1.anchored_position = (128/2, 64/2)
+  label_1.scale = 2
 
   g = displayio.Group()
   g.append(label_1)
@@ -148,57 +152,84 @@ def turn_off():
     turn_off_execute()
     time.sleep(0.05)
 
-  # let's reset the display
-  import supervisor
+  # let's reset the ESP32-C3 / display
   supervisor.reload()
   while True:
     pass
 
 def increase_assist_level():
-  global system_data
+  global vars
   
-  if system_data.assist_level < 20:
-    system_data.assist_level += 1
+  if vars.assist_level < 20:
+    vars.assist_level += 1
 
 def decrease_assist_level():
-  global system_data
+  global vars
   
-  if system_data.assist_level > 0:
-    system_data.assist_level -= 1
+  if vars.assist_level > 0:
+    vars.assist_level -= 1
 
 def button_power_click_start_cb():
-  system_data.buttons_state |= 1
+  vars.buttons_state |= 1
   
   # flip bit state
-  if system_data.buttons_state & 0x0100:
-    system_data.buttons_state &= ~0x0100
+  if vars.buttons_state & 0x0100:
+    vars.buttons_state &= ~0x0100
   else:
-    system_data.buttons_state |= 0x0100
+    vars.buttons_state |= 0x0100
     
 def button_power_click_release_cb():
-  system_data.buttons_state &= ~1
+  vars.buttons_state &= ~1
 
 def button_power_long_click_start_cb():
   # only turn off after initial motor enable
-  if system_data.motor_enable_state and system_data.wheel_speed_x10 < 20:
+  if vars.motor_enable_state and vars.wheel_speed_x10 < 20:
     turn_off()
   else:
-    system_data.buttons_state |= 2
+    vars.buttons_state |= 2
     
   # flip bit state
-  if system_data.buttons_state & 0x0200:
-    system_data.buttons_state &= ~0x0200
+  if vars.buttons_state & 0x0200:
+    vars.buttons_state &= ~0x0200
   else:
-    system_data.buttons_state |= 0x0200
+    vars.buttons_state |= 0x0200
 
 def button_power_long_click_release_cb():
-  system_data.buttons_state &= ~2
+  vars.buttons_state &= ~2
 
 def button_down_click_start_cb():
   decrease_assist_level()
+  
+  # flip bit state
+  if vars.buttons_state & 0x0400:
+    vars.buttons_state &= ~0x0400
+  else:
+    vars.buttons_state |= 0x0400
+
+def button_down_long_click_start_cb():
+  
+  # flip bit state
+  if vars.buttons_state & 0x0800:
+    vars.buttons_state &= ~0x0800
+  else:
+    vars.buttons_state |= 0x0800
 
 def button_up_click_start_cb():
   increase_assist_level()
+  
+  # flip bit state
+  if vars.buttons_state & 0x1000:
+    vars.buttons_state &= ~0x1000
+  else:
+    vars.buttons_state |= 0x1000
+    
+def button_up_long_click_start_cb():
+  
+  # flip bit state
+  if vars.buttons_state & 0x2000:
+    vars.buttons_state &= ~0x2000
+  else:
+    vars.buttons_state |= 0x2000
 
 ### Setup buttons ###
 buttons_pins = [
@@ -217,8 +248,10 @@ buttons_callbacks = {
     'long_click_release': button_power_long_click_release_cb},
   button_DOWN: {
     'click_start': button_down_click_start_cb},
+    'long_click_start': button_down_long_click_start_cb,
   button_UP: {
     'click_start': button_up_click_start_cb},
+    'long_click_start': button_up_long_click_start_cb,
 }
 
 buttons = [0] * nr_buttons
@@ -259,17 +292,17 @@ while True:
       while buttons[button_POWER].buttonActive:
         buttons[button_POWER].tick()
 
-      # motor board will now enable the motor
-      system_data.motor_enable_state = True
+      # Exit this loop, continue
       break
     
     # sleep some time to save energy and avoid ESP32-S2 to overheat
     time.sleep(0.025)
 
-system_data.motor_enable_state = True
+# Enable the motor
+vars.motor_enable_state = True
     
 # reset the buttons_state, as it was changed previously
-system_data.buttons_state = 0
+vars.buttons_state = 0
 
 # show main screen
 text_group = displayio.Group()
@@ -279,27 +312,34 @@ text_group.append(motor_power_area)
 text_group.append(warning_area)
 display.root_group = text_group
 
+# Load assist_level from Non-Volatile Memory
+vars.assist_level = microcontroller.nvm[0]
+if vars.assist_level > 20:
+  vars.assist_level = 20
+if vars.assist_level < 0:
+  vars.assist_level = 0
+
 while True:
     now = time.monotonic()
-    if (now - display_time_previous) > 0.1:
+    if (now - display_time_previous) > 0.5:
         display_time_previous = now
 
         # Assist level
-        if assist_level_previous != system_data.assist_level:
-            assist_level_previous = system_data.assist_level
-            assist_level_area.text = f"{system_data.assist_level}"
+        if assist_level_previous != vars.assist_level:
+            assist_level_previous = vars.assist_level
+            assist_level_area.text = f"{vars.assist_level}"
                         
         # Battery voltage
-        if battery_voltage_previous_x10 != system_data.battery_voltage_x10:
-            battery_voltage_previous_x10 = system_data.battery_voltage_x10
-            battery_voltage = system_data.battery_voltage_x10 / 10.0
+        if battery_voltage_previous_x10 != vars.battery_voltage_x10:
+            battery_voltage_previous_x10 = vars.battery_voltage_x10
+            battery_voltage = vars.battery_voltage_x10 / 10.0
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # Motor power
-        system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-        if motor_power_previous != system_data.motor_power:
-            motor_power_previous = system_data.motor_power
-            motor_power = filter_motor_power(system_data.motor_power)
+        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
+        if motor_power_previous != vars.motor_power:
+            motor_power_previous = vars.motor_power
+            motor_power = filter_motor_power(vars.motor_power)
             motor_power_area.text = f"{motor_power:4}"
 
     # Motor main board
@@ -309,16 +349,16 @@ while True:
         motor_board.send_data()
         motor_board.process_data()
 
-        if brakes_are_active_previous != system_data.brakes_are_active:
-            brakes_are_active_previous = system_data.brakes_are_active
-            if system_data.brakes_are_active:
+        if brakes_are_active_previous != vars.brakes_are_active:
+            brakes_are_active_previous = vars.brakes_are_active
+            if vars.brakes_are_active:
                 warning_area.text = str("brakes")
             else:
                 warning_area.text = str("")
-        elif vesc_fault_code_previous != system_data.vesc_fault_code:
-            vesc_fault_code_previous = system_data.vesc_fault_code
-            if system_data.vesc_fault_code:
-                warning_area.text = str(f"mot e: {system_data.vesc_fault_code}")
+        elif vesc_fault_code_previous != vars.vesc_fault_code:
+            vesc_fault_code_previous = vars.vesc_fault_code
+            if vars.vesc_fault_code:
+                warning_area.text = str(f"mot e: {vars.vesc_fault_code}")
             else:
                 warning_area.text = str("")
 
@@ -329,7 +369,6 @@ while True:
 
         for index in range(nr_buttons):
             buttons[index].tick()
-
 
     # sleep some time to save energy and avoid ESP32-C3 to overheat
     time.sleep(0.01)

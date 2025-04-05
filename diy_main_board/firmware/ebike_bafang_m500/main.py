@@ -217,8 +217,9 @@ def motor_control():
     if motor_current_target < 0.0:
         motor_current_target = 0
 
-    # if brakes are active, reset motor_current_target
-    if vars.brakes_are_active == True:
+    # Should we disable the motor?
+    if vars.brakes_are_active == True or \
+            vars.motors_enable_state == False:
         motor_current_target = 0
 
     # let's update the motor current
