@@ -16,7 +16,7 @@ buzzer.duty_cycle = 0.0
 import wifi
 import display as Display
 import motor_board_espnow
-import system_data as _SystemData
+import vars as Vars
 import displayio
 from adafruit_display_text import label
 import terminalio
@@ -54,7 +54,7 @@ mac_address_rear_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
 mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 ########################################
 
-system_data = _SystemData.SystemData()
+vars = Vars.Vars()
 
 wifi.radio.enabled = True
 wifi.radio.mac_address = bytearray(my_mac_address)
@@ -64,13 +64,13 @@ wifi.radio.stop_ap()
 rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
 _espnow = _ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, system_data) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, system_data)
-front_lights = front_lights_espnow.FrontLights(_espnow, mac_address_front_lights_board, system_data)
-rear_lights = rear_lights_espnow.RearLights(_espnow, mac_address_rear_lights_board, system_data)
+motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
+power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, vars)
+front_lights = front_lights_espnow.FrontLights(_espnow, mac_address_front_lights_board, vars)
+rear_lights = rear_lights_espnow.RearLights(_espnow, mac_address_rear_lights_board, vars)
 
 # this will try send data over ESPNow and if there is an error, will restart
-system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
 # just to check if is possible to send data to motor
 
 displayObject = Display.Display(
@@ -202,13 +202,13 @@ front_light_pin_head_bit = 1
 turn_lights_buzzer_state = False
 
 # keep tail light always on
-system_data.rear_lights_board_pins_state = 0
+vars.rear_lights_board_pins_state = 0
 
 def turn_off_execute():
 
   motor.send_data()    
 
-  system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+  vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
   power_switch.update()
 
   front_lights.update()
@@ -217,10 +217,10 @@ def turn_off_execute():
 def turn_off():
 
   # new values when turn off the system
-  system_data.motor_enable_state = False
-  system_data.turn_off_relay = True
-  system_data.front_lights_board_pins_state = 0
-  system_data.rear_lights_board_pins_state = 0
+  vars.motor_enable_state = False
+  vars.turn_off_relay = True
+  vars.front_lights_board_pins_state = 0
+  vars.rear_lights_board_pins_state = 0
 
   label_x = 10
   label_y = 18
@@ -261,53 +261,53 @@ def decrease_assist_level():
     assist_level -= 1
 
 def button_power_click_start_cb():
-  system_data.buttons_state |= 1
+  vars.buttons_state |= 1
   
   # flip bit state
-  if system_data.buttons_state & 0x0100:
-    system_data.buttons_state &= ~0x0100
+  if vars.buttons_state & 0x0100:
+    vars.buttons_state &= ~0x0100
   else:
-    system_data.buttons_state |= 0x0100
+    vars.buttons_state |= 0x0100
     
 #  if system_data.motor_enable_state:
 #    system_data.lights_state = not system_data.lights_state
     
 def button_power_click_release_cb():
-  system_data.buttons_state &= ~1
+  vars.buttons_state &= ~1
 
 def button_power_long_click_start_cb():
   # only turn off after initial motor enable
-  if system_data.motor_enable_state and system_data.wheel_speed_x10 < 20:
+  if vars.motor_enable_state and vars.wheel_speed_x10 < 20:
     turn_off()
   else:
-    system_data.buttons_state |= 2
+    vars.buttons_state |= 2
     
   # flip bit state
-  if system_data.buttons_state & 0x0200:
-    system_data.buttons_state &= ~0x0200
+  if vars.buttons_state & 0x0200:
+    vars.buttons_state &= ~0x0200
   else:
-    system_data.buttons_state |= 0x0200
+    vars.buttons_state |= 0x0200
 
 def button_power_long_click_release_cb():
-  system_data.buttons_state &= ~2
+  vars.buttons_state &= ~2
 
 def button_left_click_start_cb():
-  system_data.rear_lights_board_pins_state |= rear_light_pin_turn_left_bit
+  vars.rear_lights_board_pins_state |= rear_light_pin_turn_left_bit
 
 def button_left_click_release_cb():
-  system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_left_bit
+  vars.rear_lights_board_pins_state &= ~rear_light_pin_turn_left_bit
 
 def button_right_click_start_cb():
-  system_data.rear_lights_board_pins_state |= rear_light_pin_turn_right_bit
+  vars.rear_lights_board_pins_state |= rear_light_pin_turn_right_bit
 
 def button_right_click_release_cb():
-  system_data.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
+  vars.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
 
 def button_lights_click_start_cb():
-  system_data.lights_state = True
+  vars.lights_state = True
 
 def button_lights_click_release_cb():
-  system_data.lights_state = False
+  vars.lights_state = False
 
 ### Setup buttons ###
 buttons_pins = [
@@ -377,16 +377,16 @@ while True:
         buttons[button_POWER].tick()
 
       # motor board will now enable the motor
-      system_data.motor_enable_state = True
+      vars.motor_enable_state = True
       break
     
     # sleep some time to save energy and avoid ESP32-S2 to overheat
     time.sleep(0.025)
 
-system_data.motor_enable_state = True
+vars.motor_enable_state = True
     
 # reset the buttons_state, as it was changed previously
-system_data.buttons_state = 0
+vars.buttons_state = 0
 
 # show main screen
 text_group = displayio.Group()
@@ -404,16 +404,16 @@ while True:
     if (now - display_time_previous) > 0.1:
         display_time_previous = now
 
-        if battery_voltage_previous_x10 != system_data.battery_voltage_x10:
-            battery_voltage_previous_x10 = system_data.battery_voltage_x10
-            battery_voltage = system_data.battery_voltage_x10 / 10.0
+        if battery_voltage_previous_x10 != vars.battery_voltage_x10:
+            battery_voltage_previous_x10 = vars.battery_voltage_x10
+            battery_voltage = vars.battery_voltage_x10 / 10.0
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # calculate the motor power
-        system_data.motor_power = int((system_data.battery_voltage_x10 * system_data.battery_current_x100) / 1000.0)
-        if motor_power_previous != system_data.motor_power:
-            motor_power_previous = system_data.motor_power
-            motor_power = filter_motor_power(system_data.motor_power)
+        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
+        if motor_power_previous != vars.motor_power:
+            motor_power_previous = vars.motor_power
+            motor_power = filter_motor_power(vars.motor_power)
             label_1.text = f"{motor_power:4}"
 
         # if motor_current_previous_x100 != system_data.motor_current_x100:
@@ -422,13 +422,13 @@ while True:
         #     motor_current = int(system_data.motor_current_x100 / 100)
         #     label_1.text = str(motor_current)
         
-        if motor_temperature_x10_previous != system_data.motor_temperature_x10:
-            motor_temperature_x10_previous = system_data.motor_temperature_x10  
-            label_2.text = f"{int(system_data.motor_temperature_x10 / 10.0): 2}"
+        if motor_temperature_x10_previous != vars.motor_temperature_x10:
+            motor_temperature_x10_previous = vars.motor_temperature_x10  
+            label_2.text = f"{int(vars.motor_temperature_x10 / 10.0): 2}"
 
-        if wheel_speed_x10_previous != system_data.wheel_speed_x10:
-            wheel_speed_x10_previous = system_data.wheel_speed_x10  
-            label_3.text = f"{int(system_data.wheel_speed_x10 / 10.0)}"
+        if wheel_speed_x10_previous != vars.wheel_speed_x10:
+            wheel_speed_x10_previous = vars.wheel_speed_x10  
+            label_3.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
 
     now = time.monotonic()
     if (now - ebike_rx_tx_data_time_previous) > 0.05:
@@ -443,16 +443,16 @@ while True:
         #     system_data.motor_current_x100 = 0
         #     system_data.battery_current_x100 = 0
 
-        if brakes_are_active_previous != system_data.brakes_are_active:
-            brakes_are_active_previous = system_data.brakes_are_active
-            if system_data.brakes_are_active:
+        if brakes_are_active_previous != vars.brakes_are_active:
+            brakes_are_active_previous = vars.brakes_are_active
+            if vars.brakes_are_active:
                 warning_area.text = str("brakes")
             else:
                 warning_area.text = str("")
-        elif vesc_fault_code_previous != system_data.vesc_fault_code:
-            vesc_fault_code_previous = system_data.vesc_fault_code
-            if system_data.vesc_fault_code:
-                warning_area.text = str(f"mot e: {system_data.vesc_fault_code}")
+        elif vesc_fault_code_previous != vars.vesc_fault_code:
+            vesc_fault_code_previous = vars.vesc_fault_code
+            if vars.vesc_fault_code:
+                warning_area.text = str(f"mot e: {vars.vesc_fault_code}")
             else:
                 warning_area.text = str("")
 
@@ -462,26 +462,26 @@ while True:
 
         # if we are braking, enable brake light
         # braking current < 15A
-        if system_data.brakes_are_active or system_data.motor_current_x100 < -1500:
-            system_data.rear_lights_board_pins_state |= rear_light_pin_stop_bit
+        if vars.brakes_are_active or vars.motor_current_x100 < -1500:
+            vars.rear_lights_board_pins_state |= rear_light_pin_stop_bit
         else:
-            system_data.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
+            vars.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
 
         # if lights are enable, enable the tail light 
-        if system_data.lights_state:
-            system_data.front_lights_board_pins_state |= front_light_pin_head_bit
-            system_data.rear_lights_board_pins_state |= rear_light_pin_tail_bit
+        if vars.lights_state:
+            vars.front_lights_board_pins_state |= front_light_pin_head_bit
+            vars.rear_lights_board_pins_state |= rear_light_pin_tail_bit
         else:
-            system_data.front_lights_board_pins_state &= ~front_light_pin_head_bit
-            system_data.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
+            vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
+            vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
 
         front_lights.update()
         rear_lights.update()
 
 
     now = time.monotonic()  
-    if system_data.rear_lights_board_pins_state & rear_light_pin_turn_left_bit or \
-        system_data.rear_lights_board_pins_state & rear_light_pin_turn_right_bit:
+    if vars.rear_lights_board_pins_state & rear_light_pin_turn_left_bit or \
+        vars.rear_lights_board_pins_state & rear_light_pin_turn_right_bit:
           
           if (now - turn_lights_buzzer_time_previous) > 0.5:
               turn_lights_buzzer_time_previous = now
@@ -501,7 +501,7 @@ while True:
     if (now - power_switch_send_data_time_previous) > 0.5:
         power_switch_send_data_time_previous = now
 
-        system_data.display_communication_counter = (system_data.display_communication_counter + 1) % 1024
+        vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
         power_switch.update()
 
     now = time.monotonic()
