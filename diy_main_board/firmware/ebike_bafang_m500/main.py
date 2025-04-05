@@ -6,6 +6,8 @@ import asyncio
 import Brake
 import ebike_bafang_m500.torque_sensor as torque_sensor
 import ebike_bafang_m500.display_espnow as DisplayESPnow
+from microcontroller import watchdog
+from watchdog import WatchDogMode
 import wifi
 import gc
 from vars import Vars, Cfg, MotorCfg
@@ -227,6 +229,9 @@ def motor_control():
     
     # keep track of motor_current_target
     motor_current_target_previous = motor_current_target
+    
+    # We just updated the motor target, so let's feed the watchdog to avoid a system reset
+    watchdog.feed() # avoid system reset because watchdog timeout
 
 
 async def task_read_sensors_control_motor():
@@ -245,18 +250,21 @@ async def task_read_sensors_control_motor():
 
 async def main():
 
-    print("starting")
+    # setup watchdog, to reset the system if watchdog is not feed in time
+    # 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
+    watchdog.timeout = 1
+    watchdog.mode = WatchDogMode.RESET
 
     motors_refresh_data_task = asyncio.create_task(task_motors_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
     display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
 
-    # Start the tasks
+    print("Starting EBike/EScooter")
+    print()
+
     await asyncio.gather(
         motors_refresh_data_task,
         read_sensors_control_motor_task,
         display_refresh_data_task)
-  
-    print("done main()")
 
 asyncio.run(main())
