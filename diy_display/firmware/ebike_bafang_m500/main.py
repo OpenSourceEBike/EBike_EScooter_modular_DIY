@@ -48,11 +48,11 @@ displayObject = Display.Display(
 display = displayObject.display
 
 # show init screen
-label_init_screen = label.Label(terminalio.FONT, text='0')
+label_init_screen = label.Label(terminalio.FONT, text='')
 label_init_screen.anchor_point = (0.5, 0.5)
 label_init_screen.anchored_position = (128/2, 64/2)
 label_init_screen.scale = 2
-label_init_screen.text = "Ready to POWER ON"
+label_init_screen.text = "Ready to\nPOWER ON"
 screen1_group = displayio.Group()
 screen1_group.append(label_init_screen)
 display.root_group = screen1_group
@@ -116,6 +116,8 @@ motor_power_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
+refresh_display = False
+
 def turn_off_execute():
   motor_board.send_data()
 
@@ -130,7 +132,7 @@ def turn_off():
   # new values when turn off the system
   vars.motor_enable_state = False
 
-  label_1 = label.Label(terminalio.FONT, text="Ready to POWER OFF")
+  label_1 = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
   label_1.anchor_point = (0.5, 0.5)
   label_1.anchored_position = (128/2, 64/2)
   label_1.scale = 2
@@ -159,15 +161,21 @@ def turn_off():
 
 def increase_assist_level():
   global vars
+  global refresh_display
   
   if vars.assist_level < 20:
     vars.assist_level += 1
+    
+  refresh_display = True
 
 def decrease_assist_level():
   global vars
+  global refresh_display
   
   if vars.assist_level > 0:
     vars.assist_level -= 1
+    
+  refresh_display = True
 
 def button_power_click_start_cb():
   vars.buttons_state |= 1
@@ -265,18 +273,6 @@ for index in range(nr_buttons):
   if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
   if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
 
-# show init screen
-label_x = 10
-label_y = 18
-label_init_screen = label.Label(terminalio.FONT, text=TEXT)
-label_init_screen.anchor_point = (0.0, 0.0)
-label_init_screen.anchored_position = (label_x, label_y)
-label_init_screen.scale = 1
-label_init_screen.text = "Ready to power on"
-screen1_group = displayio.Group()
-screen1_group.append(label_init_screen)
-display.root_group = screen1_group
-
 # let's wait for a first click on power button
 time_previous = time.monotonic()
 while True:
@@ -321,7 +317,10 @@ if vars.assist_level < 0:
 
 while True:
     now = time.monotonic()
-    if (now - display_time_previous) > 0.5:
+    if (now - display_time_previous) > 0.5 or \
+        refresh_display:
+          
+        refresh_display = False
         display_time_previous = now
 
         # Assist level
@@ -344,7 +343,10 @@ while True:
 
     # Motor main board
     now = time.monotonic()
-    if (now - motor_board_data_time_previous) > 0.05:
+    if (now - motor_board_data_time_previous) > 0.05 or \
+        refresh_display:
+          
+        refresh_display = False
         motor_board_data_time_previous = now
         motor_board.send_data()
         motor_board.process_data()
