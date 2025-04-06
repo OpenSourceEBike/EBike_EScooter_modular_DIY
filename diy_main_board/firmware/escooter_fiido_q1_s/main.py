@@ -101,7 +101,7 @@ async def task_display_refresh_data():
     
     while True:
         # send data to the display
-        display.update()
+        display.send_data()
         
         # received and process data from the display
         display.process_data()
