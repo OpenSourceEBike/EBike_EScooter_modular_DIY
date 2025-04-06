@@ -209,10 +209,10 @@ def turn_off_execute():
   motor.send_data()    
 
   vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-  power_switch.update()
+  power_switch.send_data()
 
-  front_lights.update()
-  rear_lights.update()
+  front_lights.send_data()
+  rear_lights.send_data()
 
 def turn_off():
 
@@ -237,14 +237,14 @@ def turn_off():
   while buttons[button_POWER].isHeld:
     buttons[button_POWER].tick()
     turn_off_execute()
-    time.sleep(0.05)
+    time.sleep(0.15)
 
   # keep sending the data to the various boards until the system turns off (battery power off),
   # or reset the display if button_POWER is clicked
   while not buttons[button_POWER].buttonActive:
     buttons[button_POWER].tick()
     turn_off_execute()
-    time.sleep(0.05)
+    time.sleep(0.15)
 
   # let's reset the display
   import supervisor
@@ -431,7 +431,7 @@ while True:
             label_3.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
 
     now = time.monotonic()
-    if (now - ebike_rx_tx_data_time_previous) > 0.05:
+    if (now - ebike_rx_tx_data_time_previous) > 0.15:
         ebike_rx_tx_data_time_previous = now
         motor.send_data()
         motor.process_data()
@@ -475,8 +475,8 @@ while True:
             vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
             vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
 
-        front_lights.update()
-        rear_lights.update()
+        front_lights.send_data()
+        rear_lights.send_data()
 
 
     now = time.monotonic()  
@@ -502,7 +502,7 @@ while True:
         power_switch_send_data_time_previous = now
 
         vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-        power_switch.update()
+        power_switch.send_data()
 
     now = time.monotonic()
     if (now - buttons_time_previous) > 0.05:

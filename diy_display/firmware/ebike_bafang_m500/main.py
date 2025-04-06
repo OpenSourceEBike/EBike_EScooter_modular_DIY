@@ -147,14 +147,14 @@ def turn_off():
   while buttons[button_POWER].isHeld:
     buttons[button_POWER].tick()
     turn_off_execute()
-    time.sleep(0.05)
+    time.sleep(0.15)
 
   # keep sending the data to the various boards until the system turns off (battery power off),
   # or reset the display if button_POWER is clicked
   while not buttons[button_POWER].buttonActive:
     buttons[button_POWER].tick()
     turn_off_execute()
-    time.sleep(0.05)
+    time.sleep(0.15)
 
   # let's reset the ESP32-C3 / display
   supervisor.reload()
@@ -350,7 +350,7 @@ while True:
 
     # Motor main board
     now = time.monotonic()
-    if (now - motor_board_data_time_previous) > 0.05 or \
+    if (now - motor_board_data_time_previous) > 0.15 or \
         refresh_display:
           
         refresh_display = False

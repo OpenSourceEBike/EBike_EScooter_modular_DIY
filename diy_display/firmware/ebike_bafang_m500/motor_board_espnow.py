@@ -7,6 +7,7 @@ class MotorBoard(object):
     def __init__(self, _espnow, mac_address, system_data):
         self._espnow = _espnow
         self._peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
+        self._espnow.peers.append(self._peer)
         self._system_data = system_data
         
     def process_data(self):
@@ -15,11 +16,11 @@ class MotorBoard(object):
             
             # read a package and discard others available
             while self._espnow is not None:
-                rx_data_string = self._espnow.read()
-                if rx_data_string is None:
+                rx_data = self._espnow.read()
+                if rx_data is None:
                     break
                 else:
-                    data = rx_data_string
+                    data = rx_data
             
             # process the package, if available
             if data is not None:
@@ -36,19 +37,19 @@ class MotorBoard(object):
                     self._system_data.vesc_temperature_x10 = data_list[6]
                     self._system_data.motor_temperature_x10 = data_list[7]
                     
-        except:
-            pass
+        except Exception as e:
+            print(f"MotorBoard rx error: {e}")
 
     def send_data(self):
         if self._espnow is not None:
             try:
-                # add peer before sending the message
-                self._espnow.peers.append(self._peer)
-
                 motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-                self._espnow.send(f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.buttons_state} {self._system_data.assist_level}")
-
-                # now remove the peer
-                self._espnow.peers.remove(self._peer)
-            except:
-                pass
+                self._espnow.send(
+                    f"{int(BoardsIds.MAIN_BOARD)} \
+                    {motor_enable_state} \
+                    {self._system_data.buttons_state} \
+                    {self._system_data.assist_level}",
+                    self._peer)
+            
+            except Exception as e:
+                print(f"MotorBoard tx error: {e}")
