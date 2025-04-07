@@ -13,7 +13,7 @@ class Display(object):
         self._vars = vars
         self._motor_data = motor_data
 
-    def process_data(self):
+    def receive_process_data(self):
         try:
             data = None
             

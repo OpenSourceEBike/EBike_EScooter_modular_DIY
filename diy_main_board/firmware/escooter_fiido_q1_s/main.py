@@ -83,7 +83,6 @@ rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_m
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
 
 async def task_motors_refresh_data():
-    global gc
     global front_motor
     global rear_motor
     
@@ -95,20 +94,27 @@ async def task_motors_refresh_data():
         gc.collect()
         await asyncio.sleep(0.1)
 
-async def task_display_refresh_data():
-    global gc
+async def task_display_send_data():
     global display
     
     while True:
         # send data to the display
         display.send_data()
-        
+
+        gc.collect()
+        await asyncio.sleep(0.15)
+
+
+async def task_display_receive_process_data():
+    global display
+    
+    while True:
         # received and process data from the display
-        display.process_data()
+        display.receive_process_data()
 
         gc.collect()
         await asyncio.sleep(0.1)
-
+        
 
 def cruise_control(vars, wheel_speed, throttle_value):
     button_long_press_state = vars.buttons_state & 0x0200
@@ -147,7 +153,6 @@ def cruise_control(vars, wheel_speed, throttle_value):
     return throttle_value
 
 async def task_control_motor():
-    global gc
     global vars
     global cfg
     global button_press_state_previous
@@ -239,7 +244,6 @@ async def task_control_motor():
         await asyncio.sleep(0.02)
         
 async def task_control_motor_limit_current():
-    global gc
     global front_motor
     global rear_motor
     
@@ -311,7 +315,6 @@ async def task_control_motor_limit_current():
         
 wheel_speed_previous_motor_speed_erpm = 0
 async def task_various():
-    global gc
     global rear_motor
     global wheel_speed_previous_motor_speed_erpm
     
@@ -342,18 +345,20 @@ async def main():
     watchdog.mode = WatchDogMode.RESET
 
     motors_refresh_data_task = asyncio.create_task(task_motors_refresh_data())
-    display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
     control_motor_limit_current_task = asyncio.create_task(task_control_motor_limit_current())
-    read_sensors_control_motor_task = asyncio.create_task(task_control_motor())
+    control_motor_task = asyncio.create_task(task_control_motor())
+    display_send_data_task = asyncio.create_task(task_display_send_data())
+    display_receive_process_data_task = asyncio.create_task(task_display_receive_process_data())
     various_task = asyncio.create_task(task_various())
 
     print("Starting EBike/EScooter")
     print()
 
     await asyncio.gather(motors_refresh_data_task,
-                        display_refresh_data_task,
+                        display_send_data_task,
+                        display_receive_process_data_task,
                         control_motor_limit_current_task,
-                        read_sensors_control_motor_task,
+                        control_motor_task,
                         various_task)
 
 asyncio.run(main())

@@ -130,8 +130,8 @@ def utils_step_towards(current_value, target_value, step):
 
     return value
 
-async def task_display_refresh_data():
-    global gc
+
+async def task_display_send_data():
     global display
     
     while True:
@@ -140,15 +140,26 @@ async def task_display_refresh_data():
         
         # send data to the display
         display.send_data()
-        
-        # received and process data from the display
-        display.process_data()
 
         gc.collect()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.15)
 
+
+async def task_display_receive_process_data():
+    global display
+    
+    while True:
+        # are breaks active and we should disable the motor?
+        check_brakes()
+        
+        # received and process data from the display
+        display.receive_process_data()
+
+        gc.collect()
+        await asyncio.sleep(0.15)
+        
+        
 async def task_motors_refresh_data():
-    global gc
     global motor
     
     while True:
@@ -235,7 +246,6 @@ def motor_control():
 
 
 async def task_read_sensors_control_motor():
-    global gc
     
     while True:
         # are breaks active and we should disable the motor?
@@ -257,7 +267,8 @@ async def main():
 
     motors_refresh_data_task = asyncio.create_task(task_motors_refresh_data())
     read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
-    display_refresh_data_task = asyncio.create_task(task_display_refresh_data())
+    display_send_data_task = asyncio.create_task(task_display_send_data())
+    display_receive_process_data_task = asyncio.create_task(task_display_receive_process_data())
 
     print("Starting EBike/EScooter")
     print()
@@ -265,6 +276,7 @@ async def main():
     await asyncio.gather(
         motors_refresh_data_task,
         read_sensors_control_motor_task,
-        display_refresh_data_task)
+        display_send_data_task,
+        display_receive_process_data_task)
 
 asyncio.run(main())

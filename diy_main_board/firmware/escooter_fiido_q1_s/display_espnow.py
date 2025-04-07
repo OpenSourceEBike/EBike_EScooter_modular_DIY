@@ -14,7 +14,7 @@ class Display(object):
         self._front_motor_data = front_motor_data
         self._rear_motor_data = rear_motor_data
 
-    def process_data(self):
+    def receive_process_data(self):
         try:
             data = None
             
