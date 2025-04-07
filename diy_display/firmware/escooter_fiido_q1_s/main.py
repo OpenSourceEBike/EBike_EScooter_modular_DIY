@@ -2,12 +2,12 @@
 # Make a beep at boot
 import time
 import board
-from buzzer import Buzzer
+import escooter_fiido_q1_s.buzzer as Buzzer
 
 buzzer_pins = [
   board.IO20,
 ]
-buzzer = Buzzer(buzzer_pins)
+buzzer = Buzzer.Buzzer(buzzer_pins)
 buzzer.duty_cycle = 0.03
 time.sleep(0.5)  
 buzzer.duty_cycle = 0.0
@@ -15,17 +15,17 @@ buzzer.duty_cycle = 0.0
 
 import wifi
 import display as Display
-import motor_board_espnow
+import escooter_fiido_q1_s.motor_board_espnow as motor_board_espnow
 import vars as Vars
 import displayio
 from adafruit_display_text import label
 import terminalio
 import thisbutton as tb
-import power_switch_espnow
-import rear_lights_espnow
-import front_lights_espnow
+import escooter_fiido_q1_s.power_switch_espnow as power_switch_espnow
+import escooter_fiido_q1_s.rear_lights_espnow as rear_lights_espnow
+import escooter_fiido_q1_s.front_lights_espnow as front_lights_espnow
 import espnow as _ESPNow
-import rtc_date_time
+import escooter_fiido_q1_s.rtc_date_time as rtc_date_time
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -84,18 +84,16 @@ displayObject = Display.Display(
 display = displayObject.display
 
 # show init screen
-label_x = 10
-label_y = 18
-label_init_screen = label.Label(terminalio.FONT, text='0')
-label_init_screen.anchor_point = (0.0, 0.0)
-label_init_screen.anchored_position = (label_x, label_y)
-label_init_screen.scale = 1
-label_init_screen.text = "Ready to power on"
+label_init_screen = label.Label(terminalio.FONT, text='')
+label_init_screen.anchor_point = (0.5, 0.5)
+label_init_screen.anchored_position = (128/2, 64/2)
+label_init_screen.scale = 2
+label_init_screen.text = "Ready to\nPOWER ON"
 screen1_group = displayio.Group()
 screen1_group.append(label_init_screen)
 display.root_group = screen1_group
 
-TEXT = "0"
+TEXT = ''
 
 def filter_motor_power(motor_power):
   if motor_power < 0:
@@ -222,12 +220,10 @@ def turn_off():
   vars.front_lights_board_pins_state = 0
   vars.rear_lights_board_pins_state = 0
 
-  label_x = 10
-  label_y = 18
-  label_1 = label.Label(terminalio.FONT, text="Shutting down")
-  label_1.anchor_point = (0.0, 0.0)
-  label_1.anchored_position = (label_x, label_y)
-  label_1.scale = 1
+  label_1 = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
+  label_1.anchor_point = (0.5, 0.5)
+  label_1.anchored_position = (128/2, 64/2)
+  label_1.scale = 2
 
   g = displayio.Group()
   g.append(label_1)
@@ -247,7 +243,6 @@ def turn_off():
     time.sleep(0.15)
 
   # let's reset the display
-  import supervisor
   supervisor.reload()
   while True:
     pass
@@ -349,18 +344,6 @@ for index in range(nr_buttons):
   if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
   if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
 
-# show init screen
-label_x = 10
-label_y = 18
-label_init_screen = label.Label(terminalio.FONT, text=TEXT)
-label_init_screen.anchor_point = (0.0, 0.0)
-label_init_screen.anchored_position = (label_x, label_y)
-label_init_screen.scale = 1
-label_init_screen.text = "Ready to power on"
-screen1_group = displayio.Group()
-screen1_group.append(label_init_screen)
-display.root_group = screen1_group
-
 # let's wait for a first click on power button
 time_previous = time.monotonic()
 while True:
@@ -393,7 +376,7 @@ text_group = displayio.Group()
 # text_group.append(assist_level_area)
 text_group.append(battery_voltage_area)
 text_group.append(label_1)
-text_group.append(label_2)
+# text_group.append(label_2)
 text_group.append(label_3)
 text_group.append(label_4)
 text_group.append(warning_area)
@@ -422,9 +405,9 @@ while True:
         #     motor_current = int(system_data.motor_current_x100 / 100)
         #     label_1.text = str(motor_current)
         
-        if motor_temperature_x10_previous != vars.motor_temperature_x10:
-            motor_temperature_x10_previous = vars.motor_temperature_x10  
-            label_2.text = f"{int(vars.motor_temperature_x10 / 10.0): 2}"
+        # if motor_temperature_x10_previous != vars.motor_temperature_x10:
+        #     motor_temperature_x10_previous = vars.motor_temperature_x10  
+        #     label_2.text = f"{int(vars.motor_temperature_x10 / 10.0): 2}"
 
         if wheel_speed_x10_previous != vars.wheel_speed_x10:
             wheel_speed_x10_previous = vars.wheel_speed_x10  
