@@ -27,6 +27,8 @@ buzzer.duty_cycle = 0.0
 #########################################################
 
 import wifi
+import vectorio
+from adafruit_display_shapes.arc import Arc
 import display as Display
 import escooter_fiido_q1_s.motor_board_espnow as motor_board_espnow
 import vars as Vars
@@ -39,9 +41,10 @@ import escooter_fiido_q1_s.rear_lights_espnow as rear_lights_espnow
 import escooter_fiido_q1_s.front_lights_espnow as front_lights_espnow
 import espnow as _ESPNow
 import escooter_fiido_q1_s.rtc_date_time as rtc_date_time
-import vectorio
 from adafruit_bitmap_font import bitmap_font
 from adafruit_display_shapes.line import Line
+import gc
+from utils import map_value
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -154,44 +157,46 @@ def filter_motor_power(motor_power):
   return motor_power
 
 # battery voltage
-label_battery_voltage = label.Label(terminalio.FONT, text='')
-label_battery_voltage.anchor_point = (1.0, 1.0)
-label_battery_voltage.anchored_position = (30, 64)
+battery_voltage_area = label.Label(terminalio.FONT, text='')
+battery_voltage_area.anchor_point = (1.0, 1.0)
+battery_voltage_area.anchored_position = (30, 64)
 
 # wheel speed
 label_speed = label.Label(FreeSansBold_50, text='')
 label_speed.anchor_point = (1.0, 0.0)
-label_speed.anchored_position = (128, 0)
+label_speed.anchored_position = (129, 0)
 
 # time
 label_time = label.Label(FreeSans_20, text='')
 label_time.anchor_point = (1.0, 1.0)
-label_time.anchored_position = (128, 63)
+label_time.anchored_position = (126, 63)
 
 # warning area
-label_warning_area = label.Label(terminalio.FONT, text=TEXT)
-label_warning_area.anchor_point = (0.0, 1.0)
-label_warning_area.anchored_position = (0, 64)
+label_warning_area = label.Label(terminalio.FONT, text='')
+label_warning_area.anchor_point = (0.0, 0.0)
+label_warning_area.anchored_position = (2, 48)
+label_warning_area.scale = 1
 
 palette_white = displayio.Palette(1)
 palette_white[0] = 0x000000  # background
 
 palette_black = displayio.Palette(1)
-palette_black[0] = 0xFFFFFF  # fill bar
+palette_black[0] = 0xFFFFFF  # fill
 
-# Background bar (constant size)
-motor_power_width = 57
-motor_power_height = 32
+motor_power_width = 28
+motor_power_height = 16
 motor_power_x = 2
 motor_power_y = 2
 
-motor_power_bg = vectorio.Rectangle(
-  pixel_shader=palette_white,
-  width=motor_power_width,
-  height=motor_power_height,
-  x=motor_power_x,
-  y=motor_power_y
+motor_power_fill_group = displayio.Group()
+motor_power_fill_rectangle = vectorio.Rectangle(
+    pixel_shader=palette_black,
+    width=motor_power_width,
+    height=motor_power_height,
+    x=motor_power_x + motor_power_width + 3,
+    y=motor_power_y
 )
+motor_power_fill_group.append(motor_power_fill_rectangle)
 
 # Foreground bar (fill) — will be replaced on update
 motor_power_fill = vectorio.Rectangle(
@@ -202,36 +207,68 @@ motor_power_fill = vectorio.Rectangle(
   y=motor_power_y
 )
 
-def draw_motor_power_scale():
-  global main_display_group
-  
-  s_x = 0 # start_x
-  s_y = 0 # start_y
-  h = 35 # height
-  w = 60 # width
-  w_2 = int(w/2) # width
-  bar_width = 4
+motor_power_fill_arc = Arc(
+    x=33,
+    y=33,
+    radius=32,
+    arc_width=17,
+    
+    angle=90,
+    direction=180+45,
+    segments=8,
+    outline=0x000000,
+    fill=0xFFFFFF
+)
 
-  l1 = Line(s_x, s_y+h, s_x, s_y,                          color=palette_black[0])
-  l2 = Line(s_x, s_y+h, w_2, s_y+h,                        color=palette_black[0])
-  l3 = Line(w_2, s_y+h, w_2, s_y+h-bar_width,              color=palette_black[0])
-  l4 = Line(w_2, s_y+h, w, s_y+h,                          color=palette_black[0])
-  l5 = Line(w, s_y+h, w, s_y+h-bar_width,                  color=palette_black[0])
+def draw_motor_power_scale():
+  # global main_display_group
+  pass
+    
+  # arc_1 = Arc(
+  #   x=33,
+  #   y=33,
+  #   radius=34,
+  #   arc_width=2,
+    
+  #   angle=-90,
+  #   direction=90+45,
+  #   segments=10,
+  #   outline=0x000000,
+  #   fill=0xFFFFFF,
+  # )
+   
+  # arc_2 = Arc(
+  #   x=33,
+  #   y=33,
+  #   radius=16,
+  #   arc_width=2,
+    
+  #   angle=-90,
+  #   direction=90+45,
+  #   segments=10,
+  #   outline=0x000000,
+  #   fill=0xFFFFFF,
+  # )
+    
+  # s_x = 0 # start_x
+  # s_y = 0 # start_y
+  # h = 35 # height
+  # w = 62 # width
+  # w_2 = int(w/2) # width
+  # bar_width = 4
+
   
-  l6 = Line(s_x, s_y, w_2, s_y,                            color=palette_black[0])
-  l7 = Line(w_2, s_y, w_2, s_y+bar_width,                  color=palette_black[0])
-  l8 = Line(w_2, s_y, w, s_y,                              color=palette_black[0])
-  l9 = Line(w, s_y, w, s_y+bar_width,                      color=palette_black[0])
+  # l6 = Line(s_x, s_y, w_2, s_y,                            color=palette_black[0])
+  # l7 = Line(w_2, s_y, w_2, s_y+bar_width,                  color=palette_black[0])
+  # l8 = Line(w_2, s_y, w, s_y,                              color=palette_black[0])
+  # l9 = Line(w, s_y, w, s_y+bar_width,                      color=palette_black[0])
   
-  main_display_group.append(l1)
-  main_display_group.append(l2)
-  main_display_group.append(l3)
-  main_display_group.append(l4)
-  main_display_group.append(l5)
-  main_display_group.append(l6)
-  main_display_group.append(l7)
-  main_display_group.append(l8)
-  main_display_group.append(l9)
+  # main_display_group.append(arc_1)
+  # main_display_group.append(arc_2)
+  # main_display_group.append(l6)
+  # main_display_group.append(l7)
+  # main_display_group.append(l8)
+  # main_display_group.append(l9)
 
 assist_level = 0
 assist_level_state = 0
@@ -288,13 +325,13 @@ def turn_off():
   vars.front_lights_board_pins_state = 0
   vars.rear_lights_board_pins_state = 0
 
-  label_1 = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
-  label_1.anchor_point = (0.5, 0.5)
-  label_1.anchored_position = (128/2, 64/2)
-  label_1.scale = 2
+  label_speed = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
+  label_speed.anchor_point = (0.5, 0.5)
+  label_speed.anchored_position = (128/2, 64/2)
+  label_speed.scale = 2
 
   g = displayio.Group()
-  g.append(label_1)
+  g.append(label_speed)
   display.root_group = g
   
   # wait for button long press release
@@ -452,41 +489,51 @@ vars.buttons_state = 0
 
 # show main screen
 main_display_group = displayio.Group()
-main_display_group.append(label_battery_voltage)
+main_display_group.append(battery_voltage_area)
 main_display_group.append(label_speed)
 main_display_group.append(label_time)
 main_display_group.append(label_warning_area)
-main_display_group.append(motor_power_bg)
-main_display_group.append(motor_power_fill)
+# main_display_group.append(motor_power_fill_arc)
+# main_display_group.append(motor_power_fill_rectangle)
 draw_motor_power_scale()
 display.root_group = main_display_group
 
+angle_previous = 0
 def draw_motor_power(motor_power):
-  global motor_power_fill
-  global main_display_group
+    global motor_power_fill_group
+    global motor_power_fill_rectangle
+    global motor_power_fill_arc
+    global main_display_group
+    global angle_previous
 
-  motor_power = max(0, min(motor_power, 100))
-  width_motor_power = max(1, int(motor_power_width * (motor_power / 100)))
+    # Limit input value
+    motor_power = max(0, min(motor_power, 100))
+    
+    # Arc value
+    angle = map_value(motor_power, 0, 50, 0, 90)
+    if angle != angle_previous:
+        angle_previous = angle
+        
+        if motor_power_fill_arc not in main_display_group:
+            main_display_group.append(motor_power_fill_arc)
+        
+        motor_power_fill_arc.angle = -angle
+    
+    # Only update the rectangle width if motor power is above 50
+    if motor_power > 50:
+        width_power = int(map_value(motor_power, 50, 100, 0, motor_power_width))
+        
+        # Update the rectangle's width only if it changes
+        if motor_power_fill_rectangle.width != width_power:
+            # Update the rectangle width instead of removing and re-adding it
+            motor_power_fill_rectangle.width = width_power
 
-  # Try remove old bar
-  try:
-    main_display_group.remove(motor_power_fill)
-  except ValueError:
-    pass
-  
-  # Create new bar with updated width
-  if motor_power > 0:
-    motor_power_fill = vectorio.Rectangle(
-      pixel_shader=palette_black,
-      width=width_motor_power,
-      height=motor_power_height,
-      x=motor_power_x,
-      y=motor_power_y
-    )
+        if motor_power_fill_rectangle not in main_display_group:
+          main_display_group.append(motor_power_fill_rectangle)
 
-    # Add updated bar back in
-    main_display_group.append(motor_power_fill)
-
+    # If motor power is below 50, remove the rectangle if it's in the group
+    elif motor_power_fill_rectangle in main_display_group:
+        main_display_group.remove(motor_power_fill_rectangle)
 
 while True:
     now = time.monotonic()
@@ -497,7 +544,7 @@ while True:
         if battery_voltage_previous_x10 != vars.battery_voltage_x10:
             battery_voltage_previous_x10 = vars.battery_voltage_x10
             battery_voltage = vars.battery_voltage_x10 / 10.0
-            label_battery_voltage.text = f"{battery_voltage:2.1f}v"
+            battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # motor power
         vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
