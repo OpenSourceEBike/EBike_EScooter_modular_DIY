@@ -13,8 +13,8 @@ class RTCDateTime(object):
         self._rtc_external = None
 
         # Try initialize RTC external based on DS3231
-        i2c = busio.I2C(rtc_scl_pin, rtc_sda_pin)
         try:
+            i2c = busio.I2C(rtc_scl_pin, rtc_sda_pin)
             self._rtc_external = adafruit_ds3231.DS3231(i2c)
         except Exception as e:
             print(f'Error init rtc external: {e}')
