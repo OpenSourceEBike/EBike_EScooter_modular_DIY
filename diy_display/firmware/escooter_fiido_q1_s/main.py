@@ -183,17 +183,17 @@ palette_white[0] = 0x000000  # background
 palette_black = displayio.Palette(1)
 palette_black[0] = 0xFFFFFF  # fill
 
-motor_power_width = 28
-motor_power_height = 16
+motor_power_width = 30
+motor_power_height = 18
 motor_power_x = 2
-motor_power_y = 2
+motor_power_y = 0
 
 motor_power_fill_group = displayio.Group()
 motor_power_fill_rectangle = vectorio.Rectangle(
     pixel_shader=palette_black,
     width=motor_power_width,
-    height=motor_power_height,
-    x=motor_power_x + motor_power_width + 3,
+    height=motor_power_height + 1,
+    x=motor_power_x + motor_power_width,
     y=motor_power_y
 )
 motor_power_fill_group.append(motor_power_fill_rectangle)
@@ -210,65 +210,64 @@ motor_power_fill = vectorio.Rectangle(
 motor_power_fill_arc = Arc(
     x=33,
     y=33,
-    radius=32,
-    arc_width=17,
+    radius=34,
+    arc_width=19,
     
     angle=90,
     direction=180+45,
     segments=8,
-    outline=0x000000,
+    outline=0xFFFFFF,
     fill=0xFFFFFF
 )
 
 def draw_motor_power_scale():
-  # global main_display_group
-  pass
+  global main_display_group
     
-  # arc_1 = Arc(
-  #   x=33,
-  #   y=33,
-  #   radius=34,
-  #   arc_width=2,
+  arc_1 = Arc(
+    x=33,
+    y=33,
+    radius=34,
+    arc_width=2,
     
-  #   angle=-90,
-  #   direction=90+45,
-  #   segments=10,
-  #   outline=0x000000,
-  #   fill=0xFFFFFF,
-  # )
+    angle=-90,
+    direction=90+45,
+    segments=10,
+    outline=0x000000,
+    fill=0xFFFFFF,
+  )
    
-  # arc_2 = Arc(
-  #   x=33,
-  #   y=33,
-  #   radius=16,
-  #   arc_width=2,
+  arc_2 = Arc(
+    x=33,
+    y=33,
+    radius=16,
+    arc_width=2,
     
-  #   angle=-90,
-  #   direction=90+45,
-  #   segments=10,
-  #   outline=0x000000,
-  #   fill=0xFFFFFF,
-  # )
+    angle=-90,
+    direction=90+45,
+    segments=10,
+    outline=0x000000,
+    fill=0xFFFFFF,
+  )
     
-  # s_x = 0 # start_x
-  # s_y = 0 # start_y
-  # h = 35 # height
-  # w = 62 # width
-  # w_2 = int(w/2) # width
-  # bar_width = 4
+  s_x = 0 # start_x
+  s_y = 0 # start_y
+  h = 35 # height
+  w = 62 # width
+  w_2 = int(w/2) # width
+  bar_width = 4
 
   
-  # l6 = Line(s_x, s_y, w_2, s_y,                            color=palette_black[0])
-  # l7 = Line(w_2, s_y, w_2, s_y+bar_width,                  color=palette_black[0])
-  # l8 = Line(w_2, s_y, w, s_y,                              color=palette_black[0])
-  # l9 = Line(w, s_y, w, s_y+bar_width,                      color=palette_black[0])
+  l6 = Line(0, 33, 19, 33,                            color=palette_black[0])
+  l7 = Line(w_2+2, s_y+18, w, s_y+18,                              color=palette_black[0])
+  l8 = Line(w_2+2, s_y, w, s_y,                              color=palette_black[0])
+  l9 = Line(w, s_y, w, s_y+18,                      color=palette_black[0])
   
-  # main_display_group.append(arc_1)
-  # main_display_group.append(arc_2)
-  # main_display_group.append(l6)
-  # main_display_group.append(l7)
-  # main_display_group.append(l8)
-  # main_display_group.append(l9)
+  main_display_group.append(arc_1)
+  main_display_group.append(arc_2)
+  main_display_group.append(l6)
+  main_display_group.append(l7)
+  main_display_group.append(l8)
+  main_display_group.append(l9)
 
 assist_level = 0
 assist_level_state = 0
