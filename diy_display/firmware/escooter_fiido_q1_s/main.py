@@ -113,6 +113,7 @@ elif esp32_board == ESP32Board.ESP32_C3:
     1000000) # spi clock frequency
 
 display = displayObject.display
+display.root_group = None
 
 FreeSans_20 = bitmap_font.load_font("fonts/FreeSans-20.bdf")
 FreeSansBold_20 = bitmap_font.load_font("fonts/FreeSansBold-20.bdf")
@@ -183,7 +184,7 @@ palette_white[0] = 0x000000  # background
 palette_black = displayio.Palette(1)
 palette_black[0] = 0xFFFFFF  # fill
 
-motor_power_width = 30
+motor_power_width = 27
 motor_power_height = 18
 motor_power_x = 2
 motor_power_y = 0
@@ -193,7 +194,7 @@ motor_power_fill_rectangle = vectorio.Rectangle(
     pixel_shader=palette_black,
     width=motor_power_width,
     height=motor_power_height + 1,
-    x=motor_power_x + motor_power_width,
+    x=motor_power_x + motor_power_width + 7,
     y=motor_power_y
 )
 motor_power_fill_group.append(motor_power_fill_rectangle)
@@ -208,9 +209,9 @@ motor_power_fill = vectorio.Rectangle(
 )
 
 motor_power_fill_arc = Arc(
-    x=33,
-    y=33,
-    radius=34,
+    x=36,
+    y=36,
+    radius=37,
     arc_width=19,
     
     angle=90,
@@ -224,9 +225,9 @@ def draw_motor_power_scale():
   global main_display_group
     
   arc_1 = Arc(
-    x=33,
-    y=33,
-    radius=34,
+    x=36,
+    y=36,
+    radius=37,
     arc_width=2,
     
     angle=-90,
@@ -237,9 +238,9 @@ def draw_motor_power_scale():
   )
    
   arc_2 = Arc(
-    x=33,
-    y=33,
-    radius=16,
+    x=36,
+    y=36,
+    radius=19,
     arc_width=2,
     
     angle=-90,
@@ -257,7 +258,7 @@ def draw_motor_power_scale():
   bar_width = 4
 
   
-  l6 = Line(0, 33, 19, 33,                            color=palette_black[0])
+  l6 = Line(0, 36, 19, 36,                            color=palette_black[0])
   l7 = Line(w_2+2, s_y+18, w, s_y+18,                              color=palette_black[0])
   l8 = Line(w_2+2, s_y, w, s_y,                              color=palette_black[0])
   l9 = Line(w, s_y, w, s_y+18,                      color=palette_black[0])
@@ -492,8 +493,6 @@ main_display_group.append(battery_voltage_area)
 main_display_group.append(label_speed)
 main_display_group.append(label_time)
 main_display_group.append(label_warning_area)
-# main_display_group.append(motor_power_fill_arc)
-# main_display_group.append(motor_power_fill_rectangle)
 draw_motor_power_scale()
 display.root_group = main_display_group
 
@@ -534,6 +533,7 @@ def draw_motor_power(motor_power):
     elif motor_power_fill_rectangle in main_display_group:
         main_display_group.remove(motor_power_fill_rectangle)
 
+
 while True:
     now = time.monotonic()
     if (now - display_time_previous) > 0.1:
@@ -550,7 +550,7 @@ while True:
         if motor_power_previous != vars.motor_power:
             motor_power_previous = vars.motor_power
             motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 2000.0)
+            motor_power_percent = int((motor_power * 100) / 2200.0)
             draw_motor_power(motor_power_percent)
             
         # wheel speed
