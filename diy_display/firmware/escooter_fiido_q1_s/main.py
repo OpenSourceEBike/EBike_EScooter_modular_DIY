@@ -27,8 +27,6 @@ buzzer.duty_cycle = 0.0
 #########################################################
 
 import wifi
-import vectorio
-from adafruit_display_shapes.arc import Arc
 import display as Display
 import escooter_fiido_q1_s.motor_board_espnow as motor_board_espnow
 import vars as Vars
@@ -42,9 +40,8 @@ import escooter_fiido_q1_s.front_lights_espnow as front_lights_espnow
 import espnow as _ESPNow
 import escooter_fiido_q1_s.rtc_date_time as rtc_date_time
 from adafruit_bitmap_font import bitmap_font
-from adafruit_display_shapes.line import Line
-import gc
-from utils import map_value
+import battery_soc_widget as BatterySocWidget
+import motor_power_widget as MotorPowerWidget
 
 import supervisor
 supervisor.runtime.autoreload = False
@@ -111,7 +108,8 @@ elif esp32_board == ESP32Board.ESP32_C3:
     board.IO0, # RST pin - reset pin
     board.IO21, # LED pin - backlight pin
     1000000) # spi clock frequency
-
+  
+displayObject.backlight_pwm(0.5)
 display = displayObject.display
 display.root_group = None
 
@@ -183,93 +181,7 @@ palette_white[0] = 0x000000  # background
 
 palette_black = displayio.Palette(1)
 palette_black[0] = 0xFFFFFF  # fill
-
-motor_power_width = 27
-motor_power_height = 18
-motor_power_x = 2
-motor_power_y = 0
-
-motor_power_fill_group = displayio.Group()
-motor_power_fill_rectangle = vectorio.Rectangle(
-    pixel_shader=palette_black,
-    width=motor_power_width,
-    height=motor_power_height + 1,
-    x=motor_power_x + motor_power_width + 7,
-    y=motor_power_y
-)
-motor_power_fill_group.append(motor_power_fill_rectangle)
-
-# Foreground bar (fill) — will be replaced on update
-motor_power_fill = vectorio.Rectangle(
-  pixel_shader=palette_black,
-  width=1,
-  height=motor_power_height,
-  x=motor_power_x,
-  y=motor_power_y
-)
-
-motor_power_fill_arc = Arc(
-    x=36,
-    y=36,
-    radius=37,
-    arc_width=19,
-    
-    angle=90,
-    direction=180+45,
-    segments=8,
-    outline=0xFFFFFF,
-    fill=0xFFFFFF
-)
-
-def draw_motor_power_scale():
-  global main_display_group
-    
-  arc_1 = Arc(
-    x=36,
-    y=36,
-    radius=37,
-    arc_width=2,
-    
-    angle=-90,
-    direction=90+45,
-    segments=10,
-    outline=0x000000,
-    fill=0xFFFFFF,
-  )
-   
-  arc_2 = Arc(
-    x=36,
-    y=36,
-    radius=19,
-    arc_width=2,
-    
-    angle=-90,
-    direction=90+45,
-    segments=10,
-    outline=0x000000,
-    fill=0xFFFFFF,
-  )
-    
-  s_x = 0 # start_x
-  s_y = 0 # start_y
-  h = 35 # height
-  w = 62 # width
-  w_2 = int(w/2) # width
-  bar_width = 4
-
   
-  l6 = Line(0, 36, 19, 36,                            color=palette_black[0])
-  l7 = Line(w_2+2, s_y+18, w, s_y+18,                              color=palette_black[0])
-  l8 = Line(w_2+2, s_y, w, s_y,                              color=palette_black[0])
-  l9 = Line(w, s_y, w, s_y+18,                      color=palette_black[0])
-  
-  main_display_group.append(arc_1)
-  main_display_group.append(arc_2)
-  main_display_group.append(l6)
-  main_display_group.append(l7)
-  main_display_group.append(l8)
-  main_display_group.append(l9)
-
 assist_level = 0
 assist_level_state = 0
 now = time.monotonic()
@@ -462,25 +374,25 @@ for index in range(nr_buttons):
 
 # let's wait for a first click on power button
 time_previous = time.monotonic()
-while True:
-  now = time.monotonic()
-  if (now - time_previous) > 0.05:
-    time_previous = now
+# while True:
+#   now = time.monotonic()
+#   if (now - time_previous) > 0.05:
+#     time_previous = noww
 
-    buttons[button_POWER].tick()
+#     buttons[button_POWER].tick()
 
-    if buttons[button_POWER].buttonActive:
+#     if buttons[button_POWER].buttonActive:
 
-      # wait for user to release the button
-      while buttons[button_POWER].buttonActive:
-        buttons[button_POWER].tick()
+#       # wait for user to release the button
+#       while buttons[button_POWER].buttonActive:
+#         buttons[button_POWER].tick()
 
-      # motor board will now enable the motor
-      vars.motor_enable_state = True
-      break
+#       # motor board will now enable the motor
+#       vars.motor_enable_state = True
+#       break
     
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
-    time.sleep(0.025)
+#     # sleep some time to save energy and avoid ESP32-S2 to overheat
+#     time.sleep(0.025)
 
 vars.motor_enable_state = True
     
@@ -493,46 +405,13 @@ main_display_group.append(battery_voltage_area)
 main_display_group.append(label_speed)
 main_display_group.append(label_time)
 main_display_group.append(label_warning_area)
-draw_motor_power_scale()
+
+motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 64)
+motor_power_widget.draw_contour()
+battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 64)
+battery_soc_widget.draw_contour()
+
 display.root_group = main_display_group
-
-angle_previous = 0
-def draw_motor_power(motor_power):
-    global motor_power_fill_group
-    global motor_power_fill_rectangle
-    global motor_power_fill_arc
-    global main_display_group
-    global angle_previous
-
-    # Limit input value
-    motor_power = max(0, min(motor_power, 100))
-    
-    # Arc value
-    angle = map_value(motor_power, 0, 50, 0, 90)
-    if angle != angle_previous:
-        angle_previous = angle
-        
-        if motor_power_fill_arc not in main_display_group:
-            main_display_group.append(motor_power_fill_arc)
-        
-        motor_power_fill_arc.angle = -angle
-    
-    # Only update the rectangle width if motor power is above 50
-    if motor_power > 50:
-        width_power = int(map_value(motor_power, 50, 100, 0, motor_power_width))
-        
-        # Update the rectangle's width only if it changes
-        if motor_power_fill_rectangle.width != width_power:
-            # Update the rectangle width instead of removing and re-adding it
-            motor_power_fill_rectangle.width = width_power
-
-        if motor_power_fill_rectangle not in main_display_group:
-          main_display_group.append(motor_power_fill_rectangle)
-
-    # If motor power is below 50, remove the rectangle if it's in the group
-    elif motor_power_fill_rectangle in main_display_group:
-        main_display_group.remove(motor_power_fill_rectangle)
-
 
 while True:
     now = time.monotonic()
@@ -543,7 +422,7 @@ while True:
         if battery_voltage_previous_x10 != vars.battery_voltage_x10:
             battery_voltage_previous_x10 = vars.battery_voltage_x10
             battery_voltage = vars.battery_voltage_x10 / 10.0
-            battery_voltage_area.text = f"{battery_voltage:2.1f}v"
+            # battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # motor power
         vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
@@ -551,7 +430,7 @@ while True:
             motor_power_previous = vars.motor_power
             motor_power = filter_motor_power(vars.motor_power)
             motor_power_percent = int((motor_power * 100) / 2200.0)
-            draw_motor_power(motor_power_percent)
+            motor_power_widget.update(motor_power_percent)
             
         # wheel speed
         if wheel_speed_x10_previous != vars.wheel_speed_x10:
@@ -658,5 +537,5 @@ while True:
         elif date_time_updated is False:
           label_time.text = f''
 
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    # sleep some time to save energy and avoid ESP32 to overheat
     time.sleep(0.01)
