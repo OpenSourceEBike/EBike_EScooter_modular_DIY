@@ -64,6 +64,7 @@ class Vesc(object):
             motor_data = self._front_motor_data
             
         motor_data.battery_soc_x1000 = struct.unpack_from('>h', response, 27)[0]
+        motor_data.controller_id = response[58]
     
     def _process_response_GET_VALUES(self, response):
         # Check for the controler ID on the message, to figure out of
@@ -87,6 +88,7 @@ class Vesc(object):
                 
     def _pack_and_send(self, buf, response_len, delay):
         start_byte = 2
+        end_byte = 3
                 
         # if command is COMM_FORWARD_CAN, then get the real command
         vesc_command = buf[0]
@@ -104,7 +106,7 @@ class Vesc(object):
         data_array[2: 2 + lenght] = buf # copy data
         data_array[package_len - 3] = (crc & 0xff00) >> 8
         data_array[package_len - 2] = crc & 0x00ff
-        data_array[package_len - 1] = 3
+        data_array[package_len - 1] = end_byte
         
         # send packet to UART
         self._uart.write(data_array)
@@ -155,6 +157,11 @@ class Vesc(object):
                 self._vesc_data[1] = payload_len
                 self._vesc_data[2] = vesc_command
                 self._vesc_data[3:] = self._uart.read(response_len - 3)
+                
+                # check for expected end byte
+                if self._vesc_data[-1] != end_byte:
+                    self._uart.reset_input_buffer()
+                    return None
 
                 # check for CRC
                 crc_calculated = self._crc16(self._vesc_data[2:-3])
