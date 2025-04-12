@@ -90,27 +90,27 @@ vars.display_communication_counter = (vars.display_communication_counter + 1) % 
 # just to check if is possible to send data to motor
 
 if esp32_board == ESP32Board.ESP32_S2:
-  displayObject = Display.Display(
+  _display = Display.Display(
     board.IO11, # CLK pin
     board.IO12, # MOSI pin
     board.IO7, # chip select pin, not used but for some reason there is an error if chip_select is None
     board.IO9, # command pin
     board.IO5, # reset pin
     board.IO3, # backlight pin
-    1000000) # spi clock frequency
+    10000000) # spi clock frequency
     
 elif esp32_board == ESP32Board.ESP32_C3:
-  displayObject = Display.Display(
+  _display = Display.Display(
     board.IO3, # CLK / SCK pin
     board.IO4, # MOSI / SDI pin
     board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
     board.IO2, # DC pin - command pin
     board.IO0, # RST pin - reset pin
     board.IO21, # LED pin - backlight pin
-    1000000) # spi clock frequency
+    10000000) # spi clock frequency
   
-displayObject.backlight_pwm(0.5)
-display = displayObject.display
+_display.backlight_pwm(0.5)
+display = _display.display
 display.root_group = None
 
 FreeSans_20 = bitmap_font.load_font("fonts/FreeSans-20.bdf")
@@ -155,25 +155,20 @@ def filter_motor_power(motor_power):
 
   return motor_power
 
-# battery voltage
-battery_voltage_area = label.Label(terminalio.FONT, text='')
-battery_voltage_area.anchor_point = (1.0, 1.0)
-battery_voltage_area.anchored_position = (30, 64)
-
 # wheel speed
 label_speed = label.Label(FreeSansBold_50, text='')
 label_speed.anchor_point = (1.0, 0.0)
 label_speed.anchored_position = (129, 0)
 
 # time
-label_time = label.Label(FreeSans_20, text='')
+label_time = label.Label(FreeSans_20, text='.....')
 label_time.anchor_point = (1.0, 1.0)
-label_time.anchored_position = (126, 63)
+label_time.anchored_position = (129, 63)
 
 # warning area
 label_warning_area = label.Label(terminalio.FONT, text='')
 label_warning_area.anchor_point = (0.0, 0.0)
-label_warning_area.anchored_position = (2, 48)
+label_warning_area.anchored_position = (0, 37)
 label_warning_area.scale = 1
 
 palette_white = displayio.Palette(1)
@@ -196,7 +191,7 @@ update_date_time_once = False
 date_time_updated = None
 date_time_previous = now
 
-battery_voltage_previous_x10 = 9999
+battery_soc_previous_x1000 = 9999
 battery_current_previous_x100 = 9999
 motor_current_previous_x100 = 9999
 motor_power_previous = 9999
@@ -374,25 +369,25 @@ for index in range(nr_buttons):
 
 # let's wait for a first click on power button
 time_previous = time.monotonic()
-# while True:
-#   now = time.monotonic()
-#   if (now - time_previous) > 0.05:
-#     time_previous = noww
+while True:
+  now = time.monotonic()
+  if (now - time_previous) > 0.05:
+    time_previous = now
 
-#     buttons[button_POWER].tick()
+    buttons[button_POWER].tick()
 
-#     if buttons[button_POWER].buttonActive:
+    if buttons[button_POWER].buttonActive:
 
-#       # wait for user to release the button
-#       while buttons[button_POWER].buttonActive:
-#         buttons[button_POWER].tick()
+      # wait for user to release the button
+      while buttons[button_POWER].buttonActive:
+        buttons[button_POWER].tick()
 
-#       # motor board will now enable the motor
-#       vars.motor_enable_state = True
-#       break
+      # motor board will now enable the motor
+      vars.motor_enable_state = True
+      break
     
-#     # sleep some time to save energy and avoid ESP32-S2 to overheat
-#     time.sleep(0.025)
+    # sleep some time to save energy and avoid ESP32-S2 to overheat
+    time.sleep(0.025)
 
 vars.motor_enable_state = True
     
@@ -401,7 +396,6 @@ vars.buttons_state = 0
 
 # show main screen
 main_display_group = displayio.Group()
-main_display_group.append(battery_voltage_area)
 main_display_group.append(label_speed)
 main_display_group.append(label_time)
 main_display_group.append(label_warning_area)
@@ -419,17 +413,16 @@ while True:
         display_time_previous = now
 
         # battery
-        if battery_voltage_previous_x10 != vars.battery_voltage_x10:
-            battery_voltage_previous_x10 = vars.battery_voltage_x10
-            battery_voltage = vars.battery_voltage_x10 / 10.0
-            # battery_voltage_area.text = f"{battery_voltage:2.1f}v"
+        if battery_soc_previous_x1000 != vars.battery_soc_x1000:
+            battery_soc_previous_x1000 = vars.battery_soc_x1000
+            battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
 
         # motor power
         vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
         if motor_power_previous != vars.motor_power:
             motor_power_previous = vars.motor_power
             motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 2200.0)
+            motor_power_percent = int((motor_power * 100) / 2000.0)
             motor_power_widget.update(motor_power_percent)
             
         # wheel speed
@@ -445,17 +438,10 @@ while True:
         
         if brakes_are_active_previous != vars.brakes_are_active:
             brakes_are_active_previous = vars.brakes_are_active
-            if vars.brakes_are_active:
-              
-                # try:
-                #   main_display_group.remove(label_battery_voltage)
-                # except ValueError:
-                #   pass
-                
+            if vars.brakes_are_active:  
                 label_warning_area.text = str("brakes")
             else:
                 label_warning_area.text = str("")
-                # main_display_group.append(label_battery_voltage)
                 
         elif vesc_fault_code_previous != vars.vesc_fault_code:
             vesc_fault_code_previous = vars.vesc_fault_code
@@ -539,3 +525,4 @@ while True:
 
     # sleep some time to save energy and avoid ESP32 to overheat
     time.sleep(0.01)
+

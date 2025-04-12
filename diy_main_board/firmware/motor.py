@@ -27,6 +27,12 @@ class Motor(object):
         else:
             Motor._vesc.update_motor_data()
             
+    def update_battery_soc(self):
+        if self._cfg.number == 1:
+            pass
+        else:
+            Motor._vesc.update_battery_soc()
+            
     def set_motor_current_limit_max(self, value):
         if self._cfg.number == 1:
             Motor._vesc.set_can_motor_current_limit_max(value)
@@ -91,5 +97,6 @@ class MotorData(object):
         self.motor_current_x100 = 0
         self.battery_current_x100 = 0
         self.battery_voltage_x10 = 0
+        self.battery_soc_x1000 = 0
         self.vesc_fault_code = 0
         

@@ -54,7 +54,8 @@ class Display(object):
                 self._espnow.send(
                     f"{int(BoardsIds.DISPLAY)} \
                     {int(self._motor_data.battery_voltage_x10)} \
-                    {battery_current_x100} {motor_current_x100} \
+                    {battery_current_x100} \
+                    {int(self._rear_motor_data.battery_soc_x1000)} \
                     {int(self._motor_data.wheel_speed * 10)} \
                     {int(brakes_are_active)} \
                     {int(vesc_temperature_x10)} \
