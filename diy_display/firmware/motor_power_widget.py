@@ -10,7 +10,7 @@ palette_white[0] = 0x000000  # background
 palette_black = displayio.Palette(1)
 palette_black[0] = 0xFFFFFF  # fill
 
-motor_power_width = 27
+motor_power_width = 26
 motor_power_height = 18
 motor_power_x = 2
 motor_power_y = 0
@@ -26,7 +26,7 @@ class MotorPowerWidget(object):
             pixel_shader=palette_black,
             width=motor_power_width,
             height=motor_power_height + 1,
-            x=motor_power_x + motor_power_width + 7,
+            x=motor_power_x + motor_power_width + 9,
             y=motor_power_y
         )
         self._d_group.append(self._fill_rectangle)
@@ -40,7 +40,7 @@ class MotorPowerWidget(object):
             angle=90,
             direction=180+45,
             segments=8,
-            outline=palette_white[0],
+            outline=palette_black[0],
             fill=palette_black[0]
         )
     
@@ -76,8 +76,8 @@ class MotorPowerWidget(object):
         w_2 = int(w/2) # width
 
         l1 = Line(s_x, 36, 19, 36, color=palette_black[0])
-        l2 = Line(w_2+2, s_y+18, w, s_y+18, color=palette_black[0])
-        l3 = Line(w_2+2, s_y, w, s_y, color=palette_black[0])
+        l2 = Line(w_2+5, s_y+18, w, s_y+18, color=palette_black[0])
+        l3 = Line(w_2+5, s_y, w, s_y, color=palette_black[0])
         l4 = Line(w, s_y, w, s_y+18, color=palette_black[0])
         
         self._d_group.append(arc_1)
@@ -87,7 +87,7 @@ class MotorPowerWidget(object):
         self._d_group.append(l3)
         self._d_group.append(l4)
     
-    
+
     def update(self, motor_power_percent):
         # Limit input value
         motor_power_percent = max(0, min(motor_power_percent, 100))
@@ -106,9 +106,8 @@ class MotorPowerWidget(object):
         if motor_power_percent > 50:
             width_power = int(map_value(motor_power_percent, 50, 100, 0, motor_power_width))
             
-            # Update the rectangle's width only if it changesself._d_group
+            # Update the rectangle's width only if it changes
             if self._fill_rectangle.width != width_power:
-                # Update the rectangle width instead of removing and re-adding it
                 self._fill_rectangle.width = width_power
 
             if self._fill_rectangle not in self._d_group:

@@ -1,4 +1,4 @@
-# The following code is useful for development
+# #The following code is useful for development
 # import supervisor
 # if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
 #     # If not a soft reload, exit immediately
@@ -90,6 +90,7 @@ async def task_motors_refresh_data():
         # refresh latest for VESC data
         front_motor.update_motor_data()
         rear_motor.update_motor_data()
+        rear_motor.update_battery_soc()
         
         gc.collect()
         await asyncio.sleep(0.1)

@@ -54,7 +54,18 @@ class Vesc(object):
 
         return crc
     
-    def _process_response(self, response):
+    def _process_response_GET_VALUES_SETUP_SELECTIVE(self, response):
+        # Check for the controler ID on the message, to figure out of
+        # which motor the data belongs to       
+        controller_id = response[58]
+        if controller_id == 0:
+            motor_data = self._rear_motor_data
+        else:
+            motor_data = self._front_motor_data
+            
+        motor_data.battery_soc_x1000 = struct.unpack_from('>h', response, 27)[0]
+    
+    def _process_response_GET_VALUES(self, response):
         # Check for the controler ID on the message, to figure out of
         # which motor the data belongs to
         controller_id = response[60]
@@ -70,6 +81,7 @@ class Vesc(object):
         motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
         motor_data.speed_erpm = struct.unpack_from('>l', response, 25)[0]
         motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
+        motor_data.battery_soc_x1000 = struct.unpack_from('>h', response, 33)[0]
         motor_data.vesc_fault_code = response[55]
         motor_data.controller_id = response[60]
                 
@@ -102,7 +114,6 @@ class Vesc(object):
         bytes_in_uart_buffer = self._uart.in_waiting
         # try to read response only if we expect it
         if response_len > 0 and bytes_in_uart_buffer >= response_len:
-
             while bytes_in_uart_buffer:
                 
                 # check for expected start byte 2
@@ -156,6 +167,14 @@ class Vesc(object):
                 return self._vesc_data
         else:
             return None
+        
+    def update_battery_soc(self):
+        tx_command_buffer = bytearray(5)
+        tx_command_buffer[0] = 47 # COMM_GET_VALUES_SETUP = 47   
+        response = self._pack_and_send(tx_command_buffer, 75, 0.01)
+            
+        if response is not None:        
+            self._process_response_GET_VALUES_SETUP_SELECTIVE(response)
             
     def update_motor_data(self):
         
@@ -164,7 +183,7 @@ class Vesc(object):
         response = self._pack_and_send(tx_command_buffer, 79, 0.01)
             
         if response is not None:            
-            self._process_response(response)
+            self._process_response_GET_VALUES(response)
         
     def update_can_motor_data(self):
         
@@ -175,7 +194,7 @@ class Vesc(object):
         response = self._pack_and_send(tx_command_buffer, 79, 0.02)
 
         if response is not None:
-            self._process_response(response)
+            self._process_response_GET_VALUES(response)
       
     def set_motor_current_amps(self, value):
         """Set battery Amps"""
