@@ -1,14 +1,14 @@
-# #The following code is useful for development
-# import supervisor
-# if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
-#     # If not a soft reload, exit immediately
-#     print("Code not run at startup. Press Ctrl+D to run.")
-#     while True:
-#          pass # Or use time.sleep(1000) to keep the device from doing anything.
-# else:
-#     # Your code that should run only on Ctrl+D goes here
-#     print("Running on Ctrl+D (soft reload).")
-#     # ... your main code ...
+#The following code is useful for development
+import supervisor
+if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
+    # If not a soft reload, exit immediately
+    print("Code not run at startup. Press Ctrl+D to run.")
+    while True:
+         pass # Or use time.sleep(1000) to keep the device from doing anything.
+else:
+    # Your code that should run only on Ctrl+D goes here
+    print("Running on Ctrl+D (soft reload).")
+    # ... your main code ...
 
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
@@ -88,9 +88,9 @@ async def task_motors_refresh_data():
     
     while True:
         # refresh latest for VESC data
-        front_motor.update_motor_data()
+        # front_motor.update_motor_data()
         rear_motor.update_motor_data()
-        rear_motor.update_battery_soc()
+        # rear_motor.update_battery_soc()
         
         gc.collect()
         await asyncio.sleep(0.1)
@@ -180,18 +180,19 @@ async def task_control_motor():
                 throttle_2_adc_previous_value > cfg.throttle_2_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             # VESC set_motor_current_amps command will release the motor
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
                 
             if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error:
                 message = f'throttle 1 value: {throttle_1_adc_previous_value} -- is over max, this can be dangerous!'
             else:
                 message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
             raise Exception(message)
+            pass
     
         # Apply cruise control
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
@@ -208,35 +209,38 @@ async def task_control_motor():
         if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit: rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
 
         # Set motor max target currents        
-        front_motor.set_motor_current_limit_max(front_motor.data.motor_target_current_limit_max)
-        rear_motor.set_motor_current_limit_max(rear_motor.data.motor_target_current_limit_max)
+        # front_motor.set_motor_current_limit_max(front_motor.data.motor_target_current_limit_max)
+        # rear_motor.set_motor_current_limit_max(rear_motor.data.motor_target_current_limit_max)
         
-        front_motor.set_motor_current_limit_min(front_motor.data.motor_target_current_limit_min)
-        rear_motor.set_motor_current_limit_min(rear_motor.data.motor_target_current_limit_min)
+        # front_motor.set_motor_current_limit_min(front_motor.data.motor_target_current_limit_min)
+        # rear_motor.set_motor_current_limit_min(rear_motor.data.motor_target_current_limit_min)
         
-        front_motor.set_battery_current_limit_max(front_motor.data.battery_target_current_limit_max)
-        rear_motor.set_battery_current_limit_max(rear_motor.data.battery_target_current_limit_max)
+        # front_motor.set_battery_current_limit_max(front_motor.data.battery_target_current_limit_max)
+        # rear_motor.set_battery_current_limit_max(rear_motor.data.battery_target_current_limit_max)
 
-        front_motor.set_battery_current_limit_min(front_motor.data.battery_target_current_limit_min)
-        rear_motor.set_battery_current_limit_min(rear_motor.data.battery_target_current_limit_min)
+        # front_motor.set_battery_current_limit_min(front_motor.data.battery_target_current_limit_min)
+        # rear_motor.set_battery_current_limit_min(rear_motor.data.battery_target_current_limit_min)
         
         # Check if brakes are active
         vars.brakes_are_active = True if brake_sensor.value else False
 
         # If motor state is disabled, set motor current to 0 to release the motor
         if vars.motors_enable_state == False:
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+            pass
         else:
             # If brakes are active, set motor speed to 0 to have the highest brake / regen
             if vars.brakes_are_active:
-                front_motor.set_motor_speed_rpm(0)
-                rear_motor.set_motor_speed_rpm(0)
+                # front_motor.set_motor_speed_rpm(0)
+                # rear_motor.set_motor_speed_rpm(0)
+                pass
 
             # If brakes are not active, set the motor speed
             else:
-                front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
-                rear_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+                # front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+                # rear_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+                pass
             
         # We just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
