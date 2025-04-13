@@ -2,8 +2,8 @@ import board
 from vars import Cfg, MotorCfg
 cfg = Cfg()
 # 1 for front motor, 0 for rear motor
-front_motor_cfg = MotorCfg(1)
-rear_motor_cfg = MotorCfg(0)
+front_motor_cfg = MotorCfg(can_id=1)
+rear_motor_cfg = MotorCfg(can_id=0)
 
 # right handlebar throttle
 cfg.throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
@@ -112,9 +112,16 @@ rear_motor_cfg.battery_current_limit_min_max_speed = 30.0
 # Rear motor is the master on CAN, so has ID = 0
 # Front motor is the first slave in CAN, so has ID = 1
 front_motor_cfg.can_id = 1
+front_motor_cfg.is_can = True
+
+# rear motor VESC is connected by CAN
+rear_motor_cfg.can_id = 0
+rear_motor_cfg.is_can = True
+rear_motor_cfg.can_rx_pin = board.IO4
+rear_motor_cfg.can_tx_pin = board.IO5
 
 # rear motor VESC is connected by UART
-rear_motor_cfg.uart_tx_pin = board.IO13 # UART TX pin that connect to VESC
-rear_motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
-rear_motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
+# rear_motor_cfg.uart_tx_pin = board.IO13 # UART TX pin that connect to VESC
+# rear_motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
+# rear_motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
 

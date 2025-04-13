@@ -79,13 +79,13 @@ torque_sensor = torque_sensor.TorqueSensor(
     board.IO5) # CAN rx pin
 
 # rear motor VESC is connected by UART
-motor_cfg = MotorCfg(0)
+motor_cfg = MotorCfg(can_id=0)
 motor_cfg.uart_tx_pin = board.IO13 # UART TX pin that connect to VESC
 motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
 motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
 motor_data = MotorData(motor_cfg)
 
-motor_dummy_cfg = MotorCfg(1)
+motor_dummy_cfg = MotorCfg(can_id=1)
 motor_dummy_data = MotorData(motor_dummy_cfg)
 motor_dummy = Motor(motor_dummy_data)
 
