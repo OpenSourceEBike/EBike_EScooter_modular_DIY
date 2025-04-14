@@ -13,7 +13,6 @@
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
 
-import board
 import time
 import supervisor
 import asyncio
@@ -26,9 +25,8 @@ import gc
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 import wifi
 from vars import Vars
-from vesc import Vesc
 from motor import MotorData, Motor
-from configurations import cfg, front_motor_cfg, rear_motor_cfg
+from configurations_escooter_fiido_q1_s import cfg, front_motor_cfg, rear_motor_cfg
 
 supervisor.runtime.autoreload = False
 
@@ -43,7 +41,7 @@ wifi.radio.mac_address = bytearray(cfg.my_mac_address)
 vars = Vars()
 
 # object to read the brake state
-brake_sensor = Brake.Brake(board.IO12)
+brake_sensor = Brake.Brake(cfg.brake_pin)
 
 # if brakes are active at startup, block here
 # this is needed for development, to help keep the motor and the UART disable
@@ -53,13 +51,13 @@ while brake_sensor.value:
 
 # object for left handle bar throttle
 throttle_1 = Throttle.Throttle(
-    board.IO11, # ADC pin for throttle
+    cfg.throttle_1_pin,
     min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
     max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
 
 # object for right handle bar throttle
 throttle_2 = Throttle.Throttle(
-    board.IO10, # ADC pin for throttle
+    cfg.throttle_2_pin,
     min = cfg.throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
     max = cfg.throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
 
@@ -87,12 +85,10 @@ async def task_motors_refresh_data():
     global rear_motor
     
     while True:
-        # refresh latest for VESC data
-        front_motor.update_motor_data()
-        rear_motor.update_motor_data()
-        
-        gc.collect()
-        await asyncio.sleep(0.1)
+        # Refresh latest for VESC data
+        # Only do call this for one motor!!
+        rear_motor.update_motor_data(rear_motor, front_motor)
+        await asyncio.sleep(0.05)
 
 async def task_display_send_data():
     global display
@@ -201,31 +197,57 @@ async def task_control_motor():
             pass
     
         # Apply cruise control
-        throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
+        throttle_value = cruise_control(
+            vars,
+            rear_motor.data.wheel_speed,
+            throttle_value)
         
         # Calculate target speed
-        front_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, front_motor.data.cfg.motor_erpm_max_speed_limit)
-        rear_motor.data.motor_target_speed = simpleio.map_range(throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit)
+        front_motor.data.motor_target_speed = simpleio.map_range(
+            throttle_value,
+            0.0,
+            1000.0,
+            0.0,
+            front_motor.data.cfg.motor_erpm_max_speed_limit)
+        
+        rear_motor.data.motor_target_speed = simpleio.map_range(
+            throttle_value,
+            0.0,
+            1000.0,
+            0.0,
+            rear_motor.data.cfg.motor_erpm_max_speed_limit)
 
         # Limit mins and max values
-        if front_motor.data.motor_target_speed < 500.0: front_motor.data.motor_target_speed = 0.0
-        if rear_motor.data.motor_target_speed < 500.0: rear_motor.data.motor_target_speed = 0.0
+        if front_motor.data.motor_target_speed < 500.0:
+            front_motor.data.motor_target_speed = 0.0
+        if rear_motor.data.motor_target_speed < 500.0:
+            rear_motor.data.motor_target_speed = 0.0
         
-        if front_motor.data.motor_target_speed > front_motor.data.cfg.motor_erpm_max_speed_limit: front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
-        if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit: rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
+        if front_motor.data.motor_target_speed > \
+            front_motor.data.cfg.motor_erpm_max_speed_limit:
+            front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
+        
+        if rear_motor.data.motor_target_speed > \
+            rear_motor.data.cfg.motor_erpm_max_speed_limit:
+            rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
 
-        # Set motor max target currents        
-        front_motor.set_motor_current_limit_max(front_motor.data.motor_target_current_limit_max)
-        rear_motor.set_motor_current_limit_max(rear_motor.data.motor_target_current_limit_max)
+        # Set motor min and max currents        
+        front_motor.set_motor_current_limits(
+            front_motor.data.motor_target_current_limit_min,
+            front_motor.data.motor_target_current_limit_max)
         
-        front_motor.set_motor_current_limit_min(front_motor.data.motor_target_current_limit_min)
-        rear_motor.set_motor_current_limit_min(rear_motor.data.motor_target_current_limit_min)
-        
-        front_motor.set_battery_current_limit_max(front_motor.data.battery_target_current_limit_max)
-        rear_motor.set_battery_current_limit_max(rear_motor.data.battery_target_current_limit_max)
+        rear_motor.set_motor_current_limits(
+            rear_motor.data.motor_target_current_limit_min,
+            rear_motor.data.motor_target_current_limit_max)
 
-        front_motor.set_battery_current_limit_min(front_motor.data.battery_target_current_limit_min)
-        rear_motor.set_battery_current_limit_min(rear_motor.data.battery_target_current_limit_min)
+        # Set battery min and max currents        
+        front_motor.set_battery_current_limits(
+            front_motor.data.battery_target_current_limit_min,
+            front_motor.data.battery_target_current_limit_max)
+        
+        rear_motor.set_battery_current_limits(
+            rear_motor.data.battery_target_current_limit_min,
+            rear_motor.data.battery_target_current_limit_max)
         
         # Check if brakes are active
         vars.brakes_are_active = True if brake_sensor.value else False
@@ -243,7 +265,7 @@ async def task_control_motor():
             # If brakes are not active, set the motor speed
             else:
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
-                rear_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+                rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
             
         # We just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout

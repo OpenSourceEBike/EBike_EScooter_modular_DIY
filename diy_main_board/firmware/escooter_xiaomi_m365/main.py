@@ -4,7 +4,7 @@ import supervisor
 import simpleio
 import asyncio
 import ebike_data
-import vesc
+import diy_main_board.firmware.motor as motor
 import m365_dashboard as m365_dashboard
 import simpleio
 
@@ -61,11 +61,11 @@ def utils_step_towards(current_value, target_value, step):
     return value
 
 ebike = ebike_data.EBike()
-vesc = vesc.Vesc(
+motor = motor.Vesc(
     board.IO13, # UART TX pin that connect to VESC
     board.IO14, # UART RX pin that connect to VESC
     ebike) #VESC data object to hold the VESC data
-vesc.set_motor_current_brake_amps(8)
+motor.set_motor_current_brake_amps(8)
 
 dashboard = m365_dashboard.M365_dashboard(
     board.IO12, # UART TX pin
@@ -77,10 +77,10 @@ dashboard = m365_dashboard.M365_dashboard(
 async def task_vesc_heartbeat():
     while True:
         # VESC heart beat must be sent more frequently than 1 second, otherwise the motor will stop
-        vesc.send_heart_beat()
+        motor.send_heart_beat()
         
         # ask for VESC latest data
-        vesc.refresh_data()
+        motor.refresh_data()
 
         # idle 500ms
         await asyncio.sleep(0.5)
@@ -153,9 +153,9 @@ def motor_control():
     # let's update the motor current, only if the target value changed and brakes are not active
     if ebike.brakes_are_active:
         if motor_control_scheme == 'current':
-            vesc.set_motor_current_amps(0)
+            motor.set_motor_current_amps(0)
         elif motor_control_scheme == 'speed':
-            vesc.set_motor_speed_rpm(0)
+            motor.set_motor_speed_rpm(0)
 
         ebike.motor_target = 0
         ebike.previous_motor_target = 0
@@ -164,13 +164,13 @@ def motor_control():
         ebike.previous_motor_target = ebike.motor_target
 
         if motor_control_scheme == 'current':
-            vesc.set_motor_current_amps(ebike.motor_target)
+            motor.set_motor_current_amps(ebike.motor_target)
         elif motor_control_scheme == 'speed':
             # when speed is near zero, set motor current to 0 to release the motor
             if ebike.motor_target == 0 and ebike.motor_speed_erpm < 750: # about 2 km/h:
-                vesc.set_motor_current_amps(0)
+                motor.set_motor_current_amps(0)
             else:
-                vesc.set_motor_speed_rpm(ebike.motor_target)
+                motor.set_motor_speed_rpm(ebike.motor_target)
     
     # for debug only        
     # print()
