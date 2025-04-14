@@ -2,6 +2,7 @@ import busio
 import canio
 import struct
 import time
+import board
 
 # Singleton class as can only exist one object to communicate with VESC
 class Vesc(object):
@@ -24,7 +25,7 @@ class Vesc(object):
                 # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
                 receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
         else:
-            self._can_bus = canio.CAN(rear_motor_data.cfg.can_tx_pin, rear_motor_data.cfg.can_tx_pin, baudrate = 500000)
+            self._can_bus = canio.CAN(tx=rear_motor_data.cfg.can_tx_pin, rx=rear_motor_data.cfg.can_rx_pin, baudrate=500000)
         
         # assuming max packet size of 79, like the one to read motor data
         self._vesc_data = bytearray(79 * 2)
@@ -94,7 +95,6 @@ class Vesc(object):
     def _can_pack_and_send(self, buf, can_id, command):      
         # send packet to CAN
         message = canio.Message(id=(can_id | command << 8), data=buf, extended=True)
-        print(message.id, [b for b in message.data])
         self._can_bus.send(message)
 
     def _uart_pack_and_send(self, buf, response_len, delay):
@@ -190,7 +190,7 @@ class Vesc(object):
         counter_messages = 8
         with self._can_bus.listen(timeout=1.0) as listener: 
             # Read max of 8 messages at a time
-            # 4 messages for each motor / VESC 
+            # 8 messages for each motor / VESC 
             while listener.in_waiting() and counter_messages > 0:
                 msg = listener.receive()
                 counter_messages -= 1
@@ -209,7 +209,6 @@ class Vesc(object):
                     motor_data.motor_current_x100 = struct.unpack_from('>h', msg.data, 4)[0]
                         
                 # CAN_PACKET_STATUS_4
-                # DONE
                 elif can_message_id == 16:
                     motor_data.vesc_temperature_x10 = struct.unpack_from('>h', msg.data, 0)[0]
                     motor_data.motor_temperature_x10 = struct.unpack_from('>h', msg.data, 2)[0]
@@ -222,7 +221,7 @@ class Vesc(object):
                 # CAN_PACKET_STATUS_7
                 elif can_message_id == 99:
                     motor_data.battery_soc_x1000 = struct.unpack_from('>h', msg.data, 0)[0]
-            
+
             # ignore other messages in the buffer
             while listener.in_waiting():
                 listener.receive()
@@ -322,7 +321,7 @@ class Vesc(object):
         tx_command_buffer = bytearray(4)
         struct.pack_into('>l', tx_command_buffer, 0, int(value))
         self._can_pack_and_send(tx_command_buffer, can_id, 3) # CAN_PACKET_SET_RPM = 3
-           
+        
     def set_uart_motor_speed_rpm(self, value):
         """Set motor speed in RPM"""
         tx_command_buffer = bytearray(5)
@@ -451,4 +450,5 @@ class Vesc(object):
 
         struct.pack_into('>l', tx_command_buffer, 3, int(value))
         self._uart_pack_and_send(tx_command_buffer, 0, 0.001)
+
 

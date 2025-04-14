@@ -1,14 +1,14 @@
-#The following code is useful for development
-import supervisor
-if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
-    # If not a soft reload, exit immediately
-    print("Code not run at startup. Press Ctrl+D to run.")
-    while True:
-         pass # Or use time.sleep(1000) to keep the device from doing anything.
-else:
-    # Your code that should run only on Ctrl+D goes here
-    print("Running on Ctrl+D (soft reload).")
-    # ... your main code ...
+# #The following code is useful for development
+# import supervisor
+# if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
+#     # If not a soft reload, exit immediately
+#     print("Code not run at startup. Press Ctrl+D to run.")
+#     while True:
+#          pass # Or use time.sleep(1000) to keep the device from doing anything.
+# else:
+#     # Your code that should run only on Ctrl+D goes here
+#     print("Running on Ctrl+D (soft reload).")
+#     # ... your main code ...
 
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
@@ -90,7 +90,6 @@ async def task_motors_refresh_data():
         # refresh latest for VESC data
         front_motor.update_motor_data()
         rear_motor.update_motor_data()
-        # rear_motor.update_battery_soc()
         
         gc.collect()
         await asyncio.sleep(0.1)
@@ -168,7 +167,8 @@ async def task_control_motor():
         # Throttle
         
         # read 1st and 2nd throttle, and use the max value of both
-        throttle_value = max(throttle_1.value, throttle_2.value)
+        # throttle_value = max(throttle_1.value, throttle_2.value)
+        throttle_value = throttle_1.value
 
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
@@ -180,18 +180,24 @@ async def task_control_motor():
                 throttle_2_adc_previous_value > cfg.throttle_2_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             # VESC set_motor_current_amps command will release the motor
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
-            front_motor.set_motor_current_amps(0)
-            rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+            # front_motor.set_motor_current_amps(0)
+            # rear_motor.set_motor_current_amps(0)
+
+            # print(throttle_1_adc_previous_value, throttle_2_adc_previous_value)
+            
+            # throttle_2 is measuring incorrectly, so let's set it to 0
+            throttle_2_adc_previous_value = 0
+
                 
-            if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error:
-                message = f'throttle 1 value: {throttle_1_adc_previous_value} -- is over max, this can be dangerous!'
-            else:
-                message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
-            raise Exception(message)
+            # if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error:
+            #     message = f'throttle 1 value: {throttle_1_adc_previous_value} -- is over max, this can be dangerous!'
+            # else:
+            #     message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
+            # raise Exception(message)
             pass
     
         # Apply cruise control
@@ -364,3 +370,4 @@ async def main():
                         various_task)
 
 asyncio.run(main())
+
