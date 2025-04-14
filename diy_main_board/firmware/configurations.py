@@ -125,3 +125,4 @@ rear_motor_cfg.can_tx_pin = board.IO5
 # rear_motor_cfg.uart_rx_pin = board.IO14 # UART RX pin that connect to VESC
 # rear_motor_cfg.uart_baudrate = 115200 # VESC UART baudrate
 
+
