@@ -10,14 +10,10 @@ class Cfg(object):
         self.display_mac_address = 0
 
 class MotorCfg(object):
-    def __init__(self, can_id=None):
+    def __init__(self, can_id):
         self.can_id = can_id
-        self.is_can = False
         self.can_tx_pin = None
         self.can_rx_pin = None
-        self.uart_tx_pin = None
-        self.uart_rx_pin = None
-        self.uart_baudrate = None        
         self.poles_pair = 0
         self.wheel_radius = 0
         self.motor_current_limit_max_max = 0

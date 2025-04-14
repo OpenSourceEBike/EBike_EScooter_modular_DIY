@@ -167,7 +167,7 @@ async def task_motors_refresh_data():
         check_brakes()
         
         # refresh latest for VESC data
-        motor.update_motor_data()
+        motor.update_data()
 
         gc.collect()
         await asyncio.sleep(0.1)
