@@ -44,9 +44,6 @@ class CruiseControl(object):
 
 class Vars(object):
     def __init__(self):
-        self.motor_current_x100 = 0
-        self.motor_power = 0
-        self.motor_temperature_sensor_x10 = 0
         self.brakes_are_active = True
         self.torque_weight_x10 = 0
         self.cadence = 0
