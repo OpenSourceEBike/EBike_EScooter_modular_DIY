@@ -1,14 +1,14 @@
-#The following code is useful for development
-import supervisor
-if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
-    # If not a soft reload, exit immediately
-    print("Code not run at startup. Press Ctrl+D to run.")
-    while True:
-         pass # Or use time.sleep(1000) to keep the device from doing anything.
-else:
-    # Your code that should run only on Ctrl+D goes here
-    print("Running on Ctrl+D (soft reload).")
-    # ... your main code ...
+# #The following code is useful for development
+# import supervisor
+# if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
+#     # If not a soft reload, exit immediately
+#     print("Code not run at startup. Press Ctrl+D to run.")
+#     while True:
+#          pass # Or use time.sleep(1000) to keep the device from doing anything.
+# else:
+#     # Your code that should run only on Ctrl+D goes here
+#     print("Running on Ctrl+D (soft reload).")
+#     # ... your main code ...
 
 
 # Tested on a ESP32-S3-DevKitC-1-N8R2
@@ -49,18 +49,6 @@ while brake_sensor.value:
     print('brake at start')
     time.sleep(1)
 
-# object for left handle bar throttle
-throttle_1 = Throttle.Throttle(
-    cfg.throttle_1_pin,
-    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
-    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
-
-# object for right handle bar throttle
-throttle_2 = Throttle.Throttle(
-    cfg.throttle_2_pin,
-    min = cfg.throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
-    max = cfg.throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
-
 # objects to control the motors
 front_motor_data = MotorData(front_motor_cfg)
 rear_motor_data = MotorData(rear_motor_cfg)
@@ -79,6 +67,19 @@ rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_m
 
 # object to communicate with the display wireless by ESPNow
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
+
+# object for left handle bar throttle
+throttle_1 = Throttle.Throttle(
+    cfg.throttle_1_pin,
+    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
+
+# object for right handle bar throttle
+throttle_2 = Throttle.Throttle(
+    cfg.throttle_2_pin,
+    min = cfg.throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
+
 
 async def task_motors_refresh_data():
     global front_motor
@@ -164,42 +165,30 @@ async def task_control_motor():
         
         # read 1st and 2nd throttle, and use the max value of both
         throttle_1_value = throttle_1.value
-        # NOTE: for some reason, using Wifi/ESPNow, we need to do a 20ms delay between each ADC read!!!
-        # the await asyncio.sleep(0.02) 20ms is also needed!!!
-        # time.sleep(0.02)
-        throttle_2_value = throttle_2.value
-                
+        throttle_2_value = throttle_2.value                
         throttle_value = max(throttle_1_value, throttle_2_value)
-        
-        print('1', throttle_1.value, throttle_1.adc_value)
-        print('2', throttle_2.value, throttle_2.adc_value)
-        
-        # throttle_value = 0
-        
 
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
-        # throttle_1_adc_previous_value = throttle_1.adc_previous_value
-        # throttle_2_adc_previous_value = throttle_2.adc_previous_value
-        # if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error or \
-        #         throttle_2_adc_previous_value > cfg.throttle_2_adc_over_max_error:
-        #     # send 3x times the motor current 0, to make sure VESC receives it
-        #     # VESC set_motor_current_amps command will release the motor
-        #     front_motor.set_motor_current_amps(0)
-        #     rear_motor.set_motor_current_amps(0)
-        #     front_motor.set_motor_current_amps(0)
-        #     rear_motor.set_motor_current_amps(0)
-        #     front_motor.set_motor_current_amps(0)
-        #     rear_motor.set_motor_current_amps(0)
+        if throttle_1_value > cfg.throttle_1_adc_over_max_error or \
+                throttle_2_value > cfg.throttle_2_adc_over_max_error:
+            # send 3x times the motor current 0, to make sure VESC receives it
+            # VESC set_motor_current_amps command will release the motor
+            front_motor.set_motor_current_amps(0)
+            rear_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+            rear_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+            rear_motor.set_motor_current_amps(0)
                 
-        #     if throttle_1_adc_previous_value > cfg.throttle_1_adc_over_max_error:
-        #         message = f'throttle 1 value: {throttle_1_adc_previous_value} -- is over max, this can be dangerous!'
-        #     else:
-        #         message = f'throttle 2 value: {throttle_2_adc_previous_value} -- is over max, this can be dangerous!'
-        #     raise Exception(message)
-        #     pass
+            if throttle_1_value > cfg.throttle_1_adc_over_max_error:
+                message = f'throttle 1 value: {throttle_1_value} -- is over max, this can be dangerous!'
+            else:
+                message = f'throttle 2 value: {throttle_2_value} -- is over max, this can be dangerous!'
+            raise Exception(message)
+            pass
     
         # Apply cruise control
         throttle_value = cruise_control(
@@ -257,8 +246,6 @@ async def task_control_motor():
         # Check if brakes are active
         vars.brakes_are_active = True if brake_sensor.value else False
 
-        # print('vars.motors_enable_state', vars.motors_enable_state)
-
         # If motor state is disabled, set motor current to 0 to release the motor
         if vars.motors_enable_state == False:
             front_motor.set_motor_current_amps(0)
@@ -271,7 +258,6 @@ async def task_control_motor():
 
             # If brakes are not active, set the motor speed
             else:
-                print(front_motor.data.motor_target_speed)
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
             

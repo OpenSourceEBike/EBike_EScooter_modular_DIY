@@ -21,22 +21,13 @@ class Throttle(object):
         """
         # read ADC value
         return self._adc.value
-    
-    @property
-    def adc_previous_value(self):
-        """Read the throttle ADC value
-        return: throttle ADC value
-        """
-        return self._adc_previous_value
 
     @property
     def value(self):
         """Read the throttle
         return: throttle [0 - 1000]
         """
-        # read ADC value
-        self._adc_previous_value = self._adc.value
-
+        
         # map throttle to 0 --> 1000
-        throttle = int(simpleio.map_range(self._adc_previous_value, self._min, self._max, 0, 1000))
+        throttle = int(simpleio.map_range(self._adc.value, self._min, self._max, 0, 1000))
         return throttle

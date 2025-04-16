@@ -32,10 +32,7 @@ class Motor(object):
                     motor_data = motor_2.data
                 else:
                     return
-                
-                # DEBUG
-                # print(message.id, [b for b in message.data])
-                
+                                
                  # CAN_PACKET_STATUS_1
                 if message_id == 9:
                     motor_data.speed_erpm = struct.unpack_from('>l', message.data, 0)[0]
