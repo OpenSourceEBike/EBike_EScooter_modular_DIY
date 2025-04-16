@@ -9,22 +9,22 @@ front_motor_cfg = MotorCfg(can_id=1)
 
 # Define the CAN TX and RX pins for communications with Vesc
 # and set them on rear_motor_cfg, that will be ok as VESC is a Singleton
-rear_motor_cfg.can_rx_pin = board.IO4
-rear_motor_cfg.can_tx_pin = board.IO5
+rear_motor_cfg.can_rx_pin = board.IO5
+rear_motor_cfg.can_tx_pin = board.IO4
 
-# Brake for brake sensor
+# Brake pin for brake sensor
 cfg.brake_pin = board.IO12
 
 # Right handlebar throttle
-cfg.throttle_1_pin = board.IO11 # ADC input pin
+cfg.throttle_1_pin = board.IO6 # ADC input pin
 cfg.throttle_1_adc_min = 17000 # this is a value that should be a bit superior than the min value, so if throttle is in rest position, motor will not run
-cfg.throttle_1_adc_max = 49800 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
+cfg.throttle_1_adc_max = 48500 # this is a value that should be a bit lower than the max value, so if throttle is at max position, the calculated value of throttle will be the max
 cfg.throttle_1_adc_over_max_error = 54500 # this is a value that should be a bit superior than the max value, just to protect is the case there is some issue with the signal and then motor can keep run at max speed!!
 
 # Left handlebar throttle
-cfg.throttle_2_pin = board.IO10
-cfg.throttle_2_adc_min = 18000
-cfg.throttle_2_adc_max = 49000
+cfg.throttle_2_pin = board.IO1
+cfg.throttle_2_adc_min = 17000
+cfg.throttle_2_adc_max = 48500
 cfg.throttle_2_adc_over_max_error = 54500
 
 # This board MAC Address
@@ -118,3 +118,4 @@ front_motor_cfg.battery_current_limit_min_max_speed = 30.0
 rear_motor_cfg.battery_current_limit_min_min = -7.0
 rear_motor_cfg.battery_current_limit_min_max = -5.25 # about 25% less
 rear_motor_cfg.battery_current_limit_min_max_speed = 30.0
+
