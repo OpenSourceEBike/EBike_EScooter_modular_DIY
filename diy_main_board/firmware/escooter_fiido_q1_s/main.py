@@ -44,7 +44,7 @@ vars = Vars()
 brake_sensor = Brake.Brake(cfg.brake_pin)
 
 # if brakes are active at startup, block here
-# this is needed for development, to help keep the motor and the UART disable
+# this is needed for development, to help keep the motor disabled
 while brake_sensor.value:
     print('brake at start')
     time.sleep(1)
@@ -80,7 +80,6 @@ throttle_2 = Throttle.Throttle(
     min = cfg.throttle_2_adc_min, # min ADC value that throttle reads, plus some margin
     max = cfg.throttle_2_adc_max) # max ADC value that throttle reads, minus some margin
 
-
 async def task_motors_refresh_data():
     global front_motor
     global rear_motor
@@ -106,8 +105,10 @@ async def task_display_receive_process_data():
     global display
     
     while True:
-        # received and process data from the display
-        display.receive_process_data()
+        # Received and process data from the display
+        # Avoid send data while display is not ready
+        if vars.motors_enable_state == True:
+            display.receive_process_data()
 
         gc.collect()
         await asyncio.sleep(0.1)
@@ -386,7 +387,3 @@ async def main():
                         various_task)
 
 asyncio.run(main())
-
-
-
-

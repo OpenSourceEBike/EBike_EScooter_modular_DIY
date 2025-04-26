@@ -5,10 +5,10 @@ class Vars(object):
     def __init__(self):
         self.vesc_fault_code = 0
         self.battery_voltage_x10 = 0
-        self.battery_current_x100 = 0
+        self.battery_current_x10 = 0
         self.battery_soc_x1000 = 0
         self.motor_power = 0
-        self.motor_current_x100 = 0
+        self.motor_current_x10 = 0
         self.wheel_speed_x10 = 0
         self.brakes_are_active = False
         self.torque_weight = 0
