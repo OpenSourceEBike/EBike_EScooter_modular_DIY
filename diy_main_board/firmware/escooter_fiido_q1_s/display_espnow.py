@@ -43,8 +43,8 @@ class Display(object):
         if self._espnow is not None:
             try:
                 brakes_are_active = 1 if self._vars.brakes_are_active else 0            
-                battery_current_x100 = int(self._front_motor_data.battery_current_x100 + self._rear_motor_data.battery_current_x100)
-                motor_current_x100 = int(self._front_motor_data.motor_current_x100 + self._rear_motor_data.motor_current_x100)
+                battery_current_x10 = int(self._front_motor_data.battery_current_x10 + self._rear_motor_data.battery_current_x10)
+                motor_current_x10 = int(self._front_motor_data.motor_current_x10 + self._rear_motor_data.motor_current_x10)
                 
                 # Send the max value only
                 vesc_temperature_x10 = max(self._front_motor_data.vesc_temperature_x10, self._rear_motor_data.vesc_temperature_x10)
@@ -54,9 +54,9 @@ class Display(object):
                 self._espnow.send(
                     f"{int(BoardsIds.DISPLAY)} \
                     {int(self._rear_motor_data.battery_voltage_x10)} \
-                    {battery_current_x100} \
+                    {battery_current_x10} \
                     {int(self._rear_motor_data.battery_soc_x1000)} \
-                    {motor_current_x100} \
+                    {motor_current_x10} \
                     {int(self._rear_motor_data.wheel_speed * 10)} \
                     {int(brakes_are_active)} \
                     {int(vesc_temperature_x10)} \

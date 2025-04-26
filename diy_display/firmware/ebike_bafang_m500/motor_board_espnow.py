@@ -30,9 +30,9 @@ class MotorBoard(object):
                 # must have 9 elements: message_id + 8 variables
                 if data_list[0] == int(BoardsIds.DISPLAY) and len(data_list) == 9:
                     self._system_data.battery_voltage_x10 = data_list[1]
-                    self._system_data.battery_current_x100 = data_list[2]
+                    self._system_data.battery_current_x10 = data_list[2]
                     self._system_data.battery_soc_x1000 = data_list[3]
-                    self._system_data.motor_current_x100 = data_list[4]
+                    self._system_data.motor_current_x10 = data_list[4]
                     self._system_data.wheel_speed_x10 = data_list[5]
                     self._system_data.brakes_are_active = True if data_list[6] == 1 else False
                     self._system_data.vesc_temperature_x10 = data_list[7]

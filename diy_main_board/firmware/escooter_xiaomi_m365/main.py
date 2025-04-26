@@ -1,222 +1,215 @@
+# #The following code is useful for development
+# import supervisor
+# if supervisor.runtime.run_reason != supervisor.RunReason.REPL_RELOAD:
+#     # If not a soft reload, exit immediately
+#     print("Code not run at startup. Press Ctrl+D to run.")
+#     while True:
+#          pass # Or use time.sleep(1000) to keep the device from doing anything.
+# else:
+#     # Your code that should run only on Ctrl+D goes here
+#     print("Running on Ctrl+D (soft reload).")
+#     # ... your main code ...
+
+
+# Tested on a ESP32-S3-DevKitC-1-N8R2
+
 import board
 import time
 import supervisor
 import simpleio
 import asyncio
-import ebike_data
-import diy_main_board.firmware.motor as motor
-import m365_dashboard as m365_dashboard
-import simpleio
+import Brake
+import throttle as Throttle
+import escooter_xiaomi_m365.display_espnow as DisplayESPnow
+from microcontroller import watchdog
+from watchdog import WatchDogMode
+import wifi
+import gc
+from vars import Vars
+from motor import MotorData, Motor
+from configurations_escooter_xiaomi_m365 import cfg, front_motor_cfg, rear_motor_cfg
 
-import supervisor
-# supervisor.runtime.autoreload = False
+supervisor.runtime.autoreload = False
 
-# Tested on a ESP32-S3-DevKitC-1-N8R2
+print()
+print("Booting EBike/EScooter software")
 
-###############################################
-# OPTIONS
+# setup radio MAC Adreess
+wifi.radio.enabled = True
+wifi.radio.mac_address = bytearray(cfg.my_mac_address)
 
-# original M365 8.5 inches wheels are 215mm in diameter
-# M365 10 inches wheels are 245mm in diameter
-wheel_circunference = 245.0
+# object that holds various variables
+vars = Vars()
 
-throttle_max = 190
-throttle_min = 45
+# object to read the brake state
+brake_sensor = Brake.Brake(cfg.brake_pin)
 
-motor_min_current_start = 1.5 # to much lower value will make the motor vibrate and not run, so, impose a min limit (??)
-motor_max_current_limit = 40.0 # max value, be carefull to not burn your motor
+# if brakes are active at startup, block here
+# this is needed for development, to help keep the motor disabled
+while brake_sensor.value:
+    print('brake at start')
+    time.sleep(1)
 
-#motor_control_scheme = 'current'
-motor_control_scheme = 'speed'
+# objects to control the motors
+front_motor_data = MotorData(front_motor_cfg)
+front_motor = Motor(front_motor_data)
 
-# ramp up and down constants
-if motor_control_scheme == 'current':
-    ramp_up_time = 0.05 # ram up time for each 1A
-    ramp_down_time = 0.05 # ram down time for each 1A
-elif motor_control_scheme == 'speed':
-    ramp_up_time = 0.0001 # ram up time for each 1 erpm
-    ramp_down_time = 0.00005 # ram down time for each 1 erpm
+# object to communicate with the display wireless by ESPNow
+display = DisplayESPnow.Display(vars, front_motor.data, cfg.display_mac_address)
 
-xiaomi_m365_rear_lights_always_on = True
+# object for left handle bar throttle
+throttle = Throttle.Throttle(
+    cfg.throttle_1_pin,
+    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
 
-###############################################
 
-def utils_step_towards(current_value, target_value, step):
-    """ Move current_value towards the target_value, by increasing / decreasing by step
-    """
-    value = current_value
-
-    if current_value < target_value:
-        if (current_value + step) < target_value:
-            value += step
-        else:
-            value = target_value
+async def task_motor_refresh_data():
+    global front_motor
     
-    elif current_value > target_value:
-        if (current_value - step) > target_value:
-            value -= step
+    while True:
+        # Refresh latest for VESC data
+        front_motor.update_motor_data(front_motor)
+        
+        gc.collect()
+        await asyncio.sleep(0.05)
+
+
+async def task_display_send_data():
+    global display
+    
+    while True:
+        # send data to the display
+        # Avoid send data while display is not ready
+        if vars.motors_enable_state == True:
+            display.send_data()
+
+        gc.collect()
+        await asyncio.sleep(0.15)
+
+
+async def task_display_receive_process_data():
+    global display
+    
+    while True:
+        # Received and process data from the displaye:
+        display.receive_process_data()
+
+        gc.collect()
+        await asyncio.sleep(0.1)
+        
+
+async def task_control_motor():
+    global vars
+    global cfg
+    global button_press_state_previous
+    global front_motor
+    global throttle
+    global brake_sensor
+    
+    while True:
+        ##########################################################################################
+        # Throttle
+        
+        # read throttle
+        throttle_value = throttle.value
+
+        # check to see if throttle is over the suposed max error value,
+        # if this happens, that probably means there is an issue with ADC and this can be dangerous,
+        # as this did happen a few times during development and motor keeps running at max target / current / speed!!
+        # the raise Exception() will reset the system
+        if throttle_value > cfg.throttle_1_adc_over_max_error:
+            # send 3x times the motor current 0, to make sure VESC receives it
+            # VESC set_motor_current_amps command will release the motor
+            front_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+
+            message = f'throttle value: {throttle_value} -- is over max, this can be dangerous!'    
+            raise Exception(message)
+            pass
+            
+        # Calculate target speed
+        front_motor.data.motor_target_speed = simpleio.map_range(
+            throttle_value,
+            0.0,
+            1000.0,
+            0.0,
+            front_motor.data.cfg.motor_erpm_max_speed_limit)
+        
+        # Limit mins and max values
+        if front_motor.data.motor_target_speed < 500.0:
+            front_motor.data.motor_target_speed = 0.0
+        
+        if front_motor.data.motor_target_speed > \
+            front_motor.data.cfg.motor_erpm_max_speed_limit:
+            front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
+        
+        # Check if brakes are active
+        vars.brakes_are_active = True if brake_sensor.value else False
+
+        # If motor state is disabled, set motor current to 0 to release the motor
+        if vars.motors_enable_state == False:
+            front_motor.set_motor_current_amps(0)
+            
         else:
-            value = target_value
+            # If brakes are active, set motor speed to 0 to have the highest brake / regen
+            if vars.brakes_are_active:
+                front_motor.set_motor_speed_rpm(0)
 
-    return value
-
-ebike = ebike_data.EBike()
-motor = motor.Vesc(
-    board.IO13, # UART TX pin that connect to VESC
-    board.IO14, # UART RX pin that connect to VESC
-    ebike) #VESC data object to hold the VESC data
-motor.set_motor_current_brake_amps(8)
-
-dashboard = m365_dashboard.M365_dashboard(
-    board.IO12, # UART TX pin
-    board.IO11, # UART RX pin
-    board.IO10, # dashboard button
-    ebike,
-    xiaomi_m365_rear_lights_always_on)
-
-async def task_vesc_heartbeat():
-    while True:
-        # VESC heart beat must be sent more frequently than 1 second, otherwise the motor will stop
-        motor.send_heart_beat()
-        
-        # ask for VESC latest data
-        motor.refresh_data()
-
-        # idle 500ms
-        await asyncio.sleep(0.5)
-
-async def task_dashboard():
-    while True:
-        dashboard.process_data()
-
-        await asyncio.sleep(0.02)
-
-motor_max_target_accumulated = 0
-throttle_value_accumulated = 0
-def motor_control():
-    ##########################################################################################
-    # Throttle
-    # map torque value
-    if motor_control_scheme == 'current':
-        motor_max_target = motor_max_current_limit
-    elif motor_control_scheme == 'speed':
-        # low pass filter battery voltage
-        erpm_target = ebike.battery_voltage * 294 # this motor has near 11.9k erpm on max battery voltage 40.5V
-        global motor_max_target_accumulated
-        motor_max_target_accumulated -= ((int(motor_max_target_accumulated)) >> 7)
-        motor_max_target_accumulated += erpm_target
-        motor_max_target = (int(motor_max_target_accumulated)) >> 7
-      
-    motor_target = simpleio.map_range(
-        ebike.throttle_value,
-        throttle_min, # min input
-        throttle_max, # max input
-        0, # min output
-        motor_max_target) # max output
-    ##########################################################################################
-
-    # impose a min motor target value, as to much lower value will make the motor vibrate and not run (??)
-    if motor_control_scheme == 'current':
-        if motor_target < motor_min_current_start:
-            motor_target = 0
-    elif motor_control_scheme == 'speed':
-        if motor_target < 1260: # about 3.5 km/h
-            motor_target = 0
-  
-    # apply ramp up / down factor: faster when ramp down
-    if motor_target > ebike.motor_target:
-        ramp_time = ramp_up_time
-    else:
-        ramp_time = ramp_down_time
-        
-    time_now = time.monotonic_ns()
-    ramp_step = (time_now - ebike.ramp_last_time) / (ramp_time * 1000000000)
-    ebike.ramp_last_time = time_now
-    ebike.motor_target = utils_step_towards(ebike.motor_target, motor_target, ramp_step)
-
-    # let's limit the value
-    if motor_control_scheme == 'current':
-        if ebike.motor_target > motor_max_current_limit:
-            ebike.motor_target = motor_max_current_limit
-    # no limit for speed mode
-
-    # limit very small and negative values
-    if ebike.motor_target < 0.001:
-        ebike.motor_target = 0
-
-    # check if brakes are active
-    if ebike.brakes_value > 47:
-        ebike.brakes_are_active = True
-    else:
-        ebike.brakes_are_active = False
-
-    # let's update the motor current, only if the target value changed and brakes are not active
-    if ebike.brakes_are_active:
-        if motor_control_scheme == 'current':
-            motor.set_motor_current_amps(0)
-        elif motor_control_scheme == 'speed':
-            motor.set_motor_speed_rpm(0)
-
-        ebike.motor_target = 0
-        ebike.previous_motor_target = 0
-      
-    elif ebike.motor_target != ebike.previous_motor_target:
-        ebike.previous_motor_target = ebike.motor_target
-
-        if motor_control_scheme == 'current':
-            motor.set_motor_current_amps(ebike.motor_target)
-        elif motor_control_scheme == 'speed':
-            # when speed is near zero, set motor current to 0 to release the motor
-            if ebike.motor_target == 0 and ebike.motor_speed_erpm < 750: # about 2 km/h:
-                motor.set_motor_current_amps(0)
+            # If brakes are not active, set the motor speed
             else:
-                motor.set_motor_speed_rpm(ebike.motor_target)
-    
-    # for debug only        
-    # print()
-    # print(ebike.brakes_value, ebike.throttle_value, int(ramp_step), int(motor_target), int(ebike.motor_target))
+                front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+        
+        # We just updated the motor target, so let's feed the watchdog to avoid a system reset
+        watchdog.feed() # avoid system reset because watchdog timeout
 
-async def task_read_sensors_control_motor():
-    while True:
-        # motor control
-        motor_control()
-
-        # idle 20ms
+        gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
         await asyncio.sleep(0.02)
 
-async def task_various_0_5s():
-    assert(wheel_circunference > 100), "wheel_circunference must be higher then 100mm (4 inches wheel)"
+wheel_speed_previous_motor_speed_erpm = 0
+async def task_various():
+    global front_motor
+    global wheel_speed_previous_motor_speed_erpm
     
     while True:
-        # calculate wheel speed
-        # 15 pole pairs on Xiaomi M365 motor
-        # 1h --> 60 minutes
-        # 60 * 3.14 = 188.4
-        # 188.4 / 15 = 12,56
-        # mm to km --> 1000000 --> 0,00001256
-        ebike.wheel_speed = int(wheel_circunference * ebike.motor_speed_erpm * 0.00001256)
-        if ebike.wheel_speed > 99:
-            ebike.wheel_speed = 99
-        elif ebike.wheel_speed < 0:
-            ebike.wheel_speed = 0
 
-        # let's signal to update data to dashboard
-        ebike.update_data_to_dashboard = True
+        # calculate the rear motor wheel speed
+        if front_motor.data.speed_erpm != wheel_speed_previous_motor_speed_erpm:
+            wheel_speed_previous_motor_speed_erpm = front_motor.data.speed_erpm
+        
+            # Fiido Q1S with installed Luneye motor 2000W
+            # calculate the wheel speed in km/h
+            perimeter = 6.28 * front_motor.data.cfg.wheel_radius # 2*pi = 6.28
+            motor_rpm = front_motor.data.speed_erpm / front_motor.data.cfg.poles_pair
+            front_motor.data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60.0)
 
-        await asyncio.sleep(0.5)
+            if abs(front_motor.data.wheel_speed < 2.0):
+                front_motor.data.wheel_speed = 0.0
 
+        gc.collect() # https://learn.adafruit.com/Memory-saving-tips-for-CircuitPython
+        await asyncio.sleep(0.1)
+        
 async def main():
 
-    print("starting")
+    # setup watchdog, to reset the system if watchdog is not feed in time
+    # 1 second is the min timeout possible, should be more than enough as task_control_motor() feeds the watchdog
+    watchdog.timeout = 1
+    watchdog.mode = WatchDogMode.RESET
 
-    vesc_heartbeat_task = asyncio.create_task(task_vesc_heartbeat())
-    dashboard_task = asyncio.create_task(task_dashboard())
-    read_sensors_control_motor_task = asyncio.create_task(task_read_sensors_control_motor())
-    various_0_5s_task = asyncio.create_task(task_various_0_5s())
+    motor_refresh_data_task = asyncio.create_task(task_motor_refresh_data())
+    control_motor_task = asyncio.create_task(task_control_motor())
+    display_send_data_task = asyncio.create_task(task_display_send_data())
+    display_receive_process_data_task = asyncio.create_task(task_display_receive_process_data())
+    various_task = asyncio.create_task(task_various())
 
-    await asyncio.gather(vesc_heartbeat_task,
-                         dashboard_task,
-                         read_sensors_control_motor_task,
-                         various_0_5s_task)
+    print("Starting EBike/EScooter")
+    print()
+
+    await asyncio.gather(motor_refresh_data_task,
+                        display_send_data_task,
+                        display_receive_process_data_task,
+                        control_motor_task,
+                        various_task)
 
 asyncio.run(main())

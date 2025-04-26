@@ -342,7 +342,7 @@ while True:
             battery_voltage_area.text = f"{battery_voltage:2.1f}v"
 
         # Motor power
-        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x100) / 1000.0)
+        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
         if motor_power_previous != vars.motor_power:
             motor_power_previous = vars.motor_power
             motor_power = filter_motor_power(vars.motor_power)
