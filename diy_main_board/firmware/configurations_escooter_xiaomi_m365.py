@@ -57,10 +57,14 @@ cfg.display_mac_address = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
 # Original M365 motor has 15 pole pairs
 front_motor_cfg.poles_pair = 15
 
-# Original M365 8.5 inches wheels are 215mm in diameter
-# M365 10 inches wheels are 245mm in diameter
-front_motor_cfg.wheel_radius = 0.039
+# M365 10 inches wheels has 120mm radius
+front_motor_cfg.wheel_radius = 0.120
 
 # Max wheel speed in ERPM
-# error MUST calculate this value!!
-front_motor_cfg.motor_erpm_max_speed_limit = 100000
+# 12200 erpm --> 36.7 km/h
+front_motor_cfg.motor_erpm_max_speed_limit = 12200
+
+# Max motor regen current
+# Assuming motor current = 4 * battery current
+front_motor_cfg.motor_max_current_limit_min = 40.0
+front_motor_cfg.motor_max_current_limit_min = -20.0

@@ -50,18 +50,28 @@ while brake.value > cfg.brake_analog_adc_min:
     print('brake at start')
     time.sleep(1)
 
+# object for the handle bar throttle
+throttle = Throttle.Throttle(
+    cfg.throttle_1_pin,
+    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
+
+
+
+while True:
+    print('brake:', brake.adc_value, brake.value)
+    print('throttle:', throttle.adc_value, throttle.value)
+    print()
+    time.sleep(1)
+
+
+
 # objects to control the motors
 front_motor_data = MotorData(front_motor_cfg)
 front_motor = Motor(front_motor_data)
 
 # object to communicate with the display wireless by ESPNow
 display = DisplayESPnow.Display(vars, front_motor.data, cfg.display_mac_address)
-
-# object for the handle bar throttle
-throttle = Throttle.Throttle(
-    cfg.throttle_1_pin,
-    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
-    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
 
 
 async def task_motor_refresh_data():
@@ -129,17 +139,17 @@ async def task_control_motor():
             raise Exception(message)
         
         # Read brake
-        _brake_value = brake.value
+        brake_value = brake.value
         
         # Check to see if brake analog is over the suposed max error value
-        if _brake_value > cfg.brake_analog_adc_over_max_error:
+        if brake_value > cfg.brake_analog_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             # VESC set_motor_current_amps command will release the motor
             front_motor.set_motor_current_amps(0)
             front_motor.set_motor_current_amps(0)
             front_motor.set_motor_current_amps(0)
 
-            message = f'brake value: {_brake_value} -- is over max!'    
+            message = f'brake value: {brake_value} -- is over max!'    
             raise Exception(message)
             
         # Calculate target speed
@@ -150,12 +160,12 @@ async def task_control_motor():
             0.0,
             front_motor.data.cfg.motor_erpm_max_speed_limit)
         
-        brake_value = simpleio.map_range(
-            _brake_value,
-            cfg.brake_analog_adc_min,
-            cfg.brake_analog_adc_max,
+        motor_target_regen_current = simpleio.map_range(
+            brake_value,
             0.0,
-            1000.0)
+            1000.0,
+            0.0,
+            front_motor_cfg.motor_max_current_limit_min)
         
         # Limit mins and max values
         if motor_target_speed < 500.0:
@@ -168,12 +178,17 @@ async def task_control_motor():
         # Check if brakes are active
         vars.brakes_are_active = True if brake_value > 0 else False
 
+        # Set max motor currents: max current and max regen/brake current
+        front_motor.set_motor_current_limits(
+            motor_target_regen_current,
+            front_motor_cfg.motor_max_current_limit_max)
+
         # If motor state is disabled, set motor current to 0 to release the motor
         if vars.motors_enable_state == False:
             front_motor.set_motor_current_amps(0)
             
         else:
-            # If brakes are active, set motor speed to 0 to have the highest brake / regen
+            # If brakes are active, set motor speed to 0 to try stop/brake/regen
             if vars.brakes_are_active:
                 front_motor.set_motor_speed_rpm(0)
 
