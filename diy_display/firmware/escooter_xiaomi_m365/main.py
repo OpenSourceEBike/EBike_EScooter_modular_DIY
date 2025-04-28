@@ -34,8 +34,8 @@ print("Starting Display")
 # CONFIGURATIONS
 
 # MAC Address value needed for the wireless communication 
-my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
-mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
+my_mac_address = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
+mac_address_motor_board = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 ########################################
 
 vars = Vars.Vars()
@@ -200,8 +200,6 @@ def decrease_assist_level():
     assist_level -= 1
 
 def button_power_click_start_cb():
-  print('botao power')
-  
   vars.buttons_state |= 1
   
   # flip bit state
@@ -230,13 +228,13 @@ def button_power_long_click_release_cb():
   vars.buttons_state &= ~2
 
 def button_left_click_start_cb():
-  print('botao down')
+  pass
 
 def button_left_click_release_cb():
   pass
 
 def button_right_click_start_cb():
-  print('botao up')
+  pass
 
 def button_right_click_release_cb():
   pass
