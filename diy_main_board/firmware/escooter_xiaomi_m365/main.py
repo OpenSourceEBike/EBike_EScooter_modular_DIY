@@ -18,7 +18,7 @@ import time
 import supervisor
 import simpleio
 import asyncio
-import Brake
+import brake_analog
 import throttle as Throttle
 import escooter_xiaomi_m365.display_espnow as DisplayESPnow
 from microcontroller import watchdog
@@ -41,12 +41,12 @@ wifi.radio.mac_address = bytearray(cfg.my_mac_address)
 # object that holds various variables
 vars = Vars()
 
-# object to read the brake state
-brake_sensor = Brake.Brake(cfg.brake_pin)
+# object to read the analog brake
+brake = brake_analog.BrakeAnalog(cfg.brake_pin)
 
 # if brakes are active at startup, block here
 # this is needed for development, to help keep the motor disabled
-while brake_sensor.value:
+while brake.value > cfg.brake_analog_adc_min:
     print('brake at start')
     time.sleep(1)
 
@@ -57,7 +57,7 @@ front_motor = Motor(front_motor_data)
 # object to communicate with the display wireless by ESPNow
 display = DisplayESPnow.Display(vars, front_motor.data, cfg.display_mac_address)
 
-# object for left handle bar throttle
+# object for the handle bar throttle
 throttle = Throttle.Throttle(
     cfg.throttle_1_pin,
     min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
@@ -105,16 +105,16 @@ async def task_control_motor():
     global button_press_state_previous
     global front_motor
     global throttle
-    global brake_sensor
+    global brake
     
     while True:
         ##########################################################################################
         # Throttle
         
-        # read throttle
+        # Read throttle
         throttle_value = throttle.value
 
-        # check to see if throttle is over the suposed max error value,
+        # Check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
@@ -127,26 +127,46 @@ async def task_control_motor():
 
             message = f'throttle value: {throttle_value} -- is over max, this can be dangerous!'    
             raise Exception(message)
-            pass
+        
+        # Read brake
+        _brake_value = brake.value
+        
+        # Check to see if brake analog is over the suposed max error value
+        if _brake_value > cfg.brake_analog_adc_over_max_error:
+            # send 3x times the motor current 0, to make sure VESC receives it
+            # VESC set_motor_current_amps command will release the motor
+            front_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+            front_motor.set_motor_current_amps(0)
+
+            message = f'brake value: {_brake_value} -- is over max!'    
+            raise Exception(message)
             
         # Calculate target speed
-        front_motor.data.motor_target_speed = simpleio.map_range(
+        motor_target_speed = simpleio.map_range(
             throttle_value,
             0.0,
             1000.0,
             0.0,
             front_motor.data.cfg.motor_erpm_max_speed_limit)
         
-        # Limit mins and max values
-        if front_motor.data.motor_target_speed < 500.0:
-            front_motor.data.motor_target_speed = 0.0
+        brake_value = simpleio.map_range(
+            _brake_value,
+            cfg.brake_analog_adc_min,
+            cfg.brake_analog_adc_max,
+            0.0,
+            1000.0)
         
-        if front_motor.data.motor_target_speed > \
+        # Limit mins and max values
+        if motor_target_speed < 500.0:
+            motor_target_speed = 0.0
+        
+        if motor_target_speed > \
             front_motor.data.cfg.motor_erpm_max_speed_limit:
-            front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
+            motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
         
         # Check if brakes are active
-        vars.brakes_are_active = True if brake_sensor.value else False
+        vars.brakes_are_active = True if brake_value > 0 else False
 
         # If motor state is disabled, set motor current to 0 to release the motor
         if vars.motors_enable_state == False:
@@ -159,7 +179,7 @@ async def task_control_motor():
 
             # If brakes are not active, set the motor speed
             else:
-                front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
+                front_motor.set_motor_speed_rpm(motor_target_speed)
         
         # We just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
@@ -178,8 +198,7 @@ async def task_various():
         if front_motor.data.speed_erpm != wheel_speed_previous_motor_speed_erpm:
             wheel_speed_previous_motor_speed_erpm = front_motor.data.speed_erpm
         
-            # Fiido Q1S with installed Luneye motor 2000W
-            # calculate the wheel speed in km/h
+            # Calculate the wheel speed in km/h
             perimeter = 6.28 * front_motor.data.cfg.wheel_radius # 2*pi = 6.28
             motor_rpm = front_motor.data.speed_erpm / front_motor.data.cfg.poles_pair
             front_motor.data.wheel_speed = ((perimeter / 1000.0) * motor_rpm * 60.0)

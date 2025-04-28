@@ -1,13 +1,20 @@
 class Cfg(object):
     def __init__(self):
+        self.brake_pin = None
+        self.throttle_1_pin = None
+        self.throttle_2_pin = None
         self.throttle_1_adc_min = 0
         self.throttle_1_adc_max = 0
         self.throttle_1_adc_over_max_error = 0
         self.throttle_2_adc_min = 0
         self.throttle_2_adc_max = 0
         self.throttle_2_adc_over_max_error = 0
+        self.brake_analog_adc_min = 0
+        self.brake_analog_adc_max = 0
+        self.brake_analog_adc_over_max_error = 0
         self.my_mac_address = 0
         self.display_mac_address = 0
+        
 
 class MotorCfg(object):
     def __init__(self, can_id):
