@@ -51,11 +51,11 @@ class Display(object):
                 # Assuming battery voltage and wheel speed are the same for both motors
                 self._espnow.send(
                     f"{int(BoardsIds.DISPLAY)} \
-                    {int(self._rear_motor_data.battery_voltage_x10)} \
+                    {int(self._front_motor_data.battery_voltage_x10)} \
                     {battery_current_x10} \
-                    {int(self._rear_motor_data.battery_soc_x1000)} \
+                    {int(self._front_motor_data.battery_soc_x1000)} \
                     {motor_current_x10} \
-                    {int(self._rear_motor_data.wheel_speed * 10)} \
+                    {int(self._front_motor_data.wheel_speed * 10)} \
                     {int(brakes_are_active)} \
                     {int(vesc_temperature_x10)} \
                     {int(motor_temperature_x10)}",

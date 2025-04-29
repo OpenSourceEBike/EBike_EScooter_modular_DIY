@@ -32,6 +32,8 @@ class Motor(object):
                     motor_data = motor_2.data
                 else:
                     return
+                
+                # print('message_id', message_id)
                                 
                 # CAN_PACKET_STATUS_1
                 if message_id == 9:
@@ -101,7 +103,6 @@ class MotorData(object):
         self.motor_target_current_limit_min = 0
         self.battery_target_current_limit_max = 0
         self.battery_target_current_limit_min = 0
-        self.motor_min_current_start = 0
         self.speed_erpm = 0
         self.wheel_speed = 0
         self.motor_target_speed = 0.0

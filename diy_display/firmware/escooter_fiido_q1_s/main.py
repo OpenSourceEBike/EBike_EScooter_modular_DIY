@@ -1,42 +1,13 @@
-class ESP32Board:
-  ESP32_S2 = 0
-  ESP32_C3 = 1
-
-# esp32_board = ESP32Board.ESP32_S2
-esp32_board = ESP32Board.ESP32_C3
-
-#########################################################
-# Make a beep at boot
 import time
 import board
-import escooter_fiido_q1_s.buzzer as Buzzer
-
-if esp32_board == ESP32Board.ESP32_S2:
-  buzzer_pins = [
-    board.IO16,
-  ]
-elif esp32_board == ESP32Board.ESP32_C3:
-    buzzer_pins = [
-    board.IO20,
-  ]
-  
-buzzer = Buzzer.Buzzer(buzzer_pins)
-buzzer.duty_cycle = 0.03
-time.sleep(0.5)  
-buzzer.duty_cycle = 0.0
-#########################################################
-
 import wifi
 import display as Display
-import escooter_fiido_q1_s.motor_board_espnow as motor_board_espnow
+import escooter_xiaomi_m365.motor_board_espnow as motor_board_espnow
 import vars as Vars
 import displayio
 from adafruit_display_text import label
 import terminalio
 import thisbutton as tb
-import escooter_fiido_q1_s.power_switch_espnow as power_switch_espnow
-import escooter_fiido_q1_s.rear_lights_espnow as rear_lights_espnow
-import escooter_fiido_q1_s.front_lights_espnow as front_lights_espnow
 import espnow as _ESPNow
 import rtc_date_time
 from adafruit_bitmap_font import bitmap_font
@@ -62,12 +33,9 @@ print("Starting Display")
 ########################################
 # CONFIGURATIONS
 
-# MAC Address value needed for the wireless communication
-my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
-mac_address_power_switch_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
-mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
-mac_address_rear_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
-mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
+# MAC Address value needed for the wireless communication 
+my_mac_address = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
+mac_address_motor_board = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 ########################################
 
 vars = Vars.Vars()
@@ -81,33 +49,19 @@ rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
 _espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, vars)
-front_lights = front_lights_espnow.FrontLights(_espnow, mac_address_front_lights_board, vars)
-rear_lights = rear_lights_espnow.RearLights(_espnow, mac_address_rear_lights_board, vars)
 
 # this will try send data over ESPNow and if there is an error, will restart
 vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
 # just to check if is possible to send data to motor
 
-if esp32_board == ESP32Board.ESP32_S2:
-  _display = Display.Display(
-    board.IO11, # CLK pin
-    board.IO12, # MOSI pin
-    board.IO7, # chip select pin, not used but for some reason there is an error if chip_select is None
-    board.IO9, # command pin
-    board.IO5, # reset pin
-    board.IO3, # backlight pin
-    10000000) # spi clock frequency
-    
-elif esp32_board == ESP32Board.ESP32_C3:
-  _display = Display.Display(
-    board.IO3, # CLK / SCK pin
-    board.IO4, # MOSI / SDI pin
-    board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
-    board.IO2, # DC pin - command pin
-    board.IO0, # RST pin - reset pin
-    board.IO21, # LED pin - backlight pin
-    10000000) # spi clock frequency
+_display = Display.Display(
+  board.IO3, # CLK / SCK pin
+  board.IO4, # MOSI / SDI pin
+  board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
+  board.IO2, # DC pin - command pin
+  board.IO0, # RST pin - reset pin
+  board.IO21, # LED pin - backlight pin
+  10000000) # spi clock frequency
   
 _display.backlight_pwm(0.5)
 display = _display.display
@@ -183,9 +137,6 @@ now = time.monotonic()
 buttons_time_previous = now
 display_time_previous = now
 ebike_rx_tx_data_time_previous = now
-lights_send_data_time_previous = now
-power_switch_send_data_time_previous = now
-turn_lights_buzzer_time_previous = now
 update_date_time_previous = now
 update_date_time_once = False
 date_time_updated = None
@@ -202,35 +153,16 @@ wheel_speed_x10_previous = 9999
 brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
-rear_light_pin_tail_bit = 1
-rear_light_pin_stop_bit = 2
-rear_light_pin_turn_left_bit = 4
-rear_light_pin_turn_right_bit = 8
-
-front_light_pin_head_bit = 1
-
-turn_lights_buzzer_state = False
-
-# keep tail light always on
-vars.rear_lights_board_pins_state = 0
-
 def turn_off_execute():
-
+  
   motor.send_data()    
-
   vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-  power_switch.send_data()
 
-  front_lights.send_data()
-  rear_lights.send_data()
 
 def turn_off():
 
   # new values when turn off the system
   vars.motor_enable_state = False
-  vars.turn_off_relay = True
-  vars.front_lights_board_pins_state = 0
-  vars.rear_lights_board_pins_state = 0
 
   label_speed = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
   label_speed.anchor_point = (0.5, 0.5)
@@ -268,6 +200,8 @@ def decrease_assist_level():
     assist_level -= 1
 
 def button_power_click_start_cb():
+  print('botao power')
+  
   vars.buttons_state |= 1
   
   # flip bit state
@@ -275,9 +209,6 @@ def button_power_click_start_cb():
     vars.buttons_state &= ~0x0100
   else:
     vars.buttons_state |= 0x0100
-    
-#  if system_data.motor_enable_state:
-#    system_data.lights_state = not system_data.lights_state
     
 def button_power_click_release_cb():
   vars.buttons_state &= ~1
@@ -299,45 +230,26 @@ def button_power_long_click_release_cb():
   vars.buttons_state &= ~2
 
 def button_left_click_start_cb():
-  vars.rear_lights_board_pins_state |= rear_light_pin_turn_left_bit
+  print('botao down')
 
 def button_left_click_release_cb():
-  vars.rear_lights_board_pins_state &= ~rear_light_pin_turn_left_bit
+  pass
 
 def button_right_click_start_cb():
-  vars.rear_lights_board_pins_state |= rear_light_pin_turn_right_bit
+  print('botao up')
 
 def button_right_click_release_cb():
-  vars.rear_lights_board_pins_state &= ~rear_light_pin_turn_right_bit
-
-def button_lights_click_start_cb():
-  vars.lights_state = True
-
-def button_lights_click_release_cb():
-  vars.lights_state = False
+  pass
 
 ### Setup buttons ###
-if esp32_board == ESP32Board.ESP32_S2:
-  buttons_pins = [
-    board.IO17, # button_POWER
-    # board.IO6, # button_LEFT   
-    # board.IO7, # button_RIGHT
-    # board.IO10, # button_LIGHTS
-    board.IO21, # button_LIGHTS 
-  ]
-    
-elif esp32_board == ESP32Board.ESP32_C3:
-  buttons_pins = [
-    board.IO5, # button_POWER
-    # board.IO6, # button_LEFT   
-    # board.IO7, # button_RIGHT
-    # board.IO10, # button_LIGHTS
-    board.IO6, # button_LIGHTS 
-  ]
+buttons_pins = [
+  board.IO5, # button_POWER
+  board.IO6, # button_LEFT   
+  board.IO7, # button_RIGHT
+]
 
 nr_buttons = len(buttons_pins)
-#button_POWER, button_LEFT, button_RIGHT, button_LIGHTS = range(nr_buttons)
-button_POWER, button_LIGHTS = range(nr_buttons)
+button_POWER, button_LEFT, button_RIGHT = range(nr_buttons)
 
 buttons_callbacks = {
   button_POWER: {
@@ -345,15 +257,12 @@ buttons_callbacks = {
     'click_release': button_power_click_release_cb,
     'long_click_start': button_power_long_click_start_cb,
     'long_click_release': button_power_long_click_release_cb},
-  # button_LEFT: {
-  #   'click_start': button_left_click_start_cb,
-  #   'click_release': button_left_click_release_cb},
-  # button_RIGHT: {
-  #   'click_start': button_right_click_start_cb,
-  #   'click_release': button_right_click_release_cb},
-  button_LIGHTS: {
-    'click_start': button_lights_click_start_cb,
-    'click_release': button_lights_click_release_cb},
+  button_LEFT: {
+    'click_start': button_left_click_start_cb,
+    'click_release': button_left_click_release_cb},
+  button_RIGHT: {
+    'click_start': button_right_click_start_cb,
+    'click_release': button_right_click_release_cb},
 }
 
 buttons = [0] * nr_buttons
@@ -400,9 +309,9 @@ main_display_group.append(label_speed)
 main_display_group.append(label_time)
 main_display_group.append(label_warning_area)
 
-motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 64)
+motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 63)
 motor_power_widget.draw_contour()
-battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 64)
+battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 63)
 battery_soc_widget.draw_contour()
 
 display.root_group = main_display_group
@@ -412,20 +321,20 @@ while True:
     if (now - display_time_previous) > 0.1:
         display_time_previous = now
 
-        # battery
+        # Battery
         if battery_soc_previous_x1000 != vars.battery_soc_x1000:
             battery_soc_previous_x1000 = vars.battery_soc_x1000
             battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
 
-        # motor power
+        # Motor power
         vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
         if motor_power_previous != vars.motor_power:
             motor_power_previous = vars.motor_power
             motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 2000.0)
+            motor_power_percent = int((motor_power * 100) / 400.0)
             motor_power_widget.update(motor_power_percent)
             
-        # wheel speed
+        # Wheel speed
         if wheel_speed_x10_previous != vars.wheel_speed_x10:
             wheel_speed_x10_previous = vars.wheel_speed_x10  
             label_speed.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
@@ -450,54 +359,7 @@ while True:
             else:
                 label_warning_area.text = str("")
 
-    now = time.monotonic()
-    if (now - lights_send_data_time_previous) > 0.05:
-        lights_send_data_time_previous = now
-
-        # if we are braking, enable brake light
-        # braking current < 15A
-        if vars.brakes_are_active or vars.motor_current_x10 < -150:
-            vars.rear_lights_board_pins_state |= rear_light_pin_stop_bit
-        else:
-            vars.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
-
-        # if lights are enable, enable the tail light 
-        if vars.lights_state:
-            vars.front_lights_board_pins_state |= front_light_pin_head_bit
-            vars.rear_lights_board_pins_state |= rear_light_pin_tail_bit
-        else:
-            vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
-            vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
-
-        front_lights.send_data()
-        rear_lights.send_data()
-
-
-    now = time.monotonic()  
-    if vars.rear_lights_board_pins_state & rear_light_pin_turn_left_bit or \
-        vars.rear_lights_board_pins_state & rear_light_pin_turn_right_bit:
-          
-          if (now - turn_lights_buzzer_time_previous) > 0.5:
-              turn_lights_buzzer_time_previous = now
-          
-              if turn_lights_buzzer_state:
-                  buzzer.duty_cycle = 0.03
-              else:
-                  buzzer.duty_cycle = 0.0
-              
-              turn_lights_buzzer_state = not turn_lights_buzzer_state
-            
-    else:
-        buzzer.duty_cycle = 0.0
-        turn_lights_buzzer_state = True
-
-    now = time.monotonic()
-    if (now - power_switch_send_data_time_previous) > 0.5:
-        power_switch_send_data_time_previous = now
-
-        vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-        power_switch.send_data()
-
+    # Update buttons
     now = time.monotonic()
     if (now - buttons_time_previous) > 0.05:
         buttons_time_previous = now
@@ -505,14 +367,14 @@ while True:
         for index in range(nr_buttons):
             buttons[index].tick()
   
-    # update time on RTC just once
+    # Update time on RTC just once
     if update_date_time_once is False:
       now = time.monotonic()
       if (now - update_date_time_previous) > 2.0:
           update_date_time_once = True
           date_time_updated = rtc.update_date_time_from_wifi_ntp()
     
-    # update time
+    # Update time
     now = time.monotonic()
     if (now - date_time_previous) > 1.0:
         date_time_previous = now
@@ -523,6 +385,8 @@ while True:
         elif date_time_updated is False:
           label_time.text = f''
 
-    # sleep some time to save energy and avoid ESP32 to overheat
+    # Sleep some time to save energy and avoid ESP32 to overheat
     time.sleep(0.01)
+
+
 
