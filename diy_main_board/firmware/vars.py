@@ -36,8 +36,8 @@ class MotorCfg(object):
         self.battery_current_limit_min_max = 0
         self.battery_current_limit_min_min = 0
         self.motor_erpm_max_speed_limit = 0
-        self.motor_max_current_limit_max = 0
         self.motor_min_current_start = 0
+        self.motor_max_current_limit_max = 0
         self.motor_max_current_limit_min = 0
         self.battery_max_current_limit_max = 0
         self.battery_max_current_limit_min = 0
@@ -62,6 +62,3 @@ class Vars(object):
         self.cruise_control = CruiseControl()
         self.assist_level = 0
         
-        
-
-

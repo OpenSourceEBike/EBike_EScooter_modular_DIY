@@ -27,7 +27,7 @@ import wifi
 import gc
 from vars import Vars
 from motor import MotorData, Motor
-from configurations_escooter_xiaomi_m365 import cfg, front_motor_cfg, rear_motor_cfg
+from configurations_escooter_xiaomi_m365 import cfg, front_motor_cfg
 
 supervisor.runtime.autoreload = False
 
@@ -41,8 +41,17 @@ wifi.radio.mac_address = bytearray(cfg.my_mac_address)
 # object that holds various variables
 vars = Vars()
 
+# object for the handle bar throttle
+throttle = Throttle.Throttle(
+    cfg.throttle_1_pin,
+    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
+    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
+
 # object to read the analog brake
-brake = brake_analog.BrakeAnalog(cfg.brake_pin)
+brake = brake_analog.BrakeAnalog(
+    cfg.brake_pin,
+    cfg.brake_analog_adc_min,
+    cfg.brake_analog_adc_max)
 
 # if brakes are active at startup, block here
 # this is needed for development, to help keep the motor disabled
@@ -50,23 +59,9 @@ while brake.value > cfg.brake_analog_adc_min:
     print('brake at start')
     time.sleep(1)
 
-# object for the handle bar throttle
-throttle = Throttle.Throttle(
-    cfg.throttle_1_pin,
-    min = cfg.throttle_1_adc_min, # min ADC value that throttle reads, plus some margin
-    max = cfg.throttle_1_adc_max) # max ADC value that throttle reads, minus some margin
-
-
-
-while True:
-    print('brake:', brake.adc_value, brake.value)
-    print('throttle:', throttle.adc_value, throttle.value)
-    print()
-    time.sleep(1)
-
-
-
-# objects to control the motors
+# Objects to control the motors
+# Delay time needed for the CAN initialization (??), otherwise CAN will not work
+time.sleep(2.5)
 front_motor_data = MotorData(front_motor_cfg)
 front_motor = Motor(front_motor_data)
 
@@ -122,13 +117,14 @@ async def task_control_motor():
         # Throttle
         
         # Read throttle
+        throttle_adc_value = throttle.adc_value
         throttle_value = throttle.value
 
         # Check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
         # the raise Exception() will reset the system
-        if throttle_value > cfg.throttle_1_adc_over_max_error:
+        if throttle_adc_value > cfg.throttle_1_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             # VESC set_motor_current_amps command will release the motor
             front_motor.set_motor_current_amps(0)
@@ -139,10 +135,11 @@ async def task_control_motor():
             raise Exception(message)
         
         # Read brake
+        brake_adc_value = brake.adc_value
         brake_value = brake.value
         
         # Check to see if brake analog is over the suposed max error value
-        if brake_value > cfg.brake_analog_adc_over_max_error:
+        if brake_adc_value > cfg.brake_analog_adc_over_max_error:
             # send 3x times the motor current 0, to make sure VESC receives it
             # VESC set_motor_current_amps command will release the motor
             front_motor.set_motor_current_amps(0)
@@ -178,6 +175,10 @@ async def task_control_motor():
         # Check if brakes are active
         vars.brakes_are_active = True if brake_value > 0 else False
 
+        # Keep motor regen current at max if not brakes are active
+        if vars.brakes_are_active == False:
+            motor_target_regen_current = front_motor_cfg.motor_max_current_limit_min
+            
         # Set max motor currents: max current and max regen/brake current
         front_motor.set_motor_current_limits(
             motor_target_regen_current,
@@ -195,6 +196,15 @@ async def task_control_motor():
             # If brakes are not active, set the motor speed
             else:
                 front_motor.set_motor_speed_rpm(motor_target_speed)
+
+                        
+        # print('brake_value', brake_value)
+        # print('throttle_value', throttle_value)
+        # print('brakes', vars.brakes_are_active)
+        # print('currents', motor_target_regen_current, front_motor_cfg.motor_max_current_limit_max)
+        # print('target_speed', motor_target_speed)
+        # print()
+
         
         # We just updated the motor target, so let's feed the watchdog to avoid a system reset
         watchdog.feed() # avoid system reset because watchdog timeout
@@ -247,3 +257,4 @@ async def main():
                         various_task)
 
 asyncio.run(main())
+
