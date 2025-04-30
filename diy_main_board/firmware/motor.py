@@ -50,7 +50,7 @@ class Motor(object):
                 elif message_id == 27:
                     motor_data.battery_voltage_x10 = struct.unpack_from('>h', message.data, 4)[0]
                 
-                # CAN_PACKET_STATUS_7
+                # CAN_PACKET_STATUS_99
                 elif message_id == 99:
                     motor_data.battery_soc_x1000 = struct.unpack_from('>h', message.data, 0)[0]
                     

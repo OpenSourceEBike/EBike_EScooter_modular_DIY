@@ -61,7 +61,7 @@ while brake.value > cfg.brake_analog_adc_min:
 
 # Objects to control the motors
 # Delay time needed for the CAN initialization (??), otherwise CAN will not work
-time.sleep(2.5)
+time.sleep(3.5)
 front_motor_data = MotorData(front_motor_cfg)
 front_motor = Motor(front_motor_data)
 
