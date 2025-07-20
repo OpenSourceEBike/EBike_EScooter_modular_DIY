@@ -3,32 +3,24 @@ import struct
 
 # Singleton class as can only exist one object to communicate with VESC
 class Vesc(object):
-    _instance = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
-
-
-    EXPECTED_PACKET_LENGTH = 74
 
     def __init__(self, front_motor_data, rear_motor_data):
-        if not hasattr(self, 'initialized'):
-            self._front_motor_data = front_motor_data
-            self._rear_motor_data = rear_motor_data
+        
+        self._front_motor_data = front_motor_data
+        self._rear_motor_data = rear_motor_data
 
-            # configure UART for communications with VESC
-            self._uart = busio.UART(
-                rear_motor_data.cfg.uart_tx_pin,
-                rear_motor_data.cfg.uart_rx_pin,
-                baudrate = rear_motor_data.cfg.uart_baudrate,
-                timeout = 0.005, # 5ms is enough for reading the UART
-                # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
-                receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
+        # configure UART for communications with VESC
+        self._uart = busio.UART(
+            rear_motor_data.cfg.uart_tx_pin,
+            rear_motor_data.cfg.uart_rx_pin,
+            baudrate = rear_motor_data.cfg.uart_baudrate,
+            # timeout = 0.005, # 5ms is enough for reading the UART
+            timeout = 0.100,
+            # NOTE: on CircuitPyhton 8.1.0-beta.2, a value of 512 will make the board to reboot if wifi wireless workflow is not connected
+            receiver_buffer_size = 1024) # VESC PACKET_MAX_PL_LEN = 512
 
-            # assuming max packet size of 79, like the one to read motor data
-            self._vesc_data = bytearray(79 * 2)
+        # assuming max packet size of 79, like the one to read motor data
+        self._vesc_data = bytearray(79 * 2)
 
     # code taken from:
     # https://gist.github.com/oysstu/68072c44c02879a2abf94ef350d1c7c6
@@ -71,7 +63,12 @@ class Vesc(object):
             bytes_in_uart_buffer = self._uart.in_waiting
             
     def _pack_and_send(self, buf, response_len):
+        start_byte = 2
+                
+        # if command is COMM_FORWARD_CAN, then get the real command
         vesc_command = buf[0]
+        if vesc_command == 34: # COMM_FORWARD_CAN
+            vesc_command = buf[2]
 
         #start byte + len + data + CRC 16 bits + end byte
         lenght = len(buf)
@@ -79,7 +76,7 @@ class Vesc(object):
         crc = self._crc16(buf)
 
         data_array = bytearray(package_len)
-        data_array[0] = 2 # start byte
+        data_array[0] = start_byte # start byte
         data_array[1] = lenght
         data_array[2: 2 + lenght] = buf # copy data
         data_array[package_len - 3] = (crc & 0xff00) >> 8
@@ -95,46 +92,43 @@ class Vesc(object):
 
             while bytes_in_uart_buffer:
                 
-                byte_ = self._uart.read(1)[0]
                 # check for expected start byte 2
-                if byte_ != 2:
+                if self._uart.read(1)[0] != start_byte:
                     bytes_in_uart_buffer = self._uart.in_waiting
-                    if bytes_in_uart_buffer:                        
+                    if bytes_in_uart_buffer == 0:
+                        # restart the while loop
                         continue
                     else:
                         # exit if there are no more bytes to read
                         return None
-                    
-                byte_ = self._uart.read(1)[0]
-                if byte_ != self.EXPECTED_PACKET_LENGTH:
+                
+                # check for expected payload lenght
+                payload_len = response_len - 5
+                if self._uart.read(1)[0] != payload_len:
                     bytes_in_uart_buffer = self._uart.in_waiting
                     if bytes_in_uart_buffer:                        
                         continue
                     else:
-                        # exit if there are no more bytes to read
                         return None
                     
-                byte_ = self._uart.read(1)[0]
                 # check for expected vesc_command
-                if byte_ != vesc_command:
+                if self._uart.read(1)[0] != vesc_command:
                     bytes_in_uart_buffer = self._uart.in_waiting
                     if bytes_in_uart_buffer:
                         continue
                     else:
-                        # exit if there are no more bytes to read
                         return None
                     
-                    
-                bytes_in_uart_buffer = self._uart.in_waiting
                 # if the UART buffer has no complete response, discard all buffer and exit
+                bytes_in_uart_buffer = self._uart.in_waiting
                 if bytes_in_uart_buffer < (response_len - 3):
                     self._uart_maybe_reset_input_buffer()
                     return None
 
                 # here we hope we are syncronized and have the full packet
                 # insert the initial bytes at the begin
-                self._vesc_data[0] = 2
-                self._vesc_data[1] = 74
+                self._vesc_data[0] = start_byte
+                self._vesc_data[1] = payload_len
                 self._vesc_data[2] = vesc_command
                 self._vesc_data[3:] = self._uart.read(response_len - 3)
 
@@ -152,39 +146,39 @@ class Vesc(object):
             
     def update_motor_data(self):
         
-        tx_command_buffer = bytearray([1])
+        tx_command_buffer = bytearray(1)
         tx_command_buffer[0] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         response = self._pack_and_send(tx_command_buffer, 79)
-
+        
         if response is not None:
-            # for debug
-            # print(",".join(["{}".format(i) for i in response]))
-            # for index, data in enumerate(response):
-            #     print(str(index) + ": " + str(data))
-
+            print('r uart ok')
+        else:
+            print('r uart Nok')
+            
+        if response is not None:
             # store the motor controller data
             self._rear_motor_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
             self._rear_motor_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
             self._rear_motor_data.motor_current_x100 = struct.unpack_from('>l', response, 7)[0]
             self._rear_motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
-            self._rear_motor_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
+            self._rear_motor_data.speed_erpm = struct.unpack_from('>l', response, 25)[0]
             self._rear_motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
             self._rear_motor_data.vesc_fault_code = response[55]
-      
+        
     def update_can_motor_data(self):
         
-        tx_command_buffer = bytearray([3])
+        tx_command_buffer = bytearray(3)
         tx_command_buffer[0] = 34 # COMM_FORWARD_CAN
         tx_command_buffer[1] = self._front_motor_data.cfg.can_id
         tx_command_buffer[2] = 4 # COMM_GET_VALUES = 4; 79 bytes response (firmware bldc main branch, April 2024, commit: c8be115bb5be5a5558e3a50ba82e55931e3a45c4)
         response = self._pack_and_send(tx_command_buffer, 79)
 
         if response is not None:
-            # for debug
-            # print(",".join(["{}".format(i) for i in response]))
-            # for index, data in enumerate(response):
-            #     print(str(index) + ": " + str(data))
+            print('r can ok')
+        else:
+            print('r can Nok')
 
+        if response is not None:
             # store the motor controller data
             self._front_motor_data.vesc_temperature_x10 = struct.unpack_from('>h', response, 3)[0]
             self._front_motor_data.motor_temperature_x10 = struct.unpack_from('>h', response, 5)[0]
@@ -192,7 +186,7 @@ class Vesc(object):
             self._front_motor_data.battery_current_x100 = struct.unpack_from('>l', response, 11)[0]
             self._front_motor_data.motor_speed_erpm = struct.unpack_from('>l', response, 25)[0]
             self._front_motor_data.battery_voltage_x10 = struct.unpack_from('>h', response, 29)[0]
-            self._front_motor_data.vesc_fault_code = response[55]      
+            self._front_motor_data.vesc_fault_code = response[55]  
       
     def set_motor_current_amps(self, value):
         """Set battery Amps"""

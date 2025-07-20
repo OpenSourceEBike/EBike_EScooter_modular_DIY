@@ -10,8 +10,10 @@ class Cfg(object):
         self.display_mac_address = 0
 
 class MotorCfg(object):
-    def __init__(self, motor_number):
-        self.number = motor_number
+    def __init__(self, can_id):
+        self.can_id = can_id
+        self.can_tx_pin = None
+        self.can_rx_pin = None
         self.poles_pair = 0
         self.wheel_radius = 0
         self.motor_current_limit_max_max = 0
@@ -52,8 +54,10 @@ class Vars(object):
         self.throttle_value = 0
         self.brakes_value = 0
         self.motors_enable_state = False
-        self.button_power_state = 0
+        self.buttons_state = 0
         self.cruise_control = CruiseControl()
+        self.assist_level = 0
         
         
+
 
