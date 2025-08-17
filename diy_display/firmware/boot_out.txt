@@ -1,4 +1,7 @@
-Adafruit CircuitPython 9.0.0-rc.0 on 2024-03-08; S2Mini with ESP32S2-S2FN4R2
-Board ID:lolin_s2_mini
-UID:84722ED59B67
-[2K[0Gboot.py output:
+Adafruit CircuitPython 9.2.4 on 2025-01-29; Maker Go ESP32C3 Supermini with ESP32-C3
+Board ID:makergo_esp32c3_supermini
+UID:CDADC01A8741
+boot.py output:
+Traceback (most recent call last):
+  File "boot.py", line 2, in <module>
+RuntimeError: Cannot change USB devices now

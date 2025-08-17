@@ -20,8 +20,8 @@ class Display(object):
         
         self._display = displayio_st7565.ST7565(display_bus, width=128, height=64)
                 
-        self._backlight = pwmio.PWMOut(backlight_pin, frequency=1000)
-        self.backlight_pwm(1.0)
+        self._backlight = pwmio.PWMOut(backlight_pin, frequency=10000)
+        self.backlight_pwm(0.5)
         self._display.reverse = False
         self._display.contrast = 0
 
