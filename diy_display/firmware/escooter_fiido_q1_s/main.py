@@ -28,16 +28,13 @@ buzzer.duty_cycle = 0.0
 
 import wifi
 import display as Display
-import escooter_fiido_q1_s.motor_board_espnow as motor_board_espnow
 import vars as Vars
 import displayio
 from adafruit_display_text import label
 import terminalio
 import thisbutton as tb
-import escooter_fiido_q1_s.power_switch_espnow as power_switch_espnow
-import escooter_fiido_q1_s.rear_lights_espnow as rear_lights_espnow
-import escooter_fiido_q1_s.front_lights_espnow as front_lights_espnow
-import espnow as _ESPNow
+from espnow_manager import ESPNOWManager, ESPNOWNodeBase
+from firmware_common.boards_ids import BoardsIds
 import escooter_fiido_q1_s.rtc_date_time as rtc_date_time
 from adafruit_bitmap_font import bitmap_font
 import battery_soc_widget as BatterySocWidget
@@ -79,11 +76,52 @@ wifi.radio.stop_ap()
 
 rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
-_espnow = _ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
-power_switch = power_switch_espnow.PowerSwitch(_espnow, mac_address_power_switch_board, vars)
-front_lights = front_lights_espnow.FrontLights(_espnow, mac_address_front_lights_board, vars)
-rear_lights = rear_lights_espnow.RearLights(_espnow, mac_address_rear_lights_board, vars)
+# ESPNow communications
+def motor_on_rx(pkt, vars):
+    parts = [int(x) for x in pkt.msg.split()]
+    if parts and parts[0] == int(BoardsIds.DISPLAY) and len(parts) == 9:
+        (vars.battery_voltage_x10,
+         vars.battery_current_x10,
+         vars.battery_soc_x1000,
+         vars.motor_current_x10,
+         vars.wheel_speed_x10,
+         brakes_active,
+         vars.vesc_temperature_x10,
+         vars.motor_temperature_x10) = parts[1:]
+        vars.brakes_are_active = (brakes_active == 1)
+
+def motor_make_tx(vars):
+    return f"{int(BoardsIds.MAIN_BOARD)} {1 if vars.motor_enable_state else 0} {vars.buttons_state}"
+
+motor_espnow_node = ESPNOWNodeBase(mac_address_motor_board, vars,
+                            on_rx=motor_on_rx, make_tx=motor_make_tx, name="Motor")
+
+power_switch_espnow_node = ESPNOWNodeBase(
+    mac_address_power_switch_board,
+    vars,
+    make_tx=lambda vars: f"{int(BoardsIds.POWER_SWITCH)} \
+        {int(vars.display_communication_counter)} \
+        {int(vars.turn_off_relay)}",
+        name="PowerSwitch")
+
+front_lights_espnow_node = ESPNOWNodeBase(
+    mac_address_front_lights_board,
+    vars,
+    make_tx=lambda vars: f"{int(BoardsIds.FRONT_LIGHTS)} {int(vars.front_lights_board_pins_state)}",
+        name="FrontLights")
+
+rear_lights_espnow_node = ESPNOWNodeBase(
+    mac_address_rear_lights_board,
+    vars,
+    make_tx=lambda vars: f"{int(BoardsIds.REAR_LIGHTS)} {int(vars.rear_lights_board_pins_state)}",
+        name="RearLights")
+
+espnow_manager = ESPNOWManager(channel=1)
+espnow_manager.add_node(motor_espnow_node)
+espnow_manager.add_node(power_switch_espnow_node)
+espnow_manager.add_node(front_lights_espnow_node)
+espnow_manager.add_node(rear_lights_espnow_node)
+espnow_manager.start()
 
 # this will try send data over ESPNow and if there is an error, will restart
 vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
@@ -216,13 +254,13 @@ vars.rear_lights_board_pins_state = 0
 
 def turn_off_execute():
 
-  motor.send_data()    
+  motor_espnow_node.send_data()    
 
   vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-  power_switch.send_data()
+  power_switch_espnow_node.send_data()
 
-  front_lights.send_data()
-  rear_lights.send_data()
+  front_lights_espnow_node.send_data()
+  rear_lights_espnow.send_data()
 
 def turn_off():
 
@@ -433,8 +471,8 @@ while True:
     now = time.monotonic()
     if (now - ebike_rx_tx_data_time_previous) > 0.15:
         ebike_rx_tx_data_time_previous = now
-        motor.send_data()
-        motor.process_data()
+        motor_espnow_node.send_data()
+        motor_espnow_node.process_rx()
         
         if brakes_are_active_previous != vars.brakes_are_active:
             brakes_are_active_previous = vars.brakes_are_active
@@ -469,8 +507,8 @@ while True:
             vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
             vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
 
-        front_lights.send_data()
-        rear_lights.send_data()
+        front_lights_espnow_node.send_data()
+        rear_lights_espnow_node.send_data()
 
 
     now = time.monotonic()  
@@ -496,7 +534,7 @@ while True:
         power_switch_send_data_time_previous = now
 
         vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-        power_switch.send_data()
+        power_switch_espnow_node.send_data()
 
     now = time.monotonic()
     if (now - buttons_time_previous) > 0.05:
