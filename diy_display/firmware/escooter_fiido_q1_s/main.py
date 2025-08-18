@@ -5,27 +5,8 @@ class ESP32Board:
 # esp32_board = ESP32Board.ESP32_S2
 esp32_board = ESP32Board.ESP32_C3
 
-#########################################################
-# Make a beep at boot
 import time
 import board
-import escooter_fiido_q1_s.buzzer as Buzzer
-
-if esp32_board == ESP32Board.ESP32_S2:
-  buzzer_pins = [
-    board.IO16,
-  ]
-elif esp32_board == ESP32Board.ESP32_C3:
-    buzzer_pins = [
-    board.IO20,
-  ]
-  
-buzzer = Buzzer.Buzzer(buzzer_pins)
-buzzer.duty_cycle = 0.03
-time.sleep(0.5)  
-buzzer.duty_cycle = 0.0
-#########################################################
-
 import wifi
 import display as Display
 import vars as Vars
@@ -203,10 +184,16 @@ label_time = label.Label(FreeSans_20, text='.....')
 label_time.anchor_point = (1.0, 1.0)
 label_time.anchored_position = (129, 63)
 
-# warning area
+# information area
+label_information_area = label.Label(terminalio.FONT, text='')
+label_information_area.anchor_point = (0.0, 0.0)
+label_information_area.anchored_position = (0, 37)
+label_information_area.scale = 1
+
+# information area
 label_warning_area = label.Label(terminalio.FONT, text='')
-label_warning_area.anchor_point = (0.0, 0.0)
-label_warning_area.anchored_position = (0, 37)
+label_warning_area.anchor_point = (1.0, 0.0)
+label_warning_area.anchored_position = (129, 37)
 label_warning_area.scale = 1
 
 palette_white = displayio.Palette(1)
@@ -223,11 +210,11 @@ display_time_previous = now
 ebike_rx_tx_data_time_previous = now
 lights_send_data_time_previous = now
 power_switch_send_data_time_previous = now
-turn_lights_buzzer_time_previous = now
 update_date_time_previous = now
 update_date_time_once = False
 date_time_updated = None
 date_time_previous = now
+manage_errors_time_previous = now
 
 battery_soc_previous_x1000 = 9999
 battery_current_previous_x100 = 9999
@@ -238,7 +225,7 @@ vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
 wheel_speed_x10_previous = 9999
 brakes_are_active_previous = False
-vesc_fault_code_previous = 9999
+warning_code_previous = 9999
 
 rear_light_pin_tail_bit = 1
 rear_light_pin_stop_bit = 2
@@ -247,20 +234,18 @@ rear_light_pin_turn_right_bit = 8
 
 front_light_pin_head_bit = 1
 
-turn_lights_buzzer_state = False
-
 # keep tail light always on
 vars.rear_lights_board_pins_state = 0
 
 def turn_off_execute():
 
-  motor_espnow_node.send_data()    
+  motor_espnow_node.send_data()
 
   vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
   power_switch_espnow_node.send_data()
 
   front_lights_espnow_node.send_data()
-  rear_lights_espnow.send_data()
+  rear_lights_espnow_node.send_data()
 
 def turn_off():
 
@@ -436,6 +421,7 @@ vars.buttons_state = 0
 main_display_group = displayio.Group()
 main_display_group.append(label_speed)
 main_display_group.append(label_time)
+main_display_group.append(label_information_area)
 main_display_group.append(label_warning_area)
 
 motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 64)
@@ -477,17 +463,42 @@ while True:
         if brakes_are_active_previous != vars.brakes_are_active:
             brakes_are_active_previous = vars.brakes_are_active
             if vars.brakes_are_active:  
-                label_warning_area.text = str("brakes")
+                label_information_area.text = str("brakes")
             else:
-                label_warning_area.text = str("")
+                label_information_area.text = str("")
                 
-        elif vesc_fault_code_previous != vars.vesc_fault_code:
-            vesc_fault_code_previous = vars.vesc_fault_code
-            if vars.vesc_fault_code:
-                label_warning_area.text = str(f"mot e: {vars.vesc_fault_code}")
-            else:
-                label_warning_area.text = str("")
+    now = time.monotonic()
+    if (now - manage_errors_time_previous) > 2.0:
+        manage_errors_time_previous = now
+                
+        warning_code = vars.vesc_fault_code
+        if True:#warning_code_previous != warning_code:
+            warning_code_previous = warning_code
 
+            if warning_code == 0:
+                label_warning_area.text = ''
+            elif warning_code < ESPNOWNodeBase.ERR_OK:
+                label_warning_area.text = str(f"vesc {warning_code}")
+            else:
+                label_warning_area.text = str(f"espn {warning_code}")
+                
+                # print(warning_code)
+                print(vars.vesc_fault_code)
+                print(motor_espnow_node.error)
+                print(power_switch_espnow_node.error)
+                print(front_lights_espnow_node.error)
+                print(rear_lights_espnow_node.error)
+                print()
+                
+                # Restart ESPNow, let's see if there is a recovery
+                # espnow_manager.restart()
+                
+                # Clean the error flags
+                motor_espnow_node.clean_error()
+                power_switch_espnow_node.clean_error()
+                front_lights_espnow_node.clean_error()
+                rear_lights_espnow_node.clean_error()
+  
     now = time.monotonic()
     if (now - lights_send_data_time_previous) > 0.05:
         lights_send_data_time_previous = now
@@ -509,25 +520,6 @@ while True:
 
         front_lights_espnow_node.send_data()
         rear_lights_espnow_node.send_data()
-
-
-    now = time.monotonic()  
-    if vars.rear_lights_board_pins_state & rear_light_pin_turn_left_bit or \
-        vars.rear_lights_board_pins_state & rear_light_pin_turn_right_bit:
-          
-          if (now - turn_lights_buzzer_time_previous) > 0.5:
-              turn_lights_buzzer_time_previous = now
-          
-              if turn_lights_buzzer_state:
-                  buzzer.duty_cycle = 0.03
-              else:
-                  buzzer.duty_cycle = 0.0
-              
-              turn_lights_buzzer_state = not turn_lights_buzzer_state
-            
-    else:
-        buzzer.duty_cycle = 0.0
-        turn_lights_buzzer_state = True
 
     now = time.monotonic()
     if (now - power_switch_send_data_time_previous) > 0.5:
