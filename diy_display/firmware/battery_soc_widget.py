@@ -100,7 +100,6 @@ class BatterySOCWidget(object):
         )
     
     def update(self, battery_soc):
-        print(battery_soc)
         if battery_soc >= 20:
             if self._fill_rectangle_1 not in self._d_group:
                 self._d_group.append(self._fill_rectangle_1)

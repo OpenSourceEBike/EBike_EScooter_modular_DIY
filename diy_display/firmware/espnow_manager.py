@@ -80,7 +80,7 @@ class ESPNOWNodeBase:
             except Exception as e:
                 print(self._name, "rx error:", e)
 
-    def send(self):
+    def send_data(self):
         if not self._espnow or not self._make_tx:
             return
         try:
