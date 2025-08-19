@@ -14,7 +14,7 @@ class ESPNOWNodeBase:
         self._attached_espnow = None
 
         # ring buffer
-        self._buf_size = 5
+        self._buf_size = 2
         self._buf = [None] * self._buf_size
         self._buf_count = 0
         self._buf_head = 0
@@ -29,14 +29,45 @@ class ESPNOWNodeBase:
             self._buf_count += 1
 
     def _drain_messages(self):
-        """Non-blocking drain of all queued packets from ESPNow into ring buffer."""
         while self._espnow is not None:
-            pkt = self._espnow.read()
-            if pkt is None:
+            try:
+                raw = self._espnow.read()
+            except Exception as e:
                 break
+
+            if raw is None:
+                break
+
+            try:
+                if isinstance(raw, tuple) and len(raw) == 2:
+                    mac, payload = raw
+                    mac_b = bytes(mac)
+                    payload_b = bytes(payload)  # CÓPIA fundamental
+                    pkt = (mac_b, payload_b)
+
+                else:
+                    mac = getattr(raw, "mac", None)
+                    if mac is None:
+                        continue
+                    msg_or_payload = getattr(raw, "msg", None)
+                    if msg_or_payload is None:
+                        msg_or_payload = getattr(raw, "payload", None)
+                    if msg_or_payload is None:
+                        continue
+                    mac_b = bytes(mac)
+                    payload_b = bytes(msg_or_payload)  # CÓPIA
+                    pkt = (mac_b, payload_b)
+
+            except Exception:
+                continue
+
             # notify manager we had RX activity
             if self._manager is not None:
-                self._manager.note_rx_activity()
+                try:
+                    self._manager.note_rx_activity()
+                except Exception:
+                    pass
+
             self._push_pkt(pkt)
 
     def _iterate_buffer_oldest_first(self):

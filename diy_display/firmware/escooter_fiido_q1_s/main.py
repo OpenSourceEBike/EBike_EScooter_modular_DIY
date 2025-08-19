@@ -59,31 +59,41 @@ rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
 # ESPNow communications
 def motor_on_rx(pkt, vars):
-    # handle different driver return shapes:
-    # - raw bytes
-    # - (mac, msg_bytes)
-    # - object with .msg
-    if hasattr(pkt, "msg"):
-        msg = pkt.msg
-    elif isinstance(pkt, (tuple, list)) and len(pkt) >= 2:
-        msg = pkt[1]
-    else:
-        msg = pkt
+    _, payload = pkt
+    try:
+        s = payload.decode("ascii", "strict").strip()
+    except Exception:
+        return
 
-    if isinstance(msg, (bytes, bytearray)):
-        msg = msg.decode("utf-8", "ignore")
+    parts = s.split(None, 8)  # garante no máx. 9 elementos
+    if len(parts) != 9:
+        return
 
-    parts = [int(x) for x in msg.split()]
-    if parts and parts[0] == int(BoardsIds.DISPLAY) and len(parts) == 9:
-        (vars.battery_voltage_x10,
-         vars.battery_current_x10,
-         vars.battery_soc_x1000,
-         vars.motor_current_x10,
-         vars.wheel_speed_x10,
-         brakes_active,
-         vars.vesc_temperature_x10,
-         vars.motor_temperature_x10) = parts[1:]
-        vars.brakes_are_active = (brakes_active == 1)
+    try:
+        vals = [int(x) for x in parts]
+    except ValueError:
+        return
+
+    if vals[0] != int(BoardsIds.DISPLAY):
+        return
+
+    (vars.battery_voltage_x10,
+     vars.battery_current_x10,
+     vars.battery_soc_x1000,
+     vars.motor_current_x10,
+     vars.wheel_speed_x10,
+     brakes_active,
+     vars.vesc_temperature_x10,
+     vars.motor_temperature_x10) = vals[1:]
+
+    vars.brakes_are_active = (brakes_active == 1)
+
+# Only reset data that makes sense     
+def motor_on_rx_reset_data():
+    vars.battery_voltage_x10 = 0
+    vars.battery_current_x10 = 0
+    vars.motor_current_x10 = 0
+    vars.wheel_speed_x10 = 0
 
 def motor_make_tx(vars):
     return f"{int(BoardsIds.MAIN_BOARD)} {1 if vars.motor_enable_state else 0} {vars.buttons_state}"
@@ -490,6 +500,10 @@ while True:
 
         # Give priority to VESC errors              
         warning_code = ESPNOWManager.get_error()
+        if warning_code == ESPNOWManager.ERR_RX_TIMEOUT:
+            ESPNOWManager.clear_error()
+            motor_on_rx_reset_data()
+        
         is_vesc_error = False
         if vars.vesc_fault_code != 0:
             warning_code = vars.vesc_fault_code
