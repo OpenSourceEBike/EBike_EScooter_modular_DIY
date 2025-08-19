@@ -59,7 +59,21 @@ rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 
 # ESPNow communications
 def motor_on_rx(pkt, vars):
-    parts = [int(x) for x in pkt.msg.split()]
+    # handle different driver return shapes:
+    # - raw bytes
+    # - (mac, msg_bytes)
+    # - object with .msg
+    if hasattr(pkt, "msg"):
+        msg = pkt.msg
+    elif isinstance(pkt, (tuple, list)) and len(pkt) >= 2:
+        msg = pkt[1]
+    else:
+        msg = pkt
+
+    if isinstance(msg, (bytes, bytearray)):
+        msg = msg.decode("utf-8", "ignore")
+
+    parts = [int(x) for x in msg.split()]
     if parts and parts[0] == int(BoardsIds.DISPLAY) and len(parts) == 9:
         (vars.battery_voltage_x10,
          vars.battery_current_x10,
@@ -468,36 +482,32 @@ while True:
                 label_information_area.text = str("")
                 
     now = time.monotonic()
-    if (now - manage_errors_time_previous) > 2.0:
+    if (now - manage_errors_time_previous) > 1.0:
         manage_errors_time_previous = now
-                
-        warning_code = vars.vesc_fault_code
+
+        # Run/tick ESPNow manager
+        espnow_manager.tick()
+
+        # Give priority to VESC errors              
+        warning_code = ESPNOWManager.get_error()
+        is_vesc_error = False
+        if vars.vesc_fault_code != 0:
+            warning_code = vars.vesc_fault_code
+            is_vesc_error = True
+        elif warning_code != 0:
+            pass
+        else:
+           warning_code = 0
+
         if True:#warning_code_previous != warning_code:
             warning_code_previous = warning_code
 
             if warning_code == 0:
                 label_warning_area.text = ''
-            elif warning_code < ESPNOWNodeBase.ERR_OK:
+            elif is_vesc_error == True:
                 label_warning_area.text = str(f"vesc {warning_code}")
             else:
-                label_warning_area.text = str(f"espn {warning_code}")
-                
-                # print(warning_code)
-                print(vars.vesc_fault_code)
-                print(motor_espnow_node.error)
-                print(power_switch_espnow_node.error)
-                print(front_lights_espnow_node.error)
-                print(rear_lights_espnow_node.error)
-                print()
-                
-                # Restart ESPNow, let's see if there is a recovery
-                # espnow_manager.restart()
-                
-                # Clean the error flags
-                motor_espnow_node.clean_error()
-                power_switch_espnow_node.clean_error()
-                front_lights_espnow_node.clean_error()
-                rear_lights_espnow_node.clean_error()
+                label_warning_area.text = str(f"espnow {warning_code}")
   
     now = time.monotonic()
     if (now - lights_send_data_time_previous) > 0.05:
