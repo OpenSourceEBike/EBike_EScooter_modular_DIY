@@ -120,17 +120,73 @@ class ESPNOWNodeBase:
             for _ in self._iterate_buffer_oldest_first():
                 pass
 
-    def send_data(self):
-        """Build and send payload."""
-        if not self._espnow or not self._make_tx:
-            return
-        
-        payload = self._make_tx(self._vars)
-        if not payload:
-            return
-        if isinstance(payload, str):
-            payload = payload.encode("utf-8")   # <-- ensure bytes
-        self._espnow.send(payload, self._peer)
+# inside ESPNOWNodeBase
+
+def _ensure_peer_attached(self):
+    """Ensure our peer exists in espnow.peers (can be lost after resets)."""
+    try:
+        peers = getattr(self._espnow, "peers", None)
+        if peers is None:
+            return True  # some builds don't expose a list
+        if any(getattr(p, "mac", None) == self._mac for p in peers):
+            return True
+        # (Re)create and append
+        self._peer = espnow.Peer(mac=self._mac, channel=self._channel)
+        peers.append(self._peer)
+        return True
+    except Exception:
+        return False
+
+def send_data(self):
+    """Build and send payload (single attempt, no retries, no MTU guard)."""
+    if not self._espnow or not self._make_tx or not self._peer:
+        return
+
+    # Build payload (you control the format)
+    payload = self._make_tx(self._vars)
+    if not payload:
+        return
+
+    # Normalize to bytes (immutable/contiguous)
+    if isinstance(payload, str):
+        msg = payload.encode("ascii", "strict")
+    elif isinstance(payload, (bytes, bytearray, memoryview)):
+        msg = bytes(payload)
+    else:
+        msg = str(payload).encode("ascii", "strict")
+
+    # Best-effort ensure peer exists before sending (no retry)
+    self._ensure_peer_attached()
+
+    try:
+        # Use your fixed signature: send(payload, peer)
+        self._espnow.send(msg, self._peer)
+
+    except OSError as e:
+        # Handle common radio/driver states without retrying
+        try:
+            import errno
+            err = getattr(e, "errno", None)
+        except Exception:
+            err = None
+
+        if err == getattr(__import__("errno"), "EINVAL", -22):
+            # Likely peer missing; fix state for NEXT call
+            self._ensure_peer_attached()
+
+        elif err in (getattr(__import__("errno"), "ENODEV", -19),
+                     getattr(__import__("errno"), "ESHUTDOWN", -108)):
+            # Radio went away; request a restart (no resend here)
+            if self._manager:
+                try:
+                    self._manager.restart()
+                except Exception:
+                    pass
+        # EBUSY/EAGAIN or others: drop this attempt silently
+
+    except Exception:
+        # Any other transient error: drop this attempt
+        pass
 
 class ESPNOWManager:
     # ---- Global (static) error codes ----
