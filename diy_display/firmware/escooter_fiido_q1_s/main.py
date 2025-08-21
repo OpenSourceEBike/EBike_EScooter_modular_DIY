@@ -1,11 +1,8 @@
-class ESP32Board:
-  ESP32_S2 = 0
-  ESP32_C3 = 1
-
-# esp32_board = ESP32Board.ESP32_S2
-esp32_board = ESP32Board.ESP32_C3
-
+import microcontroller
+import traceback
+import supervisor
 import time
+import gc
 import board
 import wifi
 import display as Display
@@ -20,12 +17,11 @@ import escooter_fiido_q1_s.rtc_date_time as rtc_date_time
 from adafruit_bitmap_font import bitmap_font
 import battery_soc_widget as BatterySocWidget
 import motor_power_widget as MotorPowerWidget
+import error_queue as ErrorQueue
 
-import supervisor
 supervisor.runtime.autoreload = False
 
 print("Starting Display")
-
 
 # import digitalio
 # lights_button = digitalio.DigitalInOut(board.IO33)
@@ -47,6 +43,13 @@ mac_address_motor_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
 mac_address_rear_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
 mac_address_front_lights_board = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
 ########################################
+
+class ESP32Board:
+  ESP32_S2 = 0
+  ESP32_C3 = 1
+
+# esp32_board = ESP32Board.ESP32_S2
+esp32_board = ESP32Board.ESP32_C3
 
 vars = Vars.Vars()
 
@@ -239,6 +242,8 @@ update_date_time_once = False
 date_time_updated = None
 date_time_previous = now
 manage_errors_time_previous = now
+manage_display_errors_time_previous = now
+error_previous = ''
 
 battery_soc_previous_x1000 = 9999
 battery_current_previous_x100 = 9999
@@ -249,7 +254,6 @@ vesc_temperature_x10_previous = 9999
 motor_speed_erpm_previous = 9999
 wheel_speed_x10_previous = 9999
 brakes_are_active_previous = False
-warning_code_previous = 9999
 
 rear_light_pin_tail_bit = 1
 rear_light_pin_stop_bit = 2
@@ -414,169 +418,216 @@ for index in range(nr_buttons):
   if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
   if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
 
-# let's wait for a first click on power button
-time_previous = time.monotonic()
-while True:
-  now = time.monotonic()
-  if (now - time_previous) > 0.05:
-    time_previous = now
-
-    buttons[button_POWER].tick()
-
-    if buttons[button_POWER].buttonActive:
-
-      # wait for user to release the button
-      while buttons[button_POWER].buttonActive:
-        buttons[button_POWER].tick()
-
-      # motor board will now enable the motor
-      vars.motor_enable_state = True
-      break
-    
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
-    time.sleep(0.025)
-
-vars.motor_enable_state = True
-    
-# reset the buttons_state, as it was changed previously
-vars.buttons_state = 0
-
-# show main screen
-main_display_group = displayio.Group()
-main_display_group.append(label_speed)
-main_display_group.append(label_time)
-main_display_group.append(label_information_area)
-main_display_group.append(label_warning_area)
-
-motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 64)
-motor_power_widget.draw_contour()
-battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 64)
-battery_soc_widget.draw_contour()
-
-display.root_group = main_display_group
-
-while True:
-    now = time.monotonic()
-    if (now - display_time_previous) > 0.1:
-        display_time_previous = now
-
-        # battery
-        if battery_soc_previous_x1000 != vars.battery_soc_x1000:
-            battery_soc_previous_x1000 = vars.battery_soc_x1000
-            battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
-
-        # motor power
-        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
-        if motor_power_previous != vars.motor_power:
-            motor_power_previous = vars.motor_power
-            motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 2000.0)
-            motor_power_widget.update(motor_power_percent)
-            
-        # wheel speed
-        if wheel_speed_x10_previous != vars.wheel_speed_x10:
-            wheel_speed_x10_previous = vars.wheel_speed_x10  
-            label_speed.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
-
-    now = time.monotonic()
-    if (now - ebike_rx_tx_data_time_previous) > 0.15:
-        ebike_rx_tx_data_time_previous = now
-        motor_espnow_node.send_data()
-        motor_espnow_node.process_rx()
-        
-        if brakes_are_active_previous != vars.brakes_are_active:
-            brakes_are_active_previous = vars.brakes_are_active
-            if vars.brakes_are_active:  
-                label_information_area.text = str("brakes")
-            else:
-                label_information_area.text = str("")
-                
-    now = time.monotonic()
-    if (now - manage_errors_time_previous) > 1.0:
-        manage_errors_time_previous = now
-
-        # Run/tick ESPNow manager
-        espnow_manager.tick()
-
-        # Give priority to VESC errors              
-        warning_code = ESPNOWManager.get_error()
-        if warning_code == ESPNOWManager.ERR_RX_TIMEOUT:
-            ESPNOWManager.clear_error()
-            motor_on_rx_reset_data()
-        
-        is_vesc_error = False
-        if vars.vesc_fault_code != 0:
-            warning_code = vars.vesc_fault_code
-            is_vesc_error = True
-        elif warning_code != 0:
-            pass
-        else:
-           warning_code = 0
-
-        if True:#warning_code_previous != warning_code:
-            warning_code_previous = warning_code
-
-            if warning_code == 0:
-                label_warning_area.text = ''
-            elif is_vesc_error == True:
-                label_warning_area.text = str(f"vesc {warning_code}")
-            else:
-                label_warning_area.text = str(f"espnow {warning_code}")
+def main():
+  global assist_level, assist_level_state
+  global buttons_time_previous, display_time_previous
+  global ebike_rx_tx_data_time_previous, lights_send_data_time_previous
+  global power_switch_send_data_time_previous, update_date_time_previous
+  global update_date_time_once, date_time_updated, date_time_previous
+  global manage_errors_time_previous, manage_display_errors_time_previous
+  global error_previous
+  global battery_soc_previous_x1000, battery_current_previous_x100
+  global motor_current_previous_x100, motor_power_previous
+  global motor_temperature_x10_previous, vesc_temperature_x10_previous
+  global motor_speed_erpm_previous, wheel_speed_x10_previous
+  global brakes_are_active_previous
   
+  # let's wait for a first click on power button
+  time_previous = time.monotonic()
+  while True:
     now = time.monotonic()
-    if (now - lights_send_data_time_previous) > 0.05:
-        lights_send_data_time_previous = now
+    if (now - time_previous) > 0.05:
+      time_previous = now
 
-        # if we are braking, enable brake light
-        # braking current < 15A
-        if vars.brakes_are_active or vars.motor_current_x10 < -150:
-            vars.rear_lights_board_pins_state |= rear_light_pin_stop_bit
-        else:
-            vars.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
+      buttons[button_POWER].tick()
 
-        # if lights are enable, enable the tail light 
-        if vars.lights_state:
-            vars.front_lights_board_pins_state |= front_light_pin_head_bit
-            vars.rear_lights_board_pins_state |= rear_light_pin_tail_bit
-        else:
-            vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
-            vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
+      if buttons[button_POWER].buttonActive:
 
-        front_lights_espnow_node.send_data()
-        rear_lights_espnow_node.send_data()
+        # wait for user to release the button
+        while buttons[button_POWER].buttonActive:
+          buttons[button_POWER].tick()
 
-    now = time.monotonic()
-    if (now - power_switch_send_data_time_previous) > 0.5:
-        power_switch_send_data_time_previous = now
+        # motor board will now enable the motor
+        vars.motor_enable_state = True
+        break
+      
+      # sleep some time to save energy and avoid ESP32-S2 to overheat
+      time.sleep(0.025)
 
-        vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-        power_switch_espnow_node.send_data()
+  vars.motor_enable_state = True
+      
+  # reset the buttons_state, as it was changed previously
+  vars.buttons_state = 0
 
-    now = time.monotonic()
-    if (now - buttons_time_previous) > 0.05:
-        buttons_time_previous = now
+  # show main screen
+  main_display_group = displayio.Group()
+  main_display_group.append(label_speed)
+  main_display_group.append(label_time)
+  main_display_group.append(label_information_area)
+  main_display_group.append(label_warning_area)
 
-        for index in range(nr_buttons):
-            buttons[index].tick()
-  
-    # update time on RTC just once
-    if update_date_time_once is False:
+  motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 64)
+  motor_power_widget.draw_contour()
+  battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 64)
+  battery_soc_widget.draw_contour()
+
+  error_queue = ErrorQueue.ErrorQueue(maxlen=10)
+
+  display.root_group = main_display_group
+  screen1_group = None
+  label_init_screen = None
+  gc.collect()
+
+  while True:
       now = time.monotonic()
-      if (now - update_date_time_previous) > 2.0:
-          update_date_time_once = True
-          date_time_updated = rtc.update_date_time_from_wifi_ntp()
+      if (now - display_time_previous) > 0.1:
+          display_time_previous = now
+
+          # battery
+          if battery_soc_previous_x1000 != vars.battery_soc_x1000:
+              battery_soc_previous_x1000 = vars.battery_soc_x1000
+              battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
+
+          # motor power
+          vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
+          if motor_power_previous != vars.motor_power:
+              motor_power_previous = vars.motor_power
+              motor_power = filter_motor_power(vars.motor_power)
+              motor_power_percent = int((motor_power * 100) / 2000.0)
+              motor_power_widget.update(motor_power_percent)
+              
+          # wheel speed
+          if wheel_speed_x10_previous != vars.wheel_speed_x10:
+              wheel_speed_x10_previous = vars.wheel_speed_x10  
+              label_speed.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
+
+      now = time.monotonic()
+      if (now - ebike_rx_tx_data_time_previous) > 0.15:
+          ebike_rx_tx_data_time_previous = now
+          motor_espnow_node.send_data()
+          motor_espnow_node.process_rx()
+          
+          if brakes_are_active_previous != vars.brakes_are_active:
+              brakes_are_active_previous = vars.brakes_are_active
+              if vars.brakes_are_active:  
+                  label_information_area.text = "brakes"
+              else:
+                  label_information_area.text = ""
+
+      # Update display warning field only every 2 seconds
+      now = time.monotonic()
+      if (now - manage_display_errors_time_previous) > 2.0:
+          manage_display_errors_time_previous = now
+
+          err_text = error_queue.get() or ''
+          if error_previous != err_text:
+              error_previous = err_text
+              label_warning_area.text = err_text
+
+      # Manage errors, add to error_queue if needed
+      now = time.monotonic()
+      if (now - manage_errors_time_previous) > 0.1:
+          manage_errors_time_previous = now
+
+          # Run/tick ESPNow manager
+          espnow_manager.tick()
+
+          # Try add VESC error to queue
+          if vars.vesc_fault_code != 0:
+              error_queue.add(f'vesc {vars.vesc_fault_code}')
+
+          # Try add ESPNow error to queue
+          flags = ESPNOWManager.get_error()
+          if flags:
+              if flags & ESPNOWManager.ERR_RX_FAIL:
+                  error_queue.add("espnow rx")
+              if flags & ESPNOWManager.ERR_TX_FAIL:
+                  error_queue.add("espnow tx")
+              ESPNOWManager.clear_error()
     
-    # update time
-    now = time.monotonic()
-    if (now - date_time_previous) > 1.0:
-        date_time_previous = now
+      now = time.monotonic()
+      if (now - lights_send_data_time_previous) > 0.05:
+          lights_send_data_time_previous = now
 
-        date_time = rtc.date_time()
-        if date_time_updated is True:
-          label_time.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
-        elif date_time_updated is False:
-          label_time.text = f''
+          # if we are braking, enable brake light
+          # braking current < 15A
+          if vars.brakes_are_active or vars.motor_current_x10 < -150:
+              vars.rear_lights_board_pins_state |= rear_light_pin_stop_bit
+          else:
+              vars.rear_lights_board_pins_state &= ~rear_light_pin_stop_bit
 
-    # sleep some time to save energy and avoid ESP32 to overheat
-    time.sleep(0.01)
+          # if lights are enable, enable the tail light 
+          if vars.lights_state:
+              vars.front_lights_board_pins_state |= front_light_pin_head_bit
+              vars.rear_lights_board_pins_state |= rear_light_pin_tail_bit
+          else:
+              vars.front_lights_board_pins_state &= ~front_light_pin_head_bit
+              vars.rear_lights_board_pins_state &= ~rear_light_pin_tail_bit
 
+          front_lights_espnow_node.send_data()
+          rear_lights_espnow_node.send_data()
+
+      now = time.monotonic()
+      if (now - power_switch_send_data_time_previous) > 0.5:
+          power_switch_send_data_time_previous = now
+
+          vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
+          power_switch_espnow_node.send_data()
+
+      now = time.monotonic()
+      if (now - buttons_time_previous) > 0.05:
+          buttons_time_previous = now
+
+          for index in range(nr_buttons):
+              buttons[index].tick()
+    
+      # update time on RTC just once
+      if update_date_time_once is False:
+        now = time.monotonic()
+        if (now - update_date_time_previous) > 2.0:
+            update_date_time_once = True
+            date_time_updated = rtc.update_date_time_from_wifi_ntp()
+      
+      # update time
+      now = time.monotonic()
+      if (now - date_time_previous) > 1.0:
+          date_time_previous = now
+
+          date_time = rtc.date_time()
+          if date_time_updated is True:
+            label_time.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
+          elif date_time_updated is False:
+            label_time.text = f''
+
+      # Try to keep memory running ok
+      gc.collect()
+
+      # sleep some time to save energy and avoid ESP32 to overheat
+      time.sleep(0.05)
+
+def timestamp():
+    try:
+        t = time.localtime()  # needs RTC or NTP
+        return "{:04d}-{:02d}-{:02d} {:02d}:{:02d}:{:02d}".format(
+            t.tm_year, t.tm_mon, t.tm_mday,
+            t.tm_hour, t.tm_min, t.tm_sec
+        )
+    except Exception:
+        return str(time.monotonic())
+    
+try:
+    main()
+
+except Exception as e:
+    try:
+        tb = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+        with open("/crashlog.txt", "a") as f:
+            f.write("\n===== Crash =====\n")
+            f.write("time=" + timestamp() + "\n")
+            f.write("reset_reason=" + str(microcontroller.cpu.reset_reason) + "\n")
+            f.write(tb)
+            f.flush()
+    except Exception as log_err:
+        print("Failed to write crashlog:", log_err)
+
+    supervisor.reload()
