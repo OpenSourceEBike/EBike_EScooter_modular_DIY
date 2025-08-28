@@ -98,7 +98,7 @@ async def task_display_send_data():
         display.send_data()
 
         gc.collect()
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.2)
 
 
 async def task_display_receive_process_data():
