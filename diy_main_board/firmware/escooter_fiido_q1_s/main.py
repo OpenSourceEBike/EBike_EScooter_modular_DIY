@@ -44,7 +44,7 @@ vars = Vars()
 brake_sensor = Brake.Brake(cfg.brake_pin)
 
 # if brakes are active at startup, block here
-# this is needed for development, to help keep the motor disabled
+# this is needed for development, to help keep the motor and the UART disable
 while brake_sensor.value:
     print('brake at start')
     time.sleep(1)
@@ -98,17 +98,15 @@ async def task_display_send_data():
         display.send_data()
 
         gc.collect()
-        await asyncio.sleep(0.15)
+        await asyncio.sleep(0.25)
 
 
 async def task_display_receive_process_data():
     global display
     
     while True:
-        # Received and process data from the display
-        # Avoid send data while display is not ready
-        if vars.motors_enable_state == True:
-            display.receive_process_data()
+        # received and process data from the display
+        display.receive_process_data()
 
         gc.collect()
         await asyncio.sleep(0.1)
@@ -166,9 +164,14 @@ async def task_control_motor():
         
         # read 1st and 2nd throttle, and use the max value of both
         throttle_1_value = throttle_1.value
-        throttle_2_value = throttle_2.value                
+        throttle_2_value = throttle_2.value                    
         throttle_value = max(throttle_1_value, throttle_2_value)
-
+        
+        #print(throttle_1.adc_value, throttle_1.value)
+        #print(throttle_2.adc_value, throttle_2.value)
+        #print(rear_motor.data.battery_voltage_x10)
+        #print()
+        
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
         # as this did happen a few times during development and motor keeps running at max target / current / speed!!
@@ -387,3 +390,7 @@ async def main():
                         various_task)
 
 asyncio.run(main())
+
+
+
+

@@ -1,0 +1,3 @@
+Adafruit CircuitPython 9.2.8 on 2025-05-28; Maker Go ESP32C3 Supermini with ESP32-C3
+Board ID:makergo_esp32c3_supermini
+UID:CD605776CE8C
