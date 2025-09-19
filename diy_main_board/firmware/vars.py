@@ -1,20 +1,13 @@
 class Cfg(object):
     def __init__(self):
-        self.brake_pin = None
-        self.throttle_1_pin = None
-        self.throttle_2_pin = None
         self.throttle_1_adc_min = 0
         self.throttle_1_adc_max = 0
         self.throttle_1_adc_over_max_error = 0
         self.throttle_2_adc_min = 0
         self.throttle_2_adc_max = 0
         self.throttle_2_adc_over_max_error = 0
-        self.brake_analog_adc_min = 0
-        self.brake_analog_adc_max = 0
-        self.brake_analog_adc_over_max_error = 0
         self.my_mac_address = 0
         self.display_mac_address = 0
-        
 
 class MotorCfg(object):
     def __init__(self, can_id):
@@ -36,8 +29,8 @@ class MotorCfg(object):
         self.battery_current_limit_min_max = 0
         self.battery_current_limit_min_min = 0
         self.motor_erpm_max_speed_limit = 0
-        self.motor_min_current_start = 0
         self.motor_max_current_limit_max = 0
+        self.motor_min_current_start = 0
         self.motor_max_current_limit_min = 0
         self.battery_max_current_limit_max = 0
         self.battery_max_current_limit_min = 0
@@ -51,6 +44,9 @@ class CruiseControl(object):
 
 class Vars(object):
     def __init__(self):
+        self.motor_current_x100 = 0
+        self.motor_power = 0
+        self.motor_temperature_sensor_x10 = 0
         self.brakes_are_active = True
         self.torque_weight_x10 = 0
         self.cadence = 0
@@ -62,3 +58,6 @@ class Vars(object):
         self.cruise_control = CruiseControl()
         self.assist_level = 0
         
+        
+
+
