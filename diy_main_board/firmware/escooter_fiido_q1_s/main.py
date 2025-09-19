@@ -98,7 +98,7 @@ async def task_display_send_data():
         display.send_data()
 
         gc.collect()
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.25)
 
 
 async def task_display_receive_process_data():
@@ -166,6 +166,11 @@ async def task_control_motor():
         throttle_1_value = throttle_1.value
         throttle_2_value = throttle_2.value                    
         throttle_value = max(throttle_1_value, throttle_2_value)
+        
+        #print(throttle_1.adc_value, throttle_1.value)
+        #print(throttle_2.adc_value, throttle_2.value)
+        #print(rear_motor.data.battery_voltage_x10)
+        #print()
         
         # check to see if throttle is over the suposed max error value,
         # if this happens, that probably means there is an issue with ADC and this can be dangerous,
