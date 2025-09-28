@@ -1,17 +1,15 @@
-import digitalio
+from machine import Pin
 
-class Brake(object):
+class Brake:
     """Brake sensor"""
     def __init__(self, pin):
-        """Brake sensor
-        :param ~microcontroller.Pin pin: IO pin used to read brake sensor
         """
-        # configure IO input
-        # NOTE about pull up: the ESP32 internal pullups are weak and are not enough for the brake sensor
-        self._brake = digitalio.DigitalInOut(pin)
-        self._brake.direction = digitalio.Direction.INPUT
-        self._brake.pull = digitalio.Pull.UP
+        :param pin: IO pin number used to read brake sensor
+        """
+        # configure IO input with pull-up (brake switch usually active low)
+        self._brake = Pin(pin, Pin.IN, Pin.PULL_UP)
 
     @property
     def value(self):
-        return not self._brake.value # brake signal is inverted
+        # return True if brake is pressed (inverted logic)
+        return not self._brake.value()
