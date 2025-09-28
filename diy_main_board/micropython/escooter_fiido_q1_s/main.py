@@ -1,5 +1,3 @@
-# main_mpy.py — MicroPython (ESP32-C3/S3/C6)
-
 import time
 import gc
 import uasyncio as asyncio
@@ -64,16 +62,13 @@ throttle_2 = Throttle(
 async def task_motors_refresh_data():
     # Refresh latest VESC data (call once; it fills both via CAN)
     while True:
-        #rear_motor.update_motor_data(rear_motor, front_motor)
+        rear_motor.update_motor_data(rear_motor, front_motor)
         gc.collect()
         await asyncio.sleep(0.05)
 
 async def task_display_send_data():
     while True:
         #display.send_data()
-        
-        display.queue_send()
-        
         gc.collect()
         await asyncio.sleep(0.25)
 
@@ -124,7 +119,7 @@ async def task_control_motor(wdt):
         throttle_value = max(throttle_1_value, throttle_2_value)
         
         #print(throttle_1.adc_value, throttle_2.adc_value)
-        print(throttle_value)
+        #print(throttle_value)
 
         # Over-max safety (ADC glitch protection)
         if (throttle_1_value > cfg.throttle_1_adc_over_max_error) or \
@@ -181,6 +176,9 @@ async def task_control_motor(wdt):
         vars.brakes_are_active = True if brake_sensor.value else False
 
         # Command motor(s)
+        
+        vars.motors_enable_state = True
+        
         if not vars.motors_enable_state:
             front_motor.set_motor_current_amps(0)
             rear_motor.set_motor_current_amps(0)
@@ -191,7 +189,8 @@ async def task_control_motor(wdt):
             else:
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
-
+                #front_motor.set_motor_speed_rpm(3500)
+                
         # Feed watchdog
         #wdt.feed()
 
@@ -290,6 +289,8 @@ async def main():
     # Watchdog (min 1s on ESP32). task_control_motor() feeds it continuously.
     #wdt = WDT(timeout=1000)
     wdt=None
+    
+    #await display.start()
 
     motors_refresh_data_task       = asyncio.create_task(task_motors_refresh_data())
     control_motor_limit_current_task = asyncio.create_task(task_control_motor_limit_current())

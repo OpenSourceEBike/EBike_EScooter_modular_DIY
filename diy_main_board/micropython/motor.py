@@ -8,7 +8,7 @@ _EBUSY     = 16      # busy
 _ETIMEDOUT = 110     # timeout
 _ENOTCONN  = 107
 _ECONNRST  = 104
-_ETXFAIL   = 0x0107  # port-specific "CAN tx failed" seen in your logs
+_ETXFAIL   = 0x0107
 
 
 class Motor(object):
@@ -81,23 +81,19 @@ class Motor(object):
 
     @staticmethod
     def _recv_nonblock():
-        """
-        Return (id, is_ext, rtr, data) or None, but NEVER block.
-        Some drivers ignore 'timeout=' kwarg; many honor positional 0.
-        """
         can = Motor._can
-        if can is None:
+        if not can:
             return None
         try:
-            # Prefer positional zero; if driver blocks regardless, caller still guards with tiny sleeps.
-            return can.recv(0)
+            return can.recv()
+        except OSError as e:
+            return None
         except Exception:
-            # Treat any issue as "no data"
             return None
 
     # ------------------ PUBLIC: RX draining & decode ------------------
 
-    def update_motor_data(self, motor_1, motor_2=None, budget_ms=200):
+    def update_motor_data(self, motor_1, motor_2=None, budget_ms=10):
         """
         Drain frames for ~budget_ms without blocking the system.
         Decodes a subset of VESC CAN status packets into MotorData.
@@ -120,7 +116,7 @@ class Motor(object):
                 continue
             if not data:
                 continue
-
+            
             message_id = (message_id_full >> 8) & 0xFF
             can_id     = message_id_full & 0xFF
 
