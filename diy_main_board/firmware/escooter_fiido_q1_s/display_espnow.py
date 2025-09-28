@@ -1,67 +1,206 @@
-import espnow as ESPNow
-
-# firmware_common/boards_ids.py should be placed on the root path
+import time
+import network
+import uasyncio as asyncio
+import aioespnow
 from firmware_common.boards_ids import BoardsIds
 
-class Display(object):
-    """Display"""
 
-    def __init__(self, vars, front_motor_data, rear_motor_data, mac_address):        
-        self._espnow = ESPNow.ESPNow()
-        self._peer = ESPNow.Peer(mac=bytes(mac_address), channel=1)
-        self._espnow.peers.append(self._peer)
-        self._vars = vars
-        self._front_motor_data = front_motor_data
-        self._rear_motor_data = rear_motor_data
+class Display:
+    """
+    MicroPython ESP-NOW Display link, CircuitPython-style API.
+
+    - call await start() once
+    - call send_data() whenever you want to transmit the status frame
+    - call receive_process_data() periodically to apply the latest control packet
+    """
+
+    def __init__(self, vars, front_motor_data, rear_motor_data, mac_address: bytes, channel: int = 1):
+        # Providers (may be partially uninitialized at boot)
+        self._vars  = vars
+        self._front = front_motor_data
+        self._rear  = rear_motor_data
+
+        # Wi-Fi STA on desired channel; AP off
+        sta = network.WLAN(network.STA_IF)
+        self._sta = sta
+        if not sta.active():
+            sta.active(True)
+        try:
+            try: sta.disconnect()
+            except Exception: pass
+            sta.config(channel=channel)
+        except Exception:
+            pass
+        try:
+            ap = network.WLAN(network.AP_IF)
+            if ap.active():
+                ap.active(False)
+        except Exception:
+            pass
+
+        # ESP-NOW
+        self._esp = aioespnow.AIOESPNow()
+        self._esp.active(True)
+
+        # Peer MAC
+        self._peer_mac = bytes(mac_address)
+        if len(self._peer_mac) != 6:
+            raise ValueError("Peer MAC must be 6 bytes")
+        try:
+            self._esp.add_peer(self._peer_mac)
+        except OSError:
+            pass  # already there
+
+        # --- TX mailbox (single-slot, latest wins) ---
+        self._mailbox_payload = None
+        self._mailbox_event   = asyncio.Event()
+
+        # --- RX latest (single-slot) ---
+        # Holds the *latest* raw message bytes from any peer until consumed.
+        self._rx_latest = None
+
+        # Background tasks
+        self._rx_task = None
+        self._tx_task = None
+        self._stopping = False
+
+        # Debug banner (ASCII only)
+        mac_self = ":".join(f"{x:02X}" for x in self._sta.config("mac"))
+        peer_str = ":".join(f"{x:02X}" for x in self._peer_mac)
+        print(f"[Display] STA {mac_self} ch {self._sta.config('channel')} -> peer {peer_str}")
+
+    # ---------- lifecycle ----------
+
+    async def start(self):
+        """Start background RX/TX loops (must be awaited once)."""
+        if self._rx_task is None:
+            self._rx_task = asyncio.create_task(self._rx_loop())
+        if self._tx_task is None:
+            self._tx_task = asyncio.create_task(self._tx_loop())
+
+    async def stop(self):
+        """Stop loops and deactivate ESP-NOW."""
+        self._stopping = True
+        for t in (self._rx_task, self._tx_task):
+            if t:
+                t.cancel()
+        await asyncio.sleep(0)
+        self._rx_task = None
+        self._tx_task = None
+        try:
+            self._esp.active(False)
+        except Exception:
+            pass
+
+    # ---------- public API (same names as your CP version) ----------
 
     def receive_process_data(self):
+        """
+        Non-blocking: apply the most recent control packet if one arrived.
+        Expected ASCII: "<MAIN_BOARD> <motors_enable> <buttons>"
+        """
+        msg = self._rx_latest
+        if not msg:
+            return
+        # consume it
+        self._rx_latest = None
         try:
-            data = None
-            
-            # read a package and discard others available
-            while self._espnow is not None:
-                rx_data = self._espnow.read()
-                if rx_data is None:
-                    break
-                else:
-                    data = rx_data
-            
-            # process the package, if available
-            if data is not None:
-                data_list = [int(n) for n in data.msg.split()]
-                
-                # only process packages for us
-                # must have 3 elements: message_id + 2 variables                    
-                if int(data_list[0]) == int(BoardsIds.MAIN_BOARD) and len(data_list) == 3:
-                    self._vars.motors_enable_state = True if data_list[1] != 0 else False
-                    self._vars.buttons_state = data_list[2]
+            parts = [int(s) for s in msg.decode("ascii").split()]
+        except Exception:
+            return
 
-        except Exception as e:
-            print(f"Display rx error: {e}")
+        if (len(parts) == 3) and (int(parts[0]) == int(BoardsIds.MAIN_BOARD)):
+            self._vars.motors_enable_state = (parts[1] != 0)
+            self._vars.buttons_state = parts[2]
 
     def send_data(self):
-        if self._espnow is not None:
-            try:
-                brakes_are_active = 1 if self._vars.brakes_are_active else 0            
-                battery_current_x100 = int(self._front_motor_data.battery_current_x100 + self._rear_motor_data.battery_current_x100)
-                motor_current_x100 = int(self._front_motor_data.motor_current_x100 + self._rear_motor_data.motor_current_x100)
-                
-                # Send the max value only
-                vesc_temperature_x10 = max(self._front_motor_data.vesc_temperature_x10, self._rear_motor_data.vesc_temperature_x10)
-                motor_temperature_x10 = max(self._front_motor_data.motor_temperature_x10, self._rear_motor_data.motor_temperature_x10)
-                
-                # Assuming battery voltage and wheel speed are the same for both motors
-                self._espnow.send(
-                    f"{int(BoardsIds.DISPLAY)} \
-                    {int(self._rear_motor_data.battery_voltage_x10)} \
-                    {battery_current_x100} \
-                    {int(self._rear_motor_data.battery_soc_x1000)} \
-                    {motor_current_x100} \
-                    {int(self._rear_motor_data.wheel_speed * 10)} \
-                    {int(brakes_are_active)} \
-                    {int(vesc_temperature_x10)} \
-                    {int(motor_temperature_x10)}",
-                    self._peer)
-            
-            except Exception as e:
-                print(f"Display tx error: {e}")
+        """
+        Build and enqueue one status frame (non-blocking).
+        Payload format identical to your CP version.
+        """
+        try:
+            brakes_are_active = 1 if getattr(self._vars, "brakes_are_active", False) else 0
+
+            # guard providers (None-safe)
+            def _i(v): 
+                try: return int(v)
+                except Exception: return 0
+            def _ix10(v):
+                try: return int(v * 10)
+                except Exception: return 0
+
+            battery_current_x100 = _i(getattr(self._front, "battery_current_x100", 0)) \
+                                 + _i(getattr(self._rear,  "battery_current_x100",  0))
+            motor_current_x100   = _i(getattr(self._front, "motor_current_x100",   0)) \
+                                 + _i(getattr(self._rear,  "motor_current_x100",   0))
+
+            vesc_temperature_x10  = max(_i(getattr(self._front, "vesc_temperature_x10",  0)),
+                                        _i(getattr(self._rear,  "vesc_temperature_x10",  0)))
+            motor_temperature_x10 = max(_i(getattr(self._front, "motor_temperature_x10", 0)),
+                                        _i(getattr(self._rear,  "motor_temperature_x10", 0)))
+
+            payload = (
+                f"{int(BoardsIds.DISPLAY)} "
+                f"{_i(getattr(self._rear, 'battery_voltage_x10', 0))} "
+                f"{battery_current_x100} "
+                f"{_i(getattr(self._rear, 'battery_soc_x1000', 0))} "
+                f"{motor_current_x100} "
+                f"{_ix10(getattr(self._rear, 'wheel_speed', 0.0))} "
+                f"{brakes_are_active} "
+                f"{vesc_temperature_x10} "
+                f"{motor_temperature_x10}"
+            ).encode("ascii")
+
+            self._mailbox_payload = payload
+            self._mailbox_event.set()
+        except Exception as e:
+            print("Display tx error:", e)
+
+    # ---------- background tasks ----------
+
+    async def _tx_loop(self):
+        # print("[Display] _tx_loop")
+        try:
+            while not self._stopping:
+                await self._mailbox_event.wait()
+                payload = self._mailbox_payload
+                self._mailbox_event.clear()
+                if payload is None:
+                    continue
+                try:
+                    ok = await self._esp.asend(self._peer_mac, payload)
+                    if not ok:
+                        # (re)add peer and try once more; harmless if already added
+                        try:
+                            self._esp.add_peer(self._peer_mac)
+                            await self._esp.asend(self._peer_mac, payload)
+                        except OSError:
+                            pass
+                except OSError as e:
+                    # many ports use 116 for ETIMEDOUT; ignore
+                    if not (e.args and e.args[0] == 116):
+                        print("Display tx error:", e)
+                except Exception as e:
+                    print("Display tx error:", e)
+        except asyncio.CancelledError:
+            pass
+
+    async def _rx_loop(self):
+        # print("[Display] _rx_loop")
+        try:
+            async for mac, msg in self._esp:
+                if not msg:
+                    continue
+                # Keep only the latest (like your CP "read until empty; keep last")
+                self._rx_latest = msg
+                # keep dynamic peer (harmless if already added)
+                try:
+                    self._esp.add_peer(mac)
+                except OSError:
+                    pass
+                if self._stopping:
+                    break
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            print("Display rx error:", e)

@@ -56,7 +56,6 @@ class Vars(object):
         self.motors_enable_state = False
         self.buttons_state = 0
         self.cruise_control = CruiseControl()
-        self.assist_level = 0
         
         
 
