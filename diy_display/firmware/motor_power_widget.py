@@ -1,149 +1,193 @@
-# motor_power_widget_mpy.py
-# MicroPython version using framebuf (RGB565). No displayio/vectorio needed.
+# motor_power_widget_mpy.py (FAST + SOLID + MINIMAL CLEAR)
+# - Arc fills strictly from 180° (left) to up to 270° (up) on a 0..360° (Y-down) system.
+# - Analytic scanlines for solid fill (no atan2 per pixel, no oversampling).
+# - Minimal clearing: erase only the previously drawn wedge lines.
+# - Top bar (50..100%) grows to the right; outline always preserved.
+# - Supports X/Y offsets for easy nudging.
 
 import math
-import framebuf
 
-# Colors (RGB565)
-BLACK = 0x0000
-WHITE = 0xFFFF
+BLACK = 0
+WHITE = 1
 
 def map_value(x, in_min, in_max, out_min, out_max):
+    if in_max == in_min:
+        return out_min
     x = max(min(x, in_max), in_min)
     return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
+# -------- Layout --------
+motor_power_width  = 26
+motor_power_height = 18
+motor_power_x      = 2
+motor_power_y      = 0
+
+# -------- Ring geometry --------
+ARC_CX, ARC_CY = 36, 36
+ARC_R_OUT      = 37
+ARC_WIDTH      = 19          # set 20 if you want a hair thicker arc
+ARC_R_IN       = ARC_R_OUT - ARC_WIDTH
+
+# Optional offsets to nudge the arc on screen
+ARC_X_OFFSET = 2
+ARC_Y_OFFSET = 0
+
+# Angle convention (0..360, Y-down):
+# right=0°, down=90°, left=180°, up=270°.
+ARC_LEFT_DEG = 180.0
+ARC_UP_DEG   = 270.0         # max sweep (strict 90°)
+
 class MotorPowerWidget:
-    """
-    Draws a semi-circular arc (0–50%) and a horizontal bar (50–100%).
-    Requires an object with a framebuf-like API:
-      - pixel(x,y,color), line(x0,y0,x1,y1,color),
-        rect(x,y,w,h,color), fill_rect(x,y,w,h,color)
-    """
-    def __init__(self, fb: framebuf.FrameBuffer, display_width, display_height):
+    def __init__(self, fb, display_width, display_height):
         self.fb = fb
-        self._d_width = display_width
-        self._d_height = display_height
-        self._angle_previous = -999
+        self.dw = display_width
+        self.dh = display_height
+        self._prev_rect_w = -1
+        self._prev_A_end  = None
+        self._has_hline = hasattr(self.fb, "hline")
 
-        # Layout (match your original geometry as close as possible)
-        self.cx = 36
-        self.cy = 36
-        self.outer_r = 37
-        self.inner_r = 37 - 19  # because arc_width=19 in original
-        self.arc_thickness = 19
+    # ---- tiny gfx helpers ----
+    def _line(self, x0, y0, x1, y1, c=WHITE):
+        self.fb.line(int(x0), int(y0), int(x1), int(y1), c)
 
-        # Rectangle (power > 50%)
-        self.motor_power_width = 26
-        self.motor_power_height = 18
-        self.motor_power_x = 2
-        self.motor_power_y = 0
+    def _hline(self, x, y, w, c=WHITE):
+        if w <= 0:
+            return
+        if self._has_hline:
+            self.fb.hline(int(x), int(y), int(w), c)
+        else:
+            self._line(int(x), int(y), int(x + w - 1), int(y), c)
 
-        # Right-side frame box (contour)
-        self.box_w = 62
-        self.box_h = 35
-        self.box_sx = 0
-        self.box_sy = 0
+    def _rect(self, x, y, w, h, c=WHITE, fill=False):
+        if fill:
+            self.fb.fill_rect(int(x), int(y), int(w), int(h), c)
+        else:
+            self.fb.rect(int(x), int(y), int(w), int(h), c)
 
-        # Pre-clear area we draw into (optional)
-        self.clear_color = BLACK
-        self.fg = WHITE
+    def _draw_bucket_outline(self):
+        # Top bar outline (WHITE)
+        s_y = 0
+        w   = 62
+        w2  = w // 2
+        self._line(w2 + 5, s_y + 18, w, s_y + 18, WHITE)
+        self._line(w2 + 5, s_y +  0, w, s_y +  0, WHITE)
+        self._line(w,      s_y +  0, w, s_y + 18, WHITE)
 
-    # --------- low-level helpers ----------
-    def _draw_thick_point(self, x, y, thickness, color):
-        # Small square for thickness (simple & fast)
-        r = thickness // 2
-        self.fb.fill_rect(x - r, y - r, thickness, thickness, color)
+    def _draw_arc_outlines(self):
+        # crisp inner & outer outlines for the 90° sector (sample per degree)
+        cx = ARC_CX + ARC_X_OFFSET
+        cy = ARC_CY + ARC_Y_OFFSET
+        def poly_arc(r):
+            prev = None
+            for a in range(int(ARC_LEFT_DEG), int(ARC_UP_DEG) + 1):
+                rad = math.radians(a)
+                x = int(cx + r * math.cos(rad))
+                y = int(cy + r * math.sin(rad))  # Y-down
+                if prev:
+                    self._line(prev[0], prev[1], x, y, WHITE)
+                prev = (x, y)
+        poly_arc(ARC_R_IN)
+        poly_arc(ARC_R_OUT)
 
-    def _draw_arc(self, cx, cy, r_outer, thickness, deg_start, deg_end, color, step_deg=4):
-        """Approximate a thick arc by plotting small squares along its outer edge
-        and filling inward (simple + decent performance)."""
-        r_inner = max(0, r_outer - thickness + 1)
-        for a in range(int(deg_start), int(deg_end) + 1, step_deg):
-            rad = math.radians(a)
-            x_o = int(cx + r_outer * math.cos(rad))
-            y_o = int(cy - r_outer * math.sin(rad))
-            x_i = int(cx + r_inner * math.cos(rad))
-            y_i = int(cy - r_inner * math.sin(rad))
-            # Draw a short radial line to simulate thickness
-            self._line(x_i, y_i, x_o, y_o, color)
+    # -------- Analytic scanline span for a given angle A --------
+    def _fill_wedge_scanlines(self, A_end_deg, color):
+        """
+        Draw the ring sector angles in [180°, A_end] using horizontal spans.
+        """
+        cx = ARC_CX + ARC_X_OFFSET
+        cy = ARC_CY + ARC_Y_OFFSET
 
-    def _line(self, x0, y0, x1, y1, color):
-        # Use framebuf.line if present, else Bresenham
-        try:
-            self.fb.line(x0, y0, x1, y1, color)
-        except AttributeError:
-            self._bresenham(x0, y0, x1, y1, color)
+        # Clamp angle
+        A = float(A_end_deg)
+        if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
+        if A > ARC_UP_DEG:    A = ARC_UP_DEG
+        Arad = math.radians(A)
 
-    def _bresenham(self, x0, y0, x1, y1, color):
-        dx = abs(x1 - x0)
-        sx = 1 if x0 < x1 else -1
-        dy = -abs(y1 - y0)
-        sy = 1 if y0 < y1 else -1
-        err = dx + dy
-        while True:
-            self.fb.pixel(x0, y0, color)
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 >= dy:
-                err += dy
-                x0 += sx
-            if e2 <= dx:
-                err += dx
-                y0 += sy
+        r_out2 = ARC_R_OUT * ARC_R_OUT
+        r_in2  = ARC_R_IN  * ARC_R_IN
 
-    # ---------- public API ----------
+        tanA = math.tan(Arad)
+        tiny = 1e-6
+
+        # Only rows in the upper half (y <= cy)
+        y_min = cy - ARC_R_OUT
+        y_max = cy
+
+        for y in range(y_min, y_max + 1):
+            dy = y - cy
+            dy2 = dy * dy
+            if dy2 > r_out2:
+                continue
+
+            # Outer circle left intersection
+            x_out = math.sqrt(r_out2 - dy2)
+            x_left = int(math.floor(cx - x_out))
+
+            # Inner circle left boundary (if exists)
+            if dy2 <= r_in2:
+                x_in = math.sqrt(r_in2 - dy2)
+                x_inner_edge = cx - x_in
+            else:
+                x_inner_edge = float('inf')  # no inner limit this row
+
+            # Angle boundary
+            if abs(tanA) > tiny:
+                dx_ang = dy / tanA      # dx negative for our sector
+                x_angle_edge = cx + dx_ang
+            else:
+                x_angle_edge = -1e9     # A~180°, include full left annulus
+
+            x_right_f = min(x_inner_edge, x_angle_edge)
+            x_right = int(math.floor(x_right_f))
+
+            if x_right >= x_left:
+                self._hline(x_left, y, x_right - x_left + 1, color)
+
+    # ---- public API ----
     def draw_contour(self):
-        # Clear region we use (optional; comment out if you manage screen elsewhere)
-        # self.fb.fill_rect(0, 0, self._d_width, self._d_height, self.clear_color)
-
-        # Two thin arcs (like your outline arcs)
-        # Original had: arc_1 angle=-90 to 90+45; arc_2 similar with smaller radius
-        # We'll draw outer thin arc (width=2) and inner thin arc (width=2).
-        self._draw_arc(self.cx, self.cy, self.outer_r, 2, -90, 135, self.fg, step_deg=3)
-        self._draw_arc(self.cx, self.cy, 19,        2, -90, 135, self.fg, step_deg=3)
-
-        # Horizontal line from (0,36) to (19,36)
-        self._line(0, 36, 19, 36, self.fg)
-
-        # Right-side rectangle “frame” like l2/l3/l4
-        w2_plus5 = (self.box_w // 2) + 5
-        # top and bottom lines
-        self._line(w2_plus5, self.box_sy,   self.box_w, self.box_sy,   self.fg)
-        self._line(w2_plus5, self.box_sy+18, self.box_w, self.box_sy+18, self.fg)
-        # right vertical
-        self._line(self.box_w, self.box_sy, self.box_w, self.box_sy+18, self.fg)
+        # Called once at boot
+        self._draw_bucket_outline()
+        self._draw_arc_outlines()
+        # Force rect state so first update will repaint the bar area
+        self._prev_rect_w = -9999   # force first update to clear + draw
 
     def update(self, motor_power_percent):
-        # Clamp
-        p = 0 if motor_power_percent < 0 else 100 if motor_power_percent > 100 else motor_power_percent
+        p = int(max(0, min(100, motor_power_percent)))
 
-        # ----- Arc (0..50%) -----
-        # Map 0..50% -> 0..90 degrees, drawn over the big arc span.
-        angle = int(map_value(p, 0, 50, 0, 90))
-        if angle != self._angle_previous:
-            # Clear arc area first (simple way: redraw a BLACK thick arc over full span)
-            # Big span is [-90 .. 135]; we only use [-90 .. (-90 + angle)]
-            # To avoid ghosts, wipe the whole arc sector then draw the new filling.
-            self._draw_arc(self.cx, self.cy, self.outer_r, self.arc_thickness, -90, 135, BLACK, step_deg=2)
-            if angle > 0:
-                self._draw_arc(self.cx, self.cy, self.outer_r, self.arc_thickness,
-                               -90, -90 + angle, self.fg, step_deg=2)
-            self._angle_previous = angle
+        # ---- ring fill (0..50%) ----
+        p_arc = min(p, 50)
+        if p_arc == 0:
+            A_end = ARC_LEFT_DEG
+        else:
+            t = p_arc / 50.0
+            A_end = ARC_LEFT_DEG + 90.0 * t  # 180 → 270
 
-        # ----- Rectangle bar (50..100%) -----
-        # Erase the full bar region first
-        self.fb.fill_rect(self.motor_power_x + self.motor_power_width + 9,
-                          self.motor_power_y,
-                          self.motor_power_width,
-                          self.motor_power_height + 1,
-                          BLACK)
+        # Minimal clear: erase old wedge only (draw it in BLACK),
+        # then draw the new wedge in WHITE.
+        if self._prev_A_end is not None and A_end != self._prev_A_end:
+            self._fill_wedge_scanlines(self._prev_A_end, BLACK)
 
+        if self._prev_A_end is None or A_end != self._prev_A_end:
+            if p_arc > 0:
+                self._fill_wedge_scanlines(A_end, WHITE)
+            self._draw_arc_outlines()   # keep ring edges crisp
+            self._prev_A_end = A_end
+
+        # ---- top bar (50..100%) ----
+        rect_w = 0
         if p > 50:
-            width_power = int(map_value(p, 50, 100, 0, self.motor_power_width))
-            if width_power > 0:
-                self.fb.fill_rect(self.motor_power_x + self.motor_power_width + 9,
-                                  self.motor_power_y,
-                                  width_power,
-                                  self.motor_power_height + 1,
-                                  WHITE)
+            rect_w = int(map_value(p, 50, 100, 0, motor_power_width))
+
+        if rect_w != self._prev_rect_w:
+            # Clear only the inside of the bucket (not the outline)
+            self._rect(motor_power_x + motor_power_width + 9,
+                       motor_power_y, motor_power_width, motor_power_height + 1,
+                       BLACK, fill=True)
+            if rect_w > 0:
+                self._rect(motor_power_x + motor_power_width + 9,
+                           motor_power_y, rect_w, motor_power_height + 1,
+                           WHITE, fill=True)
+            self._draw_bucket_outline()
+            self._prev_rect_w = rect_w
+            
+        self._draw_bucket_outline()

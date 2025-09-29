@@ -197,21 +197,21 @@ async def main():
         buttons[i] = btn
 
     # Wait for 1st POWER click
-    t_prev = time.ticks_ms()
-    while True:
-        now = time.ticks_ms()
-        if time.ticks_diff(now, t_prev) > 50:
-            t_prev = now
-            buttons[button_POWER].tick()
-            if buttons[button_POWER].buttonActive:
-                while buttons[button_POWER].buttonActive:
-                    buttons[button_POWER].tick()
-                    await asyncio.sleep_ms(10)
-                vars.motor_enable_state = True
-                break
-            await asyncio.sleep_ms(25)
+    # t_prev = time.ticks_ms()
+    # while True:
+    #     now = time.ticks_ms()
+    #     if time.ticks_diff(now, t_prev) > 50:
+    #         t_prev = now
+    #         buttons[button_POWER].tick()
+    #         if buttons[button_POWER].buttonActive:
+    #             while buttons[button_POWER].buttonActive:
+    #                 buttons[button_POWER].tick()
+    #                 await asyncio.sleep_ms(10)
+    #             vars.motor_enable_state = True
+    #             break
+    #         await asyncio.sleep_ms(25)
 
-    vars.buttons_state = 0
+    # vars.buttons_state = 0
 
     # Main screen (widgets)
     fb.fill(0)
@@ -259,6 +259,8 @@ async def main():
     t_display = time.ticks_ms()
     t_comm = time.ticks_ms()
 
+    p = 0
+
     # Main loop
     while True:
         now_ms = time.ticks_ms()
@@ -272,10 +274,14 @@ async def main():
                 battery_soc_widget.update(int(vars.battery_soc_x1000/10))
 
             vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
+            motor_power_prev = -1
             if motor_power_prev != vars.motor_power:
                 motor_power_prev = vars.motor_power
                 mp = filter_motor_power(vars.motor_power)
-                motor_power_widget.update(int((mp * 100) / 400.0))
+                # motor_power_widget.update(int((mp * 100) / 400.0))
+                
+                p = (p + 5) % 101
+                motor_power_widget.update(p)  # p in [0, 100]
 
             if wheel_speed_prev != vars.wheel_speed_x10:
                 wheel_speed_prev = vars.wheel_speed_x10
