@@ -7,11 +7,7 @@ from firmware_common.boards_ids import BoardsIds
 
 class Display:
     """
-    MicroPython ESP-NOW Display link, CircuitPython-style API.
-
-    - call await start() once
-    - call send_data() whenever you want to transmit the status frame
-    - call receive_process_data() periodically to apply the latest control packet
+    MicroPython ESP-NOW Display link.
     """
     
     battery_current_x100 = 0
@@ -41,12 +37,12 @@ class Display:
             pass
         
         try:
-            # define o MAC local (usa a tua cfg.my_mac_address como bytes)
+            # define local MAC
             import configurations_escooter_fiido_q1_s as conf
             my_mac = bytes(conf.cfg.my_mac_address)
             self._sta.config(mac=my_mac)
         except Exception as e:
-            print("Aviso: não consegui fixar o MAC local:", e)
+            print("Warning: couldn't fix local MAC:", e)
 
         # ESP-NOW
         self._esp = aioespnow.AIOESPNow()
@@ -77,7 +73,6 @@ class Display:
         # Debug banner (ASCII only)
         mac_self = ":".join(f"{x:02X}" for x in self._sta.config("mac"))
         peer_str = ":".join(f"{x:02X}" for x in self._peer_mac)
-        print(f"[Display] STA {mac_self} ch {self._sta.config('channel')} -> peer {peer_str}")
 
     # ---------- lifecycle ----------
 
@@ -107,7 +102,6 @@ class Display:
     def receive_process_data(self):
         """
         Non-blocking: apply the most recent control packet if one arrived.
-        Expected ASCII: "<MAIN_BOARD> <motors_enable> <buttons>"
         """
         msg = self._rx_latest
         if not msg:
@@ -115,8 +109,9 @@ class Display:
         # consume it
         self._rx_latest = None
         try:
-            parts = [int(s) for s in msg.decode("ascii").split()]
-        except Exception:
+            parts = [int(n) for n in msg.split()]
+        except Exception as ex:
+            print(ex)
             return
 
         if (len(parts) == 3) and (int(parts[0]) == int(BoardsIds.MAIN_BOARD)):
@@ -126,10 +121,9 @@ class Display:
     def send_data(self):
         """
         Build and enqueue one status frame (non-blocking).
-        Payload format identical to your CP version.
         """
         try:
-            brakes_are_active = 1 if getattr(self._vars, "brakes_are_active", False) else 0
+            brakes_are_active = 1 if self._vars.brakes_are_active else 0
 
             # guard providers (None-safe)
             def _i(v): 
@@ -139,32 +133,25 @@ class Display:
                 try: return int(v * 10)
                 except Exception: return 0
 
-            battery_current_x100 = _i(getattr(self._front, "battery_current_x100", 0)) \
-                                 + _i(getattr(self._rear,  "battery_current_x100",  0))
-            motor_current_x100   = _i(getattr(self._front, "motor_current_x100",   0)) \
-                                 + _i(getattr(self._rear,  "motor_current_x100",   0))
+            battery_current_x100 = self._front.battery_current_x100 + \
+                                    self._rear.battery_current_x100
+                                    
+            motor_current_x100 = self._front.motor_current_x100 + \
+                                    self._rear.motor_current_x100
 
-            vesc_temperature_x10  = max(_i(getattr(self._front, "vesc_temperature_x10",  0)),
-                                        _i(getattr(self._rear,  "vesc_temperature_x10",  0)))
-            motor_temperature_x10 = max(_i(getattr(self._front, "motor_temperature_x10", 0)),
-                                        _i(getattr(self._rear,  "motor_temperature_x10", 0)))
+            vesc_temperature_x10 = max(self._front.vesc_temperature_x10,
+                                    self._rear.vesc_temperature_x10)
             
-            
-            Display.battery_current_x100 += 10
-            if Display.battery_current_x100 > 1000:
-                Display.battery_current_x100 = 0
-            
-            battery_voltage_x10 = 720
-            print(f'sent to display: {int((Display.battery_current_x100 * battery_voltage_x10)/1000)} W motor power')
+            motor_temperature_x10 = max(self._front.motor_temperature_x10,
+                                    self._rear.motor_temperature_x10)
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
-#                 f"{_i(getattr(self._rear, 'battery_voltage_x10', 0))} "
-                f"{battery_voltage_x10} "
+                f"{self._rear.battery_voltage_x10} "
                 f"{Display.battery_current_x100} "
-                f"{_i(getattr(self._rear, 'battery_soc_x1000', 0))} "
+                f"{self._rear.battery_soc_x1000} "
                 f"{motor_current_x100} "
-                f"{_ix10(getattr(self._rear, 'wheel_speed', 0.0))} "
+                f"{int(self._rear.wheel_speed * 10)} "
                 f"{brakes_are_active} "
                 f"{vesc_temperature_x10} "
                 f"{motor_temperature_x10}"
@@ -178,7 +165,6 @@ class Display:
     # ---------- background tasks ----------
 
     async def _tx_loop(self):
-        # print("[Display] _tx_loop")
         try:
             while not self._stopping:
                 await self._mailbox_event.wait()
@@ -205,12 +191,11 @@ class Display:
             pass
 
     async def _rx_loop(self):
-        # print("[Display] _rx_loop")
         try:
             async for mac, msg in self._esp:
                 if not msg:
                     continue
-                # Keep only the latest (like your CP "read until empty; keep last")
+                # Keep only the latest
                 self._rx_latest = msg
                 # keep dynamic peer (harmless if already added)
                 try:

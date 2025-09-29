@@ -8,12 +8,9 @@ from motor import MotorData, Motor
 from configurations_escooter_fiido_q1_s import cfg, front_motor_cfg, rear_motor_cfg
 from brake import Brake
 from throttle import Throttle
-import utils
+from firmware_common.utils import map_range
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 
-
-print()
-print("Booting EBike/EScooter firmware")
 
 # Object that holds various runtime variables
 vars = Vars()
@@ -138,10 +135,10 @@ async def task_control_motor(wdt):
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
 
         # Target speed (map 0..1000 → 0..ERPM limit)
-        front_motor.data.motor_target_speed = utils.map_range(
+        front_motor.data.motor_target_speed = map_range(
             throttle_value, 0.0, 1000.0, 0.0, front_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
         )
-        rear_motor.data.motor_target_speed = utils.map_range(
+        rear_motor.data.motor_target_speed = map_range(
             throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
         )
 
@@ -201,14 +198,14 @@ async def task_control_motor_limit_current():
         # Always use rear wheel speed (front may skid)
         wheel_speed = rear_motor.data.wheel_speed
 
-        front_motor.data.motor_target_current_limit_max = utils.map_range(
+        front_motor.data.motor_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
             front_motor.data.cfg.motor_current_limit_max_min_speed,
             front_motor.data.cfg.motor_current_limit_max_max,
             front_motor.data.cfg.motor_current_limit_max_min,
             clamp=True)
-        rear_motor.data.motor_target_current_limit_max = utils.map_range(
+        rear_motor.data.motor_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
             rear_motor.data.cfg.motor_current_limit_max_min_speed,
@@ -216,14 +213,14 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.motor_current_limit_max_min,
             clamp=True)
 
-        front_motor.data.motor_target_current_limit_min = utils.map_range(
+        front_motor.data.motor_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
             front_motor.data.cfg.motor_current_limit_min_max_speed,
             front_motor.data.cfg.motor_current_limit_min_max,
             front_motor.data.cfg.motor_current_limit_min_min,
             clamp=True)
-        rear_motor.data.motor_target_current_limit_min = utils.map_range(
+        rear_motor.data.motor_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
             rear_motor.data.cfg.motor_current_limit_min_max_speed,
@@ -231,14 +228,14 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.motor_current_limit_min_min,
             clamp=True)
 
-        front_motor.data.battery_target_current_limit_max = utils.map_range(
+        front_motor.data.battery_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
             front_motor.data.cfg.battery_current_limit_max_min_speed,
             front_motor.data.cfg.battery_current_limit_max_max,
             front_motor.data.cfg.battery_current_limit_max_min,
             clamp=True)
-        rear_motor.data.battery_target_current_limit_max = utils.map_range(
+        rear_motor.data.battery_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
             rear_motor.data.cfg.battery_current_limit_max_min_speed,
@@ -246,14 +243,14 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.battery_current_limit_max_min,
             clamp=True)
 
-        front_motor.data.battery_target_current_limit_min = utils.map_range(
+        front_motor.data.battery_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
             front_motor.data.cfg.battery_current_limit_min_max_speed,
             front_motor.data.cfg.battery_current_limit_min_max,
             front_motor.data.cfg.battery_current_limit_min_min,
             clamp=True)
-        rear_motor.data.battery_target_current_limit_min = utils.map_range(
+        rear_motor.data.battery_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
             rear_motor.data.cfg.battery_current_limit_min_max_speed,

@@ -104,21 +104,16 @@ class MotorBoard:
             self._system_data.brakes_are_active     = (parts[6] == 1)
             self._system_data.vesc_temperature_x10  = parts[7]
             self._system_data.motor_temperature_x10 = parts[8]
+            
         except Exception as e:
             print("rx apply error:", e)
 
     # ---------- TX path ----------
     def _build_tx_payload(self) -> bytes:
-        try:
-            motor_enable_state = 1 if bool(getattr(self._system_data, "motor_enable_state", False)) else 0
-        except Exception:
-            motor_enable_state = 0
-        try:
-            buttons_state = int(getattr(self._system_data, "buttons_state", 0))
-        except Exception:
-            buttons_state = 0
+        
+        motor_enable_state = 1 if self._system_data.motor_enable_state else 0
 
-        return f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {buttons_state}".encode("ascii")
+        return f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.buttons_state}".encode("ascii")
 
     def send_data(self):
         """Fire-and-forget send using aioespnow (schedules an async task)."""
