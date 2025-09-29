@@ -13,6 +13,8 @@ class Display:
     - call send_data() whenever you want to transmit the status frame
     - call receive_process_data() periodically to apply the latest control packet
     """
+    
+    battery_current_x100 = 0
 
     def __init__(self, vars, front_motor_data, rear_motor_data, mac_address: bytes, channel: int = 1):
         # Providers (may be partially uninitialized at boot)
@@ -37,6 +39,14 @@ class Display:
                 ap.active(False)
         except Exception:
             pass
+        
+        try:
+            # define o MAC local (usa a tua cfg.my_mac_address como bytes)
+            import configurations_escooter_fiido_q1_s as conf
+            my_mac = bytes(conf.cfg.my_mac_address)
+            self._sta.config(mac=my_mac)
+        except Exception as e:
+            print("Aviso: não consegui fixar o MAC local:", e)
 
         # ESP-NOW
         self._esp = aioespnow.AIOESPNow()
@@ -138,11 +148,20 @@ class Display:
                                         _i(getattr(self._rear,  "vesc_temperature_x10",  0)))
             motor_temperature_x10 = max(_i(getattr(self._front, "motor_temperature_x10", 0)),
                                         _i(getattr(self._rear,  "motor_temperature_x10", 0)))
+            
+            
+            Display.battery_current_x100 += 10
+            if Display.battery_current_x100 > 1000:
+                Display.battery_current_x100 = 0
+            
+            battery_voltage_x10 = 720
+            print(f'sent to display: {int((Display.battery_current_x100 * battery_voltage_x10)/1000)} W motor power')
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
-                f"{_i(getattr(self._rear, 'battery_voltage_x10', 0))} "
-                f"{battery_current_x100} "
+#                 f"{_i(getattr(self._rear, 'battery_voltage_x10', 0))} "
+                f"{battery_voltage_x10} "
+                f"{Display.battery_current_x100} "
                 f"{_i(getattr(self._rear, 'battery_soc_x1000', 0))} "
                 f"{motor_current_x100} "
                 f"{_ix10(getattr(self._rear, 'wheel_speed', 0.0))} "

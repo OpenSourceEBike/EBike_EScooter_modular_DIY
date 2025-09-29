@@ -1,392 +1,297 @@
+# main.py  — MicroPython DISPLAY main (ESP32 / ESP32-C3) with aioespnow
+
 import time
-import board
-import wifi
-import display as Display
-import escooter_xiaomi_m365.motor_board_espnow as motor_board_espnow
+import network
+import uasyncio as asyncio
+import aioespnow
+
+# Your modules
+from display import Display
+from rtc_datetime import RTCDateTime
+from escooter_fiido_q1_s.motor_board_espnow import MotorBoard
+from battery_soc_widget import BatterySOCWidget, WHITE, BLACK
+from motor_power_widget import MotorPowerWidget
 import vars as Vars
-import displayio
-from adafruit_display_text import label
-import terminalio
-import thisbutton as tb
-import espnow as _ESPNow
-import rtc_date_time
-from adafruit_bitmap_font import bitmap_font
-import battery_soc_widget as BatterySocWidget
-import motor_power_widget as MotorPowerWidget
-
-import supervisor
-supervisor.runtime.autoreload = False
-
-print("Starting Display")
-
-
-# import digitalio
-# lights_button = digitalio.DigitalInOut(board.IO33)
-# lights_button.direction = digitalio.Direction.INPUT
-
-# while True:
-#   print(1 if lights_button.value else 0)
-  
-#   time.sleep(1)
-
+import firmware_common.thisbutton as tb
 
 ########################################
 # CONFIGURATIONS
 
-# MAC Address value needed for the wireless communication 
-my_mac_address = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf3]
-mac_address_motor_board = [0x00, 0xb6, 0xb3, 0x01, 0xf7, 0xf2]
-########################################
+my_mac_address = b"\x00\xb6\xb3\x01\xf7\xf3"
+mac_address_motor_board = b"\x00\xb6\xb3\x01\xf7\xf2"
 
-vars = Vars.Vars()
+LCD_W, LCD_H = 128, 64
+ESP_CHANNEL = 1
 
-wifi.radio.enabled = True
-wifi.radio.mac_address = bytearray(my_mac_address)
-wifi.radio.start_ap(ssid="NO_SSID", channel=1)
-wifi.radio.stop_ap()
+# Button pins (adjust to your board)
+BTN_POWER = 0
+BTN_LEFT  = 1
+BTN_RIGHT = 2
+BUTTON_PINS = [5, 6, 7]  # POWER, LEFT, RIGHT
 
-rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
+# ---------- text helpers ----------
+def draw_text(fb, txt, x, y, color=1):
+    fb.text(txt, x, y, color)
 
-_espnow = _ESPNow.ESPNow()
-motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
+def draw_text_scaled(fb, txt, x, y, scale=1, color=1, bg=0):
+    if scale <= 1:
+        fb.text(txt, x, y, color)
+        return
+    import framebuf
+    w = 8 * len(txt)
+    h = 8
+    buf = bytearray(w * h)
+    tmp = framebuf.FrameBuffer(buf, w, h, framebuf.MONO_HLSB)
+    tmp.fill(0)
+    tmp.text(txt, 0, 0, 1)
+    for yy in range(h):
+        row = yy * w
+        for xx in range(w):
+            on = buf[row + xx] != 0
+            if on or bg is not None:
+                c = color if on else bg
+                fb.fill_rect(x + xx * scale, y + yy * scale, scale, scale, c)
 
-# this will try send data over ESPNow and if there is an error, will restart
-vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-# just to check if is possible to send data to motor
+def draw_text_right(fb, txt, x_right, y, scale=1, color=1, bg=None):
+    w = 8 * len(txt) * scale
+    draw_text_scaled(fb, txt, x_right - w, y, scale, color, bg)
 
-_display = Display.Display(
-  board.IO3, # CLK / SCK pin
-  board.IO4, # MOSI / SDI pin
-  board.IO1, # CS pin - chip select pin, not used but for some reason there is an error if chip_select is None
-  board.IO2, # DC pin - command pin
-  board.IO0, # RST pin - reset pin
-  board.IO21, # LED pin - backlight pin
-  10000000) # spi clock frequency
-  
-_display.backlight_pwm(0.5)
-display = _display.display
-display.root_group = None
-
-FreeSans_20 = bitmap_font.load_font("fonts/FreeSans-20.bdf")
-FreeSansBold_20 = bitmap_font.load_font("fonts/FreeSansBold-20.bdf")
-FreeSansBold_50 = bitmap_font.load_font("fonts/FreeSansBold-50.bdf")
-
-# show init screen
-label_init_screen = label.Label(FreeSansBold_20, text='')
-label_init_screen.anchor_point = (0.5, 0.5)
-label_init_screen.anchored_position = (128/2, 63/2)
-label_init_screen.scale = 1
-label_init_screen.text = "Ready to\nPOWER ON"
-screen1_group = displayio.Group()
-screen1_group.append(label_init_screen)
-display.root_group = screen1_group
-
-TEXT = ''
-
+# ---------- filter ----------
 def filter_motor_power(motor_power):
-  if motor_power < 0:
-    if motor_power > -10:
-      motor_power = 0
-    elif motor_power > -25:
-      pass
-    elif motor_power > -50:
-      motor_power = round(motor_power / 2) * 2 
-    elif motor_power > -100:
-      motor_power = round(motor_power / 5) * 5
+    if motor_power < 0:
+        if motor_power > -10: motor_power = 0
+        elif motor_power > -25: pass
+        elif motor_power > -50: motor_power = round(motor_power / 2) * 2
+        elif motor_power > -100: motor_power = round(motor_power / 5) * 5
+        else: motor_power = round(motor_power / 10) * 10
     else:
-      motor_power = round(motor_power / 10) * 10        
-  else:
-    if motor_power < 10:
-      motor_power = 0
-    elif motor_power < 25:
-      pass
-    elif motor_power < 50:
-      motor_power = round(motor_power / 2) * 2 
-    elif motor_power < 100:
-      motor_power = round(motor_power / 5) * 5
-    else:
-      motor_power = round(motor_power / 10) * 10
+        if motor_power < 10: motor_power = 0
+        elif motor_power < 25: pass
+        elif motor_power < 50: motor_power = round(motor_power / 2) * 2
+        elif motor_power < 100: motor_power = round(motor_power / 5) * 5
+        else: motor_power = round(motor_power / 10) * 10
+    return motor_power
 
-  return motor_power
+async def main():
+    print("Starting Display")
 
-# wheel speed
-label_speed = label.Label(FreeSansBold_50, text='')
-label_speed.anchor_point = (1.0, 0.0)
-label_speed.anchored_position = (129, 0)
+    vars = Vars.Vars()
 
-# time
-label_time = label.Label(FreeSans_20, text='.....')
-label_time.anchor_point = (1.0, 1.0)
-label_time.anchored_position = (129, 63)
+    # ---- Wi-Fi STA (ESP-NOW) ----
+    sta = network.WLAN(network.STA_IF)
+    if not sta.active():
+        sta.active(True)
+    try:
+        sta.config(mac=my_mac_address)
+    except Exception:
+        pass
+    try:
+        try: sta.disconnect()
+        except Exception: pass
+        sta.config(channel=ESP_CHANNEL)
+    except Exception:
+        pass
+    try:
+        ap = network.WLAN(network.AP_IF)
+        if ap.active():
+            ap.active(False)
+    except Exception:
+        pass
 
-# warning area
-label_warning_area = label.Label(terminalio.FONT, text='')
-label_warning_area.anchor_point = (0.0, 0.0)
-label_warning_area.anchored_position = (0, 37)
-label_warning_area.scale = 1
+    # ---- ESP-NOW (aio) ----
+    esp = aioespnow.AIOESPNow()
+    esp.active(True)
+    motor = MotorBoard(esp, mac_address_motor_board, vars)
+    await motor.start()  # keep RX loop alive
 
-palette_white = displayio.Palette(1)
-palette_white[0] = 0x000000  # background
+    # ---- LCD ----
+    lcd = Display(
+        spi_clk_pin=3, spi_mosi_pin=4, chip_select_pin=1,
+        command_pin=2, reset_pin=0, backlight_pin=21,
+        spi_clock_frequency=10_000_000,
+    )
+    lcd.backlight_pwm(0.5)
+    fb = lcd.display
+    fb.fill(0)
+    lcd.display.show()
 
-palette_black = displayio.Palette(1)
-palette_black[0] = 0xFFFFFF  # fill
-  
-assist_level = 0
-assist_level_state = 0
-now = time.monotonic()
-buttons_time_previous = now
-display_time_previous = now
-ebike_rx_tx_data_time_previous = now
-update_date_time_previous = now
-update_date_time_once = False
-date_time_updated = None
-date_time_previous = now
+    # ---- RTC (optional) ----
+    rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
-battery_soc_previous_x1000 = 9999
-battery_current_previous_x100 = 9999
-motor_current_previous_x100 = 9999
-motor_power_previous = 9999
-motor_temperature_x10_previous = 9999
-vesc_temperature_x10_previous = 9999
-motor_speed_erpm_previous = 9999
-wheel_speed_x10_previous = 9999
-brakes_are_active_previous = False
-vesc_fault_code_previous = 9999
+    # ---- Boot banner ----
+    fb.fill(0)
+    draw_text_scaled(fb, "Ready to", 16, 16, scale=2, color=1, bg=0)
+    draw_text_scaled(fb, "POWER ON", 8, 36, scale=2, color=1, bg=0)
+    lcd.display.show()
 
-def turn_off_execute():
-  
-  motor.send_data()    
-  vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
+    # ---- Buttons ----
+    nr_buttons = len(BUTTON_PINS)
+    button_POWER, button_LEFT, button_RIGHT = range(nr_buttons)
 
+    async def turn_off_execute():
+        await motor.send_data_async()
+        vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
 
-def turn_off():
+    async def turn_off():
+        vars.motor_enable_state = False
+        fb.fill(0)
+        draw_text_scaled(fb, "Ready to", 18, 16, scale=2, color=1, bg=0)
+        draw_text_scaled(fb, "POWER OFF", 2, 36, scale=2, color=1, bg=0)
+        lcd.display.show()
 
-  # new values when turn off the system
-  vars.motor_enable_state = False
+        while buttons[button_POWER].isHeld:
+            buttons[button_POWER].tick()
+            await turn_off_execute()
+            await asyncio.sleep_ms(150)
 
-  label_speed = label.Label(terminalio.FONT, text="Ready to\nPOWER OFF")
-  label_speed.anchor_point = (0.5, 0.5)
-  label_speed.anchored_position = (128/2, 64/2)
-  label_speed.scale = 2
+        while not buttons[button_POWER].buttonActive:
+            buttons[button_POWER].tick()
+            await turn_off_execute()
+            await asyncio.sleep_ms(150)
 
-  g = displayio.Group()
-  g.append(label_speed)
-  display.root_group = g
-  
-  # wait for button long press release
-  while buttons[button_POWER].isHeld:
-    buttons[button_POWER].tick()
-    turn_off_execute()
-    time.sleep(0.15)
+        import sys
+        sys.exit()
 
-  # keep sending the data to the various boards until the system turns off (battery power off),
-  # or reset the display if button_POWER is clicked
-  while not buttons[button_POWER].buttonActive:
-    buttons[button_POWER].tick()
-    turn_off_execute()
-    time.sleep(0.15)
+    def button_power_click_start_cb():
+        vars.buttons_state |= 1
+        if vars.buttons_state & 0x0100: vars.buttons_state &= ~0x0100
+        else: vars.buttons_state |= 0x0100
 
-  # let's reset the display
-  supervisor.reload()
-  while True:
+    def button_power_click_release_cb():
+        vars.buttons_state &= ~1
+
+    def button_power_long_click_start_cb():
+        if vars.motor_enable_state and vars.wheel_speed_x10 < 20:
+            asyncio.create_task(turn_off())
+        else:
+            vars.buttons_state |= 2
+        if vars.buttons_state & 0x0200: vars.buttons_state &= ~0x0200
+        else: vars.buttons_state |= 0x0200
+
+    def button_power_long_click_release_cb():
+        vars.buttons_state &= ~2
+
+    def noop(): pass
+
+    buttons_callbacks = {
+        button_POWER: {
+            'click_start': button_power_click_start_cb,
+            'click_release': button_power_click_release_cb,
+            'long_click_start': button_power_long_click_start_cb,
+            'long_click_release': button_power_long_click_release_cb
+        },
+        button_LEFT:  {'click_start': noop, 'click_release': noop},
+        button_RIGHT: {'click_start': noop, 'click_release': noop},
+    }
+
+    buttons = [None] * nr_buttons
+    for i, pin in enumerate(BUTTON_PINS):
+        btn = tb.thisButton(pin, True)
+        btn.setDebounceThreshold(50)
+        btn.setLongPressThreshold(1500)
+        if 'click_start' in buttons_callbacks[i]: btn.assignClickStart(buttons_callbacks[i]['click_start'])
+        if 'click_release' in buttons_callbacks[i]: btn.assignClickRelease(buttons_callbacks[i]['click_release'])
+        if 'long_click_start' in buttons_callbacks[i]: btn.assignLongClickStart(buttons_callbacks[i]['long_click_start'])
+        if 'long_click_release' in buttons_callbacks[i]: btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
+        buttons[i] = btn
+
+    # ---- Main screen ----
+    vars.motor_enable_state = True
+    vars.buttons_state = 0
+
+    fb.fill(0)
+    motor_power_widget = MotorPowerWidget(fb, LCD_W, LCD_H)
+    motor_power_widget.draw_contour()
+    battery_soc_widget = BatterySOCWidget(fb, LCD_W, LCD_H)
+    battery_soc_widget.draw_contour()
+    lcd.display.show()
+
+    def draw_speed(value_int):
+        fb.fill_rect(70, 0, 58, 48, 0)
+        draw_text_right(fb, str(value_int), 127, 0, scale=6, color=1, bg=0)
+
+    def draw_time(hh, mm):
+        fb.fill_rect(80, 48, 48, 16, 0)
+        draw_text_right(fb, "%02d:%02d" % (hh, mm), 127, 48, scale=2, color=1, bg=0)
+
+    def draw_warning(msg: str):
+        fb.fill_rect(0, 37, 80, 16, 0)
+        if msg:
+            draw_text(fb, msg, 0, 40, 1)
+
+    # ---- State trackers ----
+    battery_soc_prev = 9999
+    motor_power_prev = 9999
+    wheel_speed_prev = 9999
+    brakes_prev = False
+    vesc_fault_prev = 9999
+
+    t_buttons = time.ticks_ms()
+    t_display = time.ticks_ms()
+    t_comm = time.ticks_ms()
+    # Optional RTC:
+    # t_ntp = time.ticks_ms(); did_ntp = False; t_clock = time.ticks_ms()
+
+    # ---- Main loop ----
+    while True:
+        now_ms = time.ticks_ms()
+
+        # UI ~10 Hz
+        if time.ticks_diff(now_ms, t_display) > 100:
+            t_display = now_ms
+
+            if battery_soc_prev != vars.battery_soc_x1000:
+                battery_soc_prev = vars.battery_soc_x1000
+                battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
+
+            battery_current_x10 = getattr(vars, "battery_current_x10", 0)
+            vars.motor_power = int((vars.battery_voltage_x10 * battery_current_x10) / 100.0)
+            if motor_power_prev != vars.motor_power:
+                motor_power_prev = vars.motor_power
+                mp = filter_motor_power(vars.motor_power)
+                motor_power_percent = int((mp * 100) / 400.0)
+                motor_power_widget.update(motor_power_percent)
+
+            if wheel_speed_prev != vars.wheel_speed_x10:
+                wheel_speed_prev = vars.wheel_speed_x10
+                draw_speed(int(vars.wheel_speed_x10 / 10.0))
+
+            lcd.display.show()
+
+        # ESP-NOW comms ~6-7 Hz
+        if time.ticks_diff(now_ms, t_comm) > 150:
+            t_comm = now_ms
+            await motor.send_data_async()   # <— await!
+            motor.receive_process_data()
+
+            if brakes_prev != vars.brakes_are_active:
+                brakes_prev = vars.brakes_are_active
+                draw_warning("brakes" if vars.brakes_are_active else "")
+                lcd.display.show()
+            elif vesc_fault_prev != vars.vesc_fault_code:
+                vesc_fault_prev = vars.vesc_fault_code
+                draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % (vars.vesc_fault_code,))
+                lcd.display.show()
+
+        # Buttons ~20 Hz
+        if time.ticks_diff(now_ms, t_buttons) > 50:
+            t_buttons = now_ms
+            for i in range(nr_buttons):
+                buttons[i].tick()
+
+        # Optional RTC (uncomment if you want it)
+        # if not did_ntp and time.ticks_diff(now_ms, t_ntp) > 2000:
+        #     did_ntp = True
+        #     rtc.update_datetime_from_wifi_ntp()
+        # if time.ticks_diff(now_ms, t_clock) > 1000:
+        #     t_clock = now
+        #     dt = rtc.datetime()
+        #     draw_time(dt[3], dt[4]); lcd.display.show()
+
+        await asyncio.sleep_ms(10)  # keep loop alive for aioespnow
+
+# ---- Entry point ----
+try:
+    asyncio.run(main())
+finally:
     pass
-
-def increase_assist_level():
-  if assist_level < 20:
-    assist_level += 1
-
-def decrease_assist_level():
-  if assist_level > 0:
-    assist_level -= 1
-
-def button_power_click_start_cb():
-  print('botao power')
-  
-  vars.buttons_state |= 1
-  
-  # flip bit state
-  if vars.buttons_state & 0x0100:
-    vars.buttons_state &= ~0x0100
-  else:
-    vars.buttons_state |= 0x0100
-    
-def button_power_click_release_cb():
-  vars.buttons_state &= ~1
-
-def button_power_long_click_start_cb():
-  # only turn off after initial motor enable
-  if vars.motor_enable_state and vars.wheel_speed_x10 < 20:
-    turn_off()
-  else:
-    vars.buttons_state |= 2
-    
-  # flip bit state
-  if vars.buttons_state & 0x0200:
-    vars.buttons_state &= ~0x0200
-  else:
-    vars.buttons_state |= 0x0200
-
-def button_power_long_click_release_cb():
-  vars.buttons_state &= ~2
-
-def button_left_click_start_cb():
-  print('botao down')
-
-def button_left_click_release_cb():
-  pass
-
-def button_right_click_start_cb():
-  print('botao up')
-
-def button_right_click_release_cb():
-  pass
-
-### Setup buttons ###
-buttons_pins = [
-  board.IO5, # button_POWER
-  board.IO6, # button_LEFT   
-  board.IO7, # button_RIGHT
-]
-
-nr_buttons = len(buttons_pins)
-button_POWER, button_LEFT, button_RIGHT = range(nr_buttons)
-
-buttons_callbacks = {
-  button_POWER: {
-    'click_start': button_power_click_start_cb,
-    'click_release': button_power_click_release_cb,
-    'long_click_start': button_power_long_click_start_cb,
-    'long_click_release': button_power_long_click_release_cb},
-  button_LEFT: {
-    'click_start': button_left_click_start_cb,
-    'click_release': button_left_click_release_cb},
-  button_RIGHT: {
-    'click_start': button_right_click_start_cb,
-    'click_release': button_right_click_release_cb},
-}
-
-buttons = [0] * nr_buttons
-for index in range(nr_buttons):
-  buttons[index] = tb.thisButton(buttons_pins[index], True)
-  buttons[index].setDebounceThreshold(50)
-  buttons[index].setLongPressThreshold(1500)
-  # check if each callback is defined, and if so, register it
-  if 'click_start' in buttons_callbacks[index]: buttons[index].assignClickStart(buttons_callbacks[index]['click_start'])
-  if 'click_release' in buttons_callbacks[index]: buttons[index].assignClickRelease(buttons_callbacks[index]['click_release'])
-  if 'long_click_start' in buttons_callbacks[index]: buttons[index].assignLongClickStart(buttons_callbacks[index]['long_click_start'])
-  if 'long_click_release' in buttons_callbacks[index]: buttons[index].assignLongClickRelease(buttons_callbacks[index]['long_click_release'])
-
-# let's wait for a first click on power button
-time_previous = time.monotonic()
-while True:
-  now = time.monotonic()
-  if (now - time_previous) > 0.05:
-    time_previous = now
-
-    buttons[button_POWER].tick()
-
-    if buttons[button_POWER].buttonActive:
-
-      # wait for user to release the button
-      while buttons[button_POWER].buttonActive:
-        buttons[button_POWER].tick()
-
-      # motor board will now enable the motor
-      vars.motor_enable_state = True
-      break
-    
-    # sleep some time to save energy and avoid ESP32-S2 to overheat
-    time.sleep(0.025)
-
-vars.motor_enable_state = True
-    
-# reset the buttons_state, as it was changed previously
-vars.buttons_state = 0
-
-# show main screen
-main_display_group = displayio.Group()
-main_display_group.append(label_speed)
-main_display_group.append(label_time)
-main_display_group.append(label_warning_area)
-
-motor_power_widget = MotorPowerWidget.MotorPowerWidget(main_display_group, 128, 63)
-motor_power_widget.draw_contour()
-battery_soc_widget = BatterySocWidget.BatterySOCWidget(main_display_group, 128, 63)
-battery_soc_widget.draw_contour()
-
-display.root_group = main_display_group
-
-while True:
-    now = time.monotonic()
-    if (now - display_time_previous) > 0.1:
-        display_time_previous = now
-
-        # Battery
-        if battery_soc_previous_x1000 != vars.battery_soc_x1000:
-            battery_soc_previous_x1000 = vars.battery_soc_x1000
-            battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
-
-        # Motor power
-        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
-        if motor_power_previous != vars.motor_power:
-            motor_power_previous = vars.motor_power
-            motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 400.0)
-            motor_power_widget.update(motor_power_percent)
-            
-        # Wheel speed
-        if wheel_speed_x10_previous != vars.wheel_speed_x10:
-            wheel_speed_x10_previous = vars.wheel_speed_x10  
-            label_speed.text = f"{int(vars.wheel_speed_x10 / 10.0)}"
-
-    now = time.monotonic()
-    if (now - ebike_rx_tx_data_time_previous) > 0.15:
-        ebike_rx_tx_data_time_previous = now
-        motor.send_data()
-        motor.process_data()
-        
-        if brakes_are_active_previous != vars.brakes_are_active:
-            brakes_are_active_previous = vars.brakes_are_active
-            if vars.brakes_are_active:  
-                label_warning_area.text = str("brakes")
-            else:
-                label_warning_area.text = str("")
-                
-        elif vesc_fault_code_previous != vars.vesc_fault_code:
-            vesc_fault_code_previous = vars.vesc_fault_code
-            if vars.vesc_fault_code:
-                label_warning_area.text = str(f"mot e: {vars.vesc_fault_code}")
-            else:
-                label_warning_area.text = str("")
-
-    # Update buttons
-    now = time.monotonic()
-    if (now - buttons_time_previous) > 0.05:
-        buttons_time_previous = now
-
-        for index in range(nr_buttons):
-            buttons[index].tick()
-  
-    # Update time on RTC just once
-    if update_date_time_once is False:
-      now = time.monotonic()
-      if (now - update_date_time_previous) > 2.0:
-          update_date_time_once = True
-          date_time_updated = rtc.update_date_time_from_wifi_ntp()
-    
-    # Update time
-    now = time.monotonic()
-    if (now - date_time_previous) > 1.0:
-        date_time_previous = now
-
-        date_time = rtc.date_time()
-        if date_time_updated is True:
-          label_time.text = f'{date_time.tm_hour}:{date_time.tm_min:02}'
-        elif date_time_updated is False:
-          label_time.text = f''
-
-    # Sleep some time to save energy and avoid ESP32 to overheat
-    time.sleep(0.01)
-
-
-
