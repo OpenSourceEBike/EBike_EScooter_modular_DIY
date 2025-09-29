@@ -1,4 +1,5 @@
-import storage
-storage.disable_usb_drive()
-storage.remount("/", readonly=False)
-storage.enable_usb_drive()
+# This file is executed on every boot (including wake-boot from deepsleep)
+#import esp
+#esp.osdebug(None)
+#import webrepl
+#webrepl.start()
