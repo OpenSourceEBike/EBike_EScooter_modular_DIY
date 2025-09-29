@@ -1,86 +1,71 @@
-# main.py  — MicroPython DISPLAY main (ESP32 / ESP32-C3) with aioespnow
+# main.py — MicroPython DISPLAY main (ESP32/ESP32-C3) with aioespnow + FreeSans fonts
 
 import time
 import network
 import uasyncio as asyncio
 import aioespnow
 
-# Your modules
-from display import Display
+from display_st7565 import Display
 from rtc_datetime import RTCDateTime
 from escooter_fiido_q1_s.motor_board_espnow import MotorBoard
-from battery_soc_widget import BatterySOCWidget, WHITE, BLACK
+from battery_soc_widget import BatterySOCWidget
 from motor_power_widget import MotorPowerWidget
 import vars as Vars
 import firmware_common.thisbutton as tb
 
-########################################
-# CONFIGURATIONS
+# Fonts (Peter Hinch Writer + font-to-py exports)
+from writer import Writer
+import freesans20
+import freesansbold50
 
+# ---------------- Config ----------------
 my_mac_address = b"\x00\xb6\xb3\x01\xf7\xf3"
 mac_address_motor_board = b"\x00\xb6\xb3\x01\xf7\xf2"
 
 LCD_W, LCD_H = 128, 64
 ESP_CHANNEL = 1
 
-# Button pins (adjust to your board)
-BTN_POWER = 0
-BTN_LEFT  = 1
-BTN_RIGHT = 2
+# Buttons (adapt pins to your board)
+BTN_POWER, BTN_LEFT, BTN_RIGHT = 0, 1, 2
 BUTTON_PINS = [5, 6, 7]  # POWER, LEFT, RIGHT
 
-# ---------- text helpers ----------
-def draw_text(fb, txt, x, y, color=1):
-    fb.text(txt, x, y, color)
-
-def draw_text_scaled(fb, txt, x, y, scale=1, color=1, bg=0):
-    if scale <= 1:
-        fb.text(txt, x, y, color)
-        return
-    import framebuf
-    w = 8 * len(txt)
-    h = 8
-    buf = bytearray(w * h)
-    tmp = framebuf.FrameBuffer(buf, w, h, framebuf.MONO_HLSB)
-    tmp.fill(0)
-    tmp.text(txt, 0, 0, 1)
-    for yy in range(h):
-        row = yy * w
-        for xx in range(w):
-            on = buf[row + xx] != 0
-            if on or bg is not None:
-                c = color if on else bg
-                fb.fill_rect(x + xx * scale, y + yy * scale, scale, scale, c)
-
-def draw_text_right(fb, txt, x_right, y, scale=1, color=1, bg=None):
-    w = 8 * len(txt) * scale
-    draw_text_scaled(fb, txt, x_right - w, y, scale, color, bg)
-
-# ---------- filter ----------
-def filter_motor_power(motor_power):
-    if motor_power < 0:
-        if motor_power > -10: motor_power = 0
-        elif motor_power > -25: pass
-        elif motor_power > -50: motor_power = round(motor_power / 2) * 2
-        elif motor_power > -100: motor_power = round(motor_power / 5) * 5
-        else: motor_power = round(motor_power / 10) * 10
+# -------------- Helpers -----------------
+def filter_motor_power(p):
+    if p < 0:
+        if p > -10: p = 0
+        elif p > -25: pass
+        elif p > -50: p = round(p/2)*2
+        elif p > -100: p = round(p/5)*5
+        else: p = round(p/10)*10
     else:
-        if motor_power < 10: motor_power = 0
-        elif motor_power < 25: pass
-        elif motor_power < 50: motor_power = round(motor_power / 2) * 2
-        elif motor_power < 100: motor_power = round(motor_power / 5) * 5
-        else: motor_power = round(motor_power / 10) * 10
-    return motor_power
+        if p < 10: p = 0
+        elif p < 25: pass
+        elif p < 50: p = round(p/2)*2
+        elif p < 100: p = round(p/5)*5
+        else: p = round(p/10)*10
+    return p
 
+def font_text_width(font, s):
+    w = 0
+    for ch in s:
+        _, _, cw = font.get_ch(ch)
+        w += cw
+    return w
+
+def fit_right(font, s, maxw):
+    # Trim from left until it fits in maxw
+    while s and font_text_width(font, s) > maxw:
+        s = s[1:]
+    return s
+
+# -------------- Main --------------------
 async def main():
     print("Starting Display")
-
     vars = Vars.Vars()
 
-    # ---- Wi-Fi STA (ESP-NOW) ----
+    # WiFi STA (channel for ESP-NOW)
     sta = network.WLAN(network.STA_IF)
-    if not sta.active():
-        sta.active(True)
+    sta.active(True)
     try:
         sta.config(mac=my_mac_address)
     except Exception:
@@ -98,13 +83,13 @@ async def main():
     except Exception:
         pass
 
-    # ---- ESP-NOW (aio) ----
+    # ESP-NOW
     esp = aioespnow.AIOESPNow()
     esp.active(True)
     motor = MotorBoard(esp, mac_address_motor_board, vars)
-    await motor.start()  # keep RX loop alive
+    await motor.start()
 
-    # ---- LCD ----
+    # LCD
     lcd = Display(
         spi_clk_pin=3, spi_mosi_pin=4, chip_select_pin=1,
         command_pin=2, reset_pin=0, backlight_pin=21,
@@ -115,16 +100,34 @@ async def main():
     fb.fill(0)
     lcd.display.show()
 
-    # ---- RTC (optional) ----
+    # RTC (optional)
     rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
-    # ---- Boot banner ----
-    fb.fill(0)
-    draw_text_scaled(fb, "Ready to", 16, 16, scale=2, color=1, bg=0)
-    draw_text_scaled(fb, "POWER ON", 8, 36, scale=2, color=1, bg=0)
-    lcd.display.show()
+    # Writers
+    writer_small = Writer(fb, freesans20, verbose=False)
+    writer_small.set_clip(row_clip=True, col_clip=True, wrap=False)
 
-    # ---- Buttons ----
+    writer_speed = Writer(fb, freesansbold50, verbose=False)
+    writer_speed.set_clip(row_clip=True, col_clip=True, wrap=False)
+
+    # Boot banner (centered, FreeSans20)
+    def draw_centered_lines(line1, line2):
+        fb.fill(0)
+        h = freesans20.height()
+        gap = 2
+        w1 = font_text_width(freesans20, line1)
+        w2 = font_text_width(freesans20, line2)
+        total_h = 2*h + gap
+        y0 = (LCD_H - total_h)//2
+        x1 = (LCD_W - w1)//2
+        x2 = (LCD_W - w2)//2
+        Writer.set_textpos(fb, y0, x1); writer_small.printstring(line1)
+        Writer.set_textpos(fb, y0 + h + gap, x2); writer_small.printstring(line2)
+        lcd.display.show()
+
+    draw_centered_lines("Ready to", "POWER ON")
+
+    # Buttons
     nr_buttons = len(BUTTON_PINS)
     button_POWER, button_LEFT, button_RIGHT = range(nr_buttons)
 
@@ -134,21 +137,15 @@ async def main():
 
     async def turn_off():
         vars.motor_enable_state = False
-        fb.fill(0)
-        draw_text_scaled(fb, "Ready to", 18, 16, scale=2, color=1, bg=0)
-        draw_text_scaled(fb, "POWER OFF", 2, 36, scale=2, color=1, bg=0)
-        lcd.display.show()
-
+        draw_centered_lines("Ready to", "POWER OFF")
         while buttons[button_POWER].isHeld:
             buttons[button_POWER].tick()
             await turn_off_execute()
             await asyncio.sleep_ms(150)
-
         while not buttons[button_POWER].buttonActive:
             buttons[button_POWER].tick()
             await turn_off_execute()
             await asyncio.sleep_ms(150)
-
         import sys
         sys.exit()
 
@@ -184,21 +181,39 @@ async def main():
         button_RIGHT: {'click_start': noop, 'click_release': noop},
     }
 
-    buttons = [None] * nr_buttons
+    buttons = [None]*nr_buttons
     for i, pin in enumerate(BUTTON_PINS):
         btn = tb.thisButton(pin, True)
         btn.setDebounceThreshold(50)
         btn.setLongPressThreshold(1500)
-        if 'click_start' in buttons_callbacks[i]: btn.assignClickStart(buttons_callbacks[i]['click_start'])
-        if 'click_release' in buttons_callbacks[i]: btn.assignClickRelease(buttons_callbacks[i]['click_release'])
-        if 'long_click_start' in buttons_callbacks[i]: btn.assignLongClickStart(buttons_callbacks[i]['long_click_start'])
-        if 'long_click_release' in buttons_callbacks[i]: btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
+        if 'click_start' in buttons_callbacks[i]:
+            btn.assignClickStart(buttons_callbacks[i]['click_start'])
+        if 'click_release' in buttons_callbacks[i]:
+            btn.assignClickRelease(buttons_callbacks[i]['click_release'])
+        if 'long_click_start' in buttons_callbacks[i]:
+            btn.assignLongClickStart(buttons_callbacks[i]['long_click_start'])
+        if 'long_click_release' in buttons_callbacks[i]:
+            btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
         buttons[i] = btn
 
-    # ---- Main screen ----
-    vars.motor_enable_state = True
+    # Wait for 1st POWER click
+    t_prev = time.ticks_ms()
+    while True:
+        now = time.ticks_ms()
+        if time.ticks_diff(now, t_prev) > 50:
+            t_prev = now
+            buttons[button_POWER].tick()
+            if buttons[button_POWER].buttonActive:
+                while buttons[button_POWER].buttonActive:
+                    buttons[button_POWER].tick()
+                    await asyncio.sleep_ms(10)
+                vars.motor_enable_state = True
+                break
+            await asyncio.sleep_ms(25)
+
     vars.buttons_state = 0
 
+    # Main screen (widgets)
     fb.fill(0)
     motor_power_widget = MotorPowerWidget(fb, LCD_W, LCD_H)
     motor_power_widget.draw_contour()
@@ -206,20 +221,34 @@ async def main():
     battery_soc_widget.draw_contour()
     lcd.display.show()
 
-    def draw_speed(value_int):
-        fb.fill_rect(70, 0, 58, 48, 0)
-        draw_text_right(fb, str(value_int), 127, 0, scale=6, color=1, bg=0)
+    # FreeSansBold50, anchored top-right at (129,0) like CP
+    def draw_wheel_speed(value_int):
+        txt = str(value_int)
+        target_right = 125   # CP anchored_position x
+        top = 0              # CP anchor y
+        maxw = LCD_W        # glass is 128 px wide
 
-    def draw_time(hh, mm):
-        fb.fill_rect(80, 48, 48, 16, 0)
-        draw_text_right(fb, "%02d:%02d" % (hh, mm), 127, 48, scale=2, color=1, bg=0)
+        # Ensure text fits on the glass
+        txt = fit_right(freesansbold50, txt, maxw)
+        w = font_text_width(freesansbold50, txt)
+        x = target_right - w
+        if x < 0: x = 0
+        if x + w > maxw: x = maxw - w
 
-    def draw_warning(msg: str):
+        # Clear a band as tall as the font
+        h = freesansbold50.height()
+        fb.fill_rect(0, top, LCD_W, min(h, LCD_H - top), 0)
+
+        Writer.set_textpos(fb, top, x)
+        writer_speed.printstring(txt)
+
+    def draw_warning(msg):
         fb.fill_rect(0, 37, 80, 16, 0)
         if msg:
-            draw_text(fb, msg, 0, 40, 1)
+            # Small built-in text is OK here
+            fb.text(msg, 0, 40, 1)
 
-    # ---- State trackers ----
+    # State trackers
     battery_soc_prev = 9999
     motor_power_prev = 9999
     wheel_speed_prev = 9999
@@ -229,10 +258,8 @@ async def main():
     t_buttons = time.ticks_ms()
     t_display = time.ticks_ms()
     t_comm = time.ticks_ms()
-    # Optional RTC:
-    # t_ntp = time.ticks_ms(); did_ntp = False; t_clock = time.ticks_ms()
 
-    # ---- Main loop ----
+    # Main loop
     while True:
         now_ms = time.ticks_ms()
 
@@ -242,26 +269,25 @@ async def main():
 
             if battery_soc_prev != vars.battery_soc_x1000:
                 battery_soc_prev = vars.battery_soc_x1000
-                battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
+                battery_soc_widget.update(int(vars.battery_soc_x1000/10))
 
-            battery_current_x10 = getattr(vars, "battery_current_x10", 0)
-            vars.motor_power = int((vars.battery_voltage_x10 * battery_current_x10) / 100.0)
+            vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
             if motor_power_prev != vars.motor_power:
                 motor_power_prev = vars.motor_power
                 mp = filter_motor_power(vars.motor_power)
-                motor_power_percent = int((mp * 100) / 400.0)
-                motor_power_widget.update(motor_power_percent)
+                motor_power_widget.update(int((mp * 100) / 400.0))
 
             if wheel_speed_prev != vars.wheel_speed_x10:
                 wheel_speed_prev = vars.wheel_speed_x10
-                draw_speed(int(vars.wheel_speed_x10 / 10.0))
+                #draw_wheel_speed(int(vars.wheel_speed_x10 / 10))
+                draw_wheel_speed(24)
 
             lcd.display.show()
 
-        # ESP-NOW comms ~6-7 Hz
+        # ESP-NOW ~6-7 Hz
         if time.ticks_diff(now_ms, t_comm) > 150:
             t_comm = now_ms
-            await motor.send_data_async()   # <— await!
+            await motor.send_data_async()
             motor.receive_process_data()
 
             if brakes_prev != vars.brakes_are_active:
@@ -270,7 +296,7 @@ async def main():
                 lcd.display.show()
             elif vesc_fault_prev != vars.vesc_fault_code:
                 vesc_fault_prev = vars.vesc_fault_code
-                draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % (vars.vesc_fault_code,))
+                draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % vars.vesc_fault_code)
                 lcd.display.show()
 
         # Buttons ~20 Hz
@@ -279,18 +305,9 @@ async def main():
             for i in range(nr_buttons):
                 buttons[i].tick()
 
-        # Optional RTC (uncomment if you want it)
-        # if not did_ntp and time.ticks_diff(now_ms, t_ntp) > 2000:
-        #     did_ntp = True
-        #     rtc.update_datetime_from_wifi_ntp()
-        # if time.ticks_diff(now_ms, t_clock) > 1000:
-        #     t_clock = now
-        #     dt = rtc.datetime()
-        #     draw_time(dt[3], dt[4]); lcd.display.show()
+        await asyncio.sleep_ms(10)
 
-        await asyncio.sleep_ms(10)  # keep loop alive for aioespnow
-
-# ---- Entry point ----
+# Entry
 try:
     asyncio.run(main())
 finally:
