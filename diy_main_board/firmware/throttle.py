@@ -1,5 +1,5 @@
 from machine import ADC, Pin
-import utils
+from firmware_common.utils import map_range
 
 class Throttle:
     """Throttle input via ADC"""
@@ -23,4 +23,4 @@ class Throttle:
     def value(self):
         """Scaled throttle [0–1000]"""
         raw = self._adc.read_u16()
-        return int(utils.map_range(raw, self._min, self._max, 0, 1000, clamp=True))
+        return int(map_range(raw, self._min, self._max, 0, 1000, clamp=True))
