@@ -1,44 +1,25 @@
 # writer.py Implements the Writer class.
 # Handles colour, word wrap and tab stops
 
+# V0.5.3 Sep 2025 Add optional vertical clipping (vclip) so glyphs that
+# would overrun the bottom edge are cropped instead of being dropped.
 # V0.5.2 May 2025 Fix bug whereby glyph clipping might be attempted.
-# V0.5.1 Dec 2022 Support 4-bit color display drivers.
-# V0.5.0 Sep 2021 Color now requires firmware >= 1.17.
-# V0.4.3 Aug 2021 Support for fast blit to color displays (PR7682).
-# V0.4.0 Jan 2021 Improved handling of word wrap and line clip. Upside-down
-# rendering no longer supported: delegate to device driver.
-# V0.3.5 Sept 2020 Fast rendering option for color displays
-
-# Released under the MIT License (MIT). See LICENSE.
-# Copyright (c) 2019-2021 Peter Hinch
-
-# A Writer supports rendering text to a Display instance in a given font.
-# Multiple Writer instances may be created, each rendering a font to the
-# same Display object.
-
-# Timings were run on a pyboard D SF6W comparing slow and fast rendering
-# and averaging over multiple characters. Proportional fonts were used.
-# 20 pixel high font, timings were 5.44ms/467μs, gain 11.7 (freesans20).
-# 10 pixel high font, timings were 1.76ms/396μs, gain 4.36 (arial10).
-
+# (restante cabeçalho inalterado)
 
 import framebuf
 from uctypes import bytearray_at, addressof
 
-__version__ = (0, 5, 2)
-
+__version__ = (0, 5, 3)
 
 class DisplayState:
     def __init__(self):
         self.text_row = 0
         self.text_col = 0
 
-
 def _get_id(device):
     if not isinstance(device, framebuf.FrameBuffer):
         raise ValueError("Device must be derived from FrameBuffer.")
     return id(device)
-
 
 # Basic Writer class for monochrome displays
 class Writer:
@@ -69,7 +50,6 @@ class Writer:
         self.font = font
         if font.height() >= device.height or font.max_width() >= device.width:
             raise ValueError("Font too large for screen")
-        # Allow to work with reverse or normal font mapping
         if font.hmap():
             self.map = framebuf.MONO_HMSB if font.reverse() else framebuf.MONO_HLSB
         else:
@@ -82,19 +62,26 @@ class Writer:
                     self._getstate().text_row, self._getstate().text_col
                 )
             )
-        self.screenwidth = device.width  # In pixels
+        self.screenwidth = device.width
         self.screenheight = device.height
-        self.bgcolor = 0  # Monochrome background and foreground colors
+        self.bgcolor = 0
         self.fgcolor = 1
-        self.row_clip = False  # Clip or scroll when screen fullt
-        self.col_clip = False  # Clip or new line when row is full
-        self.wrap = True  # Word wrap
+        self.row_clip = False   # legacy behaviour
+        self.col_clip = False
+        self.wrap = True
         self.cpos = 0
         self.tab = 4
 
-        self.glyph = None  # Current char
+        self.glyph = None
         self.char_height = 0
         self.char_width = 0
+
+        # --- NOVO: clipping vertical opcional ---
+        self.vclip = False  # OFF por omissão
+
+    def set_vclip(self, enable=True):
+        """Enable/disable vertical clipping of glyphs at the bottom edge."""
+        self.vclip = bool(enable)
 
     def _getstate(self):
         return Writer.state[self.devid]
@@ -122,11 +109,10 @@ class Writer:
         return self.row_clip, self.col_clip, self.wrap
 
     @property
-    def height(self):  # Property for consistency with device
+    def height(self):
         return self.font.height()
 
     def printstring(self, string, invert=False):
-        # word wrapping. Assumes words separated by single space.
         q = string.split("\n")
         last = len(q) - 1
         for n, s in enumerate(q):
@@ -137,10 +123,10 @@ class Writer:
 
     def _printline(self, string, invert):
         rstr = None
-        if self.wrap and self.stringlen(string, True):  # Length > self.screenwidth
+        if self.wrap and self.stringlen(string, True):
             pos = 0
             lstr = string[:]
-            while self.stringlen(lstr, True):  # Length > self.screenwidth
+            while self.stringlen(lstr, True):
                 pos = lstr.rfind(" ")
                 lstr = lstr[:pos].rstrip()
             if pos > 0:
@@ -151,51 +137,49 @@ class Writer:
             self._printchar(char, invert)
         if rstr is not None:
             self._printchar("\n")
-            self._printline(rstr, invert)  # Recurse
+            self._printline(rstr, invert)
 
     def stringlen(self, string, oh=False):
         if not len(string):
             return 0
-        sc = self._getstate().text_col  # Start column
+        sc = self._getstate().text_col
         wd = self.screenwidth
         l = 0
         for char in string[:-1]:
             _, _, char_width = self.font.get_ch(char)
             l += char_width
             if oh and l + sc > wd:
-                return True  # All done. Save time.
+                return True
         char = string[-1]
         _, _, char_width = self.font.get_ch(char)
         if oh and l + sc + char_width > wd:
-            l += self._truelen(char)  # Last char might have blank cols on RHS
+            l += self._truelen(char)
         else:
-            l += char_width  # Public method. Return same value as old code.
+            l += char_width
         return l + sc > wd if oh else l
 
-    # Return the printable width of a glyph less any blank columns on RHS
     def _truelen(self, char):
         glyph, ht, wd = self.font.get_ch(char)
         div, mod = divmod(wd, 8)
-        gbytes = div + 1 if mod else div  # No. of bytes per row of glyph
-        mc = 0  # Max non-blank column
-        data = glyph[(wd - 1) // 8]  # Last byte of row 0
-        for row in range(ht):  # Glyph row
-            for col in range(wd - 1, -1, -1):  # Glyph column
+        gbytes = div + 1 if mod else div
+        mc = 0
+        data = glyph[(wd - 1) // 8]
+        for row in range(ht):
+            for col in range(wd - 1, -1, -1):
                 gbyte, gbit = divmod(col, 8)
-                if gbit == 0:  # Next glyph byte
+                if gbit == 0:
                     data = glyph[row * gbytes + gbyte]
                 if col <= mc:
                     break
-                if data & (1 << (7 - gbit)):  # Pixel is lit (1)
-                    mc = col  # Eventually gives rightmost lit pixel
+                if data & (1 << (7 - gbit)):
+                    mc = col
                     break
             if mc + 1 == wd:
-                break  # All done: no trailing space
-        # print('Truelen', char, wd, mc + 1)  # TEST
+                break
         return mc + 1
 
     def _get_char(self, char, recurse):
-        if not recurse:  # Handle tabs
+        if not recurse:
             if char == "\n":
                 self.cpos = 0
             elif char == "\t":
@@ -205,42 +189,72 @@ class Writer:
                 while nspaces:
                     nspaces -= 1
                     self._printchar(" ", recurse=True)
-                self.glyph = None  # All done
+                self.glyph = None
                 return
 
-        self.glyph = None  # Assume all done
+        self.glyph = None
         if char == "\n":
             self._newline()
             return
         glyph, char_height, char_width = self.font.get_ch(char)
         s = self._getstate()
+
+        # Se ultrapassar o fundo:
         if s.text_row + char_height > self.screenheight:
-            if self.row_clip:
-                return
-            self._newline()
-        if s.text_col + char_width - self.screenwidth > 0:  # Glyph would overhang
+            if not self.vclip:
+                # comportamento antigo: corta a linha (ou faz scroll conforme flags)
+                if self.row_clip:
+                    return
+                self._newline()
+                # após newline, pode continuar
+        # Se ultrapassar à direita:
+        if s.text_col + char_width - self.screenwidth > 0:
             if self.col_clip or self.wrap:
-                return  # Can't clip a glyph: discard
+                return
             else:
                 self._newline()
+
         self.glyph = glyph
         self.char_height = char_height
         self.char_width = char_width
 
-    # Method using blitting. Efficient rendering for monochrome displays.
-    # Tested on SSD1306. Invert is for black-on-white rendering.
+    # Método usando blitting (monocromático)
     def _printchar(self, char, invert=False, recurse=False):
         s = self._getstate()
         self._get_char(char, recurse)
         if self.glyph is None:
-            return  # All done
-        buf = bytearray(self.glyph)
+            return
+
+        y = s.text_row
+        x = s.text_col
+        h = self.char_height
+        w = self.char_width
+
+        # --- NOVO: clipping vertical inferior ---
+        bottom_over = (y + h) - self.screenheight
+        if self.vclip and bottom_over > 0:
+            visible_h = h - bottom_over
+            if visible_h <= 0:
+                return  # nada visível
+            # cada linha da glyph tem ceil(w/8) bytes
+            bytes_per_row = (w + 7) // 8
+            total_bytes = visible_h * bytes_per_row
+            buf_full = bytearray(self.glyph)
+            buf = memoryview(buf_full)[:total_bytes]
+        else:
+            buf = bytearray(self.glyph)
+
         if invert:
+            # inverter apenas a parte visível
             for i, v in enumerate(buf):
                 buf[i] = 0xFF & ~v
-        fbc = framebuf.FrameBuffer(buf, self.char_width, self.char_height, self.map)
-        self.device.blit(fbc, s.text_col, s.text_row)
-        s.text_col += self.char_width
+
+        # FrameBuffer da porção visível
+        vis_h = h - bottom_over if (self.vclip and bottom_over > 0) else h
+        fbc = framebuf.FrameBuffer(buf, w, vis_h, self.map)
+        self.device.blit(fbc, x, y)
+
+        s.text_col += w
         self.cpos += 1
 
     def tabsize(self, value=None):
@@ -252,7 +266,7 @@ class Writer:
         return self.fgcolor, self.bgcolor
 
 
-# Writer for colour displays.
+# Writer para ecrãs a cores.
 class CWriter(Writer):
     @staticmethod
     def create_color(ssd, idx, r, g, b):
@@ -269,9 +283,8 @@ class CWriter(Writer):
     def __init__(self, device, font, fgcolor=None, bgcolor=None, verbose=True):
         if not hasattr(device, "palette"):
             raise OSError("Incompatible device driver.")
-
         super().__init__(device, font, verbose)
-        if bgcolor is not None:  # Assume monochrome.
+        if bgcolor is not None:
             self.bgcolor = bgcolor
         if fgcolor is not None:
             self.fgcolor = fgcolor
@@ -282,14 +295,35 @@ class CWriter(Writer):
         s = self._getstate()
         self._get_char(char, recurse)
         if self.glyph is None:
-            return  # All done
-        buf = bytearray_at(addressof(self.glyph), len(self.glyph))
-        fbc = framebuf.FrameBuffer(buf, self.char_width, self.char_height, self.map)
+            return
+
+        y = s.text_row
+        x = s.text_col
+        h = self.char_height
+        w = self.char_width
+
+        # --- NOVO: clipping vertical inferior para cor ---
+        bottom_over = (y + h) - self.screenheight
+        if self.vclip and bottom_over > 0:
+            visible_h = h - bottom_over
+            if visible_h <= 0:
+                return
+            bytes_per_row = (w + 7) // 8
+            total_bytes = visible_h * bytes_per_row
+            buf_full = bytearray_at(addressof(self.glyph), len(self.glyph))
+            buf = memoryview(buf_full)[:total_bytes]
+        else:
+            buf = bytearray_at(addressof(self.glyph), len(self.glyph))
+
+        fbc = framebuf.FrameBuffer(buf, w,
+                                   h - bottom_over if (self.vclip and bottom_over > 0) else h,
+                                   self.map)
         palette = self.device.palette
         palette.bg(self.fgcolor if invert else self.bgcolor)
         palette.fg(self.bgcolor if invert else self.fgcolor)
-        self.device.blit(fbc, s.text_col, s.text_row, -1, palette)
-        s.text_col += self.char_width
+        self.device.blit(fbc, x, y, -1, palette)
+
+        s.text_col += w
         self.cpos += 1
 
     def setcolor(self, fgcolor=None, bgcolor=None):

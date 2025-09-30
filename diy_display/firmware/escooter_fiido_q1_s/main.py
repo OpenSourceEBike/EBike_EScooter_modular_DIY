@@ -6,18 +6,20 @@ import uasyncio as asyncio
 import aioespnow
 
 from display_st7565 import Display
+from writer import Writer
+from fonts import freesans10
+from fonts import freesans20
+from fonts import freesansbold50
 from rtc_datetime import RTCDateTime
 from escooter_fiido_q1_s.motor_board_espnow import MotorBoard
 from battery_soc_widget import BatterySOCWidget
 from motor_power_widget import MotorPowerWidget
 from widget_wheel_speed import WidgetWheelSpeed
+from widget_warning import WidgetWarning
+from widget_clock import WidgetClock
+
 import vars as Vars
 import firmware_common.thisbutton as tb
-
-# Fonts (Peter Hinch Writer + font-to-py exports)
-from writer import Writer
-import freesans20
-import freesansbold50
 
 # ---------------- Config ----------------
 my_mac_address = b"\x00\xb6\xb3\x01\xf7\xf3"
@@ -72,8 +74,10 @@ async def main():
     except Exception:
         pass
     try:
-        try: sta.disconnect()
-        except Exception: pass
+        try:
+            sta.disconnect()
+        except Exception:
+            pass
         sta.config(channel=ESP_CHANNEL)
     except Exception:
         pass
@@ -101,17 +105,23 @@ async def main():
     fb.fill(0)
     lcd.display.show()
 
-    # RTC (optional)
+    # -------- RTC + Time UI --------
     rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
-    # Writers
+    # Writers / Widgets
     writer_small = Writer(fb, freesans20, verbose=False)
     writer_small.set_clip(row_clip=True, col_clip=True, wrap=False)
-
-    writer_speed = Writer(fb, freesansbold50, verbose=False)
-    writer_speed.set_clip(row_clip=True, col_clip=True, wrap=False)
     
-    wheel_speed_widget = WidgetWheelSpeed(fb, LCD_W, LCD_H)
+    wheel_speed_widget = WidgetWheelSpeed(fb, LCD_W, LCD_H, font=freesansbold50)
+    warning_widget = WidgetWarning(fb, LCD_W, LCD_H, x0=0, y0=39, fg=1, bg=0, font=freesans10, baseline_adjust=0)
+    clock_widget = WidgetClock(
+        fb, LCD_W, LCD_H,
+        font=freesans20,
+        x_offset=0,          # caixa agarrada ao canto
+        y_offset=0,
+        baseline_adjust=3,   # ↓ empurra a linha de base
+        top_nudge=0          # ↓ afina dentro da caixa
+    )
 
     # Boot banner (centered, FreeSans20)
     def draw_centered_lines(line1, line2):
@@ -199,23 +209,6 @@ async def main():
             btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
         buttons[i] = btn
 
-    # Wait for 1st POWER click
-    # t_prev = time.ticks_ms()
-    # while True:
-    #     now = time.ticks_ms()
-    #     if time.ticks_diff(now, t_prev) > 50:
-    #         t_prev = now
-    #         buttons[button_POWER].tick()
-    #         if buttons[button_POWER].buttonActive:
-    #             while buttons[button_POWER].buttonActive:
-    #                 buttons[button_POWER].tick()
-    #                 await asyncio.sleep_ms(10)
-    #             vars.motor_enable_state = True
-    #             break
-    #         await asyncio.sleep_ms(25)
-
-    # vars.buttons_state = 0
-
     # Main screen (widgets)
     fb.fill(0)
     motor_power_widget = MotorPowerWidget(fb, LCD_W, LCD_H)
@@ -224,13 +217,7 @@ async def main():
     battery_soc_widget.draw_contour()
     lcd.display.show()
 
-    def draw_warning(msg):
-        fb.fill_rect(0, 37, 80, 16, 0)
-        if msg:
-            # Small built-in text is OK here
-            fb.text(msg, 0, 40, 1)
-
-    # State trackers
+    # --------- State trackers ---------
     battery_soc_prev = 9999
     motor_power_prev = 9999
     wheel_speed_prev = 9999
@@ -241,12 +228,16 @@ async def main():
     t_display = time.ticks_ms()
     t_comm = time.ticks_ms()
 
+    # Time/RTC trackers
+    t_time_tick = time.ticks_ms()
+    t_rtc_try_update_once = time.ticks_ms()
+    update_date_time_once = False
+    date_time_updated = None  # None=unknown, True=good, False=failed
+
+    # Dummies (for standalone demo)
     power_dummy = 0
     speed_dummy = 0
     battery_dummy = 0
-    brakes_dummy = 0
-    time_dummy = 0
-    error_dummy = 0
 
     # Main loop
     while True:
@@ -256,31 +247,33 @@ async def main():
         if time.ticks_diff(now_ms, t_display) > 100:
             t_display = now_ms
 
+            # Battery (demo spinner here; replace with real values)
             battery_soc_prev = -1
             vars.battery_soc_x1000 = 1000
-            battery_soc_prev = -1
             if battery_soc_prev != vars.battery_soc_x1000:
                 battery_soc_prev = vars.battery_soc_x1000
                 battery_soc_widget.update(int(vars.battery_soc_x1000/10))
-                
+                # demo spin
                 battery_dummy = (battery_dummy + 1) % 100
                 battery_soc_widget.update(battery_dummy)
 
+            # Motor power
             vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
             motor_power_prev = -1
             if motor_power_prev != vars.motor_power:
                 motor_power_prev = vars.motor_power
                 mp = filter_motor_power(vars.motor_power)
                 # motor_power_widget.update(int((mp * 100) / 400.0))
-                
+                # demo spin
                 power_dummy = (power_dummy + 5) % 101
                 motor_power_widget.update(power_dummy)
 
+            # Wheel speed
             wheel_speed_prev = -1
             if wheel_speed_prev != vars.wheel_speed_x10:
                 wheel_speed_prev = vars.wheel_speed_x10
-                #draw_wheel_speed(int(vars.wheel_speed_x10 / 10))
-                
+                # real: wheel_speed_widget.update(int(vars.wheel_speed_x10 / 10))
+                # demo spin
                 speed_dummy = (speed_dummy + 1) % 100
                 wheel_speed_widget.update(speed_dummy)
 
@@ -292,20 +285,43 @@ async def main():
             await motor.send_data_async()
             motor.receive_process_data()
 
-            # if brakes_prev != vars.brakes_are_active:
-            #     brakes_prev = vars.brakes_are_active
-            #     draw_warning("brakes" if vars.brakes_are_active else "")
-            #     lcd.display.show()
-            # elif vesc_fault_prev != vars.vesc_fault_code:
-            #     vesc_fault_prev = vars.vesc_fault_code
-            #     draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % vars.vesc_fault_code)
-            #     lcd.display.show()
+            # Warnings (demo values here)
+            brakes_prev = -1
+            vars.brakes_are_active = True  # demo
+            if brakes_prev != vars.brakes_are_active:
+                brakes_prev = vars.brakes_are_active
+                warning_widget.update("brakes" if vars.brakes_are_active else "")
+                lcd.display.show()
+            elif vesc_fault_prev != vars.vesc_fault_code:
+                vesc_fault_prev = vars.vesc_fault_code
+                warning_widget.update("" if not vars.vesc_fault_code else "mot e: %d" % vars.vesc_fault_code)
+                lcd.display.show()
 
         # Buttons ~20 Hz
         if time.ticks_diff(now_ms, t_buttons) > 50:
             t_buttons = now_ms
-            for i in range(nr_buttons):
+            for i in range(len(buttons)):
                 buttons[i].tick()
+
+        # -------- RTC: try NTP once after ~2s --------
+        if (not update_date_time_once) and time.ticks_diff(now_ms, t_rtc_try_update_once) > 2000:
+            update_date_time_once = True
+            try:
+                date_time_updated = rtc.update_date_time_from_wifi_ntp()  # returns True/False
+            except Exception:
+                date_time_updated = False  # follow original behavior: only try once
+
+        # -------- Time draw (1 Hz) --------
+        if time.ticks_diff(now_ms, t_time_tick) > 1000:
+            t_time_tick = now_ms
+            try:
+                dt = rtc.date_time()  # tuple
+                clock_widget.update_from_tuple(dt, valid=date_time_updated)  # clears if not synced
+                lcd.display.show()    # <-- push buffer after drawing the clock
+            except Exception as ex:
+                clock_widget.update(valid=False)
+                lcd.display.show()    # also push the clear
+                print(ex)
 
         await asyncio.sleep_ms(10)
 
