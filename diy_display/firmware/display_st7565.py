@@ -232,7 +232,7 @@ class Display:
         # Defaults: no extra flips here, stays as A1/C0 like CP working 
         self._display.contrast = initial_contrast  # start at 0; adjust later as needed
         
-        self._display.set_orientation(adc_reverse=False, com_reverse=True)
+        self._display.set_orientation(adc_reverse=True, com_reverse=False)
 
     @property
     def display(self) -> ST7565:

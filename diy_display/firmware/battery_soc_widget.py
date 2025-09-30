@@ -1,36 +1,39 @@
 # battery_soc_widget_mpy.py
-# MicroPython version using framebuf (monochrome or RGB565).
+# Pixel-perfect MicroPython port of your CircuitPython battery widget.
 
 import framebuf
 
 BLACK = 0x0000
 WHITE = 0xFFFF
 
-class BatterySOCWidget:
-    """
-    Draws a battery outline and up to 5 SOC bars.
-    Works with any object exposing framebuf-like methods:
-      - pixel, line, rect, fill_rect
-    """
+# --- Hysteresis thresholds (percent) ---
+# If a bar is OFF it turns ON when SOC >= bar_on[i]
+# If a bar is ON  it turns OFF when SOC <= bar_off[i]
+# Example: bar0: ON at 25%, OFF at 15% (your request)
+_bar_on  = [25, 45, 65, 85, 92]   # bars 1..5 (cap is index 4)
+_bar_off = [15, 35, 55, 75, 88]
 
+# Tiny tick beside the cap (can be different if you want)
+_tick_on  = 92
+_tick_off = 88
+
+class BatterySOCWidget:
     def __init__(self, fb: framebuf.FrameBuffer, display_width, display_height,
                  fg=WHITE, bg=BLACK):
         self.fb = fb
-        self._d_width = display_width
-        self._d_height = display_height
+        self._w = display_width
+        self._h = display_height
         self.fg = fg
         self.bg = bg
 
-        # Bar geometry (mirrors your original)
-        self.soc_bar_width = 8
+        # Bars geometry (same as CP)
+        self.soc_bar_width  = 8
         self.soc_bar_height = 11
         self.bar_x0 = 2
-        self.bar_y0 = self._d_height - self.soc_bar_height - 2
+        self.bar_y0 = self._h - self.soc_bar_height - 2  # = h - 13
 
-        # Precompute rectangles for the 5 bars
-        # bars 1..4 are full size; bar 5 is the small cap (narrower/shorter)
+        # Precomputed bar rectangles (x, y, w, h)
         self._bars = [
-            # (x, y, w, h)
             (self.bar_x0 + (self.soc_bar_width + 1) * 0,
              self.bar_y0, self.soc_bar_width, self.soc_bar_height),
             (self.bar_x0 + (self.soc_bar_width + 1) * 1,
@@ -39,11 +42,11 @@ class BatterySOCWidget:
              self.bar_y0, self.soc_bar_width, self.soc_bar_height),
             (self.bar_x0 + (self.soc_bar_width + 1) * 3,
              self.bar_y0, self.soc_bar_width, self.soc_bar_height),
-            # bar 5 (cap), width-2, height-6, y+3
+            # Cap bar (narrower/shorter, shifted down)
             (self.bar_x0 + (self.soc_bar_width + 1) * 4,
              self.bar_y0 + 3, self.soc_bar_width - 2, self.soc_bar_height - 6),
         ]
-        # tiny vertical tick next to bar 5 (your _fill_rectangle_5_1)
+        # Tiny vertical tick beside the cap
         self._bar5_tick = (
             self.bar_x0 + (self.soc_bar_width + 1) * 4 + self.soc_bar_width - 2,
             self.bar_y0 + 3 + 1,
@@ -51,101 +54,87 @@ class BatterySOCWidget:
             self.soc_bar_height - 6 - 2,
         )
 
-        # Track last drawn states to avoid unnecessary redraws
-        self._last_slots = [False] * 6  # indices 0..4 bars, 5 for the small tick
+        self._last_slots = [False] * 6  # bars 0..4 + tick(5)
 
-    # ---------------- drawing helpers ----------------
-    def _draw_line(self, x0, y0, x1, y1, color):
-        try:
-            self.fb.line(x0, y0, x1, y1, color)
-        except AttributeError:
-            # fallback Bresenham if driver lacks .line()
-            dx = abs(x1 - x0)
-            sx = 1 if x0 < x1 else -1
-            dy = -abs(y1 - y0)
-            sy = 1 if y0 < y1 else -1
-            err = dx + dy
-            while True:
-                self.fb.pixel(x0, y0, color)
-                if x0 == x1 and y0 == y1:
-                    break
-                e2 = 2 * err
-                if e2 >= dy:
-                    err += dy
-                    x0 += sx
-                if e2 <= dx:
-                    err += dx
-                    y0 += sy
+    # --- 1px segment helpers (inclusive endpoints) ---
+    def _hseg(self, x0, x1, y, c):
+        if x1 < x0:
+            x0, x1 = x1, x0
+        self.fb.fill_rect(int(x0), int(y), int(x1 - x0 + 1), 1, c)
 
-    def _fill_rect(self, x, y, w, h, color):
-        self.fb.fill_rect(x, y, w, h, color)
+    def _vseg(self, x, y0, y1, c):
+        if y1 < y0:
+            y0, y1 = y1, y0
+        self.fb.fill_rect(int(x), int(y0), 1, int(y1 - y0 + 1), c)
 
-    # ---------------- public API ----------------
+    # --- public API ---
     def draw_contour(self):
-        """Draw the battery outline (like your l1..l8)."""
-        h = self._d_height
-        # Original lines, translated directly:
-        # l1: (0, h-1) -> (0, h-1-14)
-        self._draw_line(0, h - 1, 0, h - 1 - 14, self.fg)
-        # l2: (0, h-1-14) -> (34+4, h-1-14)
-        self._draw_line(0, h - 1 - 14, 38, h - 1 - 14, self.fg)
-        # l3: (38, h-1-14) -> (38, h-1-14+3)
-        self._draw_line(38, h - 1 - 14, 38, h - 1 - 14 + 3, self.fg)
-        # l4: (38, h-1-14+3) -> (38+6, h-1-14+3)
-        self._draw_line(38, h - 1 - 14 + 3, 44, h - 1 - 14 + 3, self.fg)
-        # l5_1 & l5_2 are single dots; we draw the vertical between (45,...) as l5
-        # l5: (46, h-1-14+5) -> (46, h-1-14+5+4)
-        self._draw_line(46, h - 1 - 14 + 5, 46, h - 1 - 14 + 9, self.fg)
-        # l6: (44, h-1-14+11) -> (38, h-1-14+11)
-        self._draw_line(44, h - 1 - 14 + 11, 38, h - 1 - 14 + 11, self.fg)
-        # l7: (38, h-1-14+11) -> (38, h-1-14+14)
-        self._draw_line(38, h - 1 - 14 + 11, 38, h - 1 - 14 + 14, self.fg)
-        # l8: (38, h-1-14+14) -> (0, h-1-14+14)
-        self._draw_line(38, h - 1 - 14 + 14, 0, h - 1 - 14 + 14, self.fg)
+        """Replicates your exact CP lines l1..l8 + l5_1/l5/l5_2."""
+        h = self._h
 
-        # Optional: clear the bars region initially
-        self.clear_bars()
+        # l1
+        self._vseg(0,            h - 1,          h - 1 - 14, self.fg)
+        # l2
+        self._hseg(0,            0 + 34 + 4,     h - 1 - 14, self.fg)
+        # l3
+        self._vseg(0 + 34 + 4,   h - 1 - 14,     h - 1 - 14 + 3, self.fg)
+        # l4
+        self._hseg(0 + 34 + 4,   0 + 34 + 4 + 6, h - 1 - 14 + 3, self.fg)
+        # l5_1 (dot)
+        self._vseg(0 + 34 + 4 + 7, h - 1 - 14 + 4, h - 1 - 14 + 4, self.fg)
+        # l5 (vertical)
+        self._vseg(0 + 34 + 4 + 8, h - 1 - 14 + 5, h - 1 - 14 + 5 + 4, self.fg)
+        # l5_2 (dot)
+        self._vseg(0 + 34 + 4 + 7, h - 1 - 14 + 5 + 5, h - 1 - 14 + 5 + 5, self.fg)
+        # l6
+        self._hseg(0 + 34 + 4 + 6, 0 + 34 + 4,   h - 1 - 14 + 3 + 8, self.fg)
+        # l7
+        self._vseg(0 + 34 + 4,   h - 1 - 14 + 3 + 8, h - 1 - 14 + 3 + 8 + 3, self.fg)
+        # l8
+        self._hseg(0 + 34 + 4,   0,              h - 1 - 14 + 3 + 8 + 3, self.fg)
 
-    def clear_bars(self):
-        """Erase the whole bars region."""
-        # region spanning from first bar left to end of cap area
-        x0 = self.bar_x0
-        y0 = self.bar_y0
-        total_w = (self.soc_bar_width + 1) * 4 + self.soc_bar_width + 6  # rough
-        total_h = self.soc_bar_height + 2
-        self._fill_rect(x0 - 1, y0 - 1, total_w + 2, total_h + 2, self.bg)
+        # Clear only the true interior so the outline never gets erased
+        top    = h - 1 - 14
+        bottom = h - 1 - 14 + 3 + 8 + 3
+        self._clear_interior(1, top + 1, (0 + 34 + 4) - 1, bottom - 1)
+
+        # Start with all bars off
         self._last_slots = [False] * 6
 
+    def _clear_interior(self, x_left, y_top, x_right, y_bottom):
+        """Clear inside the main battery body (keeps 1px outline)."""
+        self.fb.fill_rect(x_left, y_top, x_right - x_left + 1,
+                          y_bottom - y_top + 1, self.bg)
+
     def update(self, battery_soc: int):
-        """Update bars according to SOC thresholds."""
         # Clamp 0..100
         soc = 0 if battery_soc < 0 else 100 if battery_soc > 100 else battery_soc
 
-        # Determine which bars should be on
-        want = [
-            soc >= 20,  # bar 1
-            soc >= 40,  # bar 2
-            soc >= 60,  # bar 3
-            soc >= 80,  # bar 4
-            soc >= 90,  # bar 5 (cap)
-        ]
-        want_tick = soc >= 90  # tiny vertical tick
+        # Decide desired state per bar using hysteresis
+        # self._last_slots[i] holds current state (False=OFF, True=ON)
+        for i in range(5):
+            currently_on = self._last_slots[i]
+            if not currently_on:
+                # OFF -> consider turning ON
+                want_on = soc >= _bar_on[i]
+            else:
+                # ON -> consider turning OFF
+                want_on = not (soc <= _bar_off[i])
 
-        # Draw/erase bars 1..5
-        for i, on in enumerate(want):
-            x, y, w, h = self._bars[i]
-            if on and not self._last_slots[i]:
-                self._fill_rect(x, y, w, h, self.fg)
-                self._last_slots[i] = True
-            elif (not on) and self._last_slots[i]:
-                self._fill_rect(x, y, w, h, self.bg)
-                self._last_slots[i] = False
+            # Draw/erase if state changed
+            if want_on != currently_on:
+                x, y, w, h = self._bars[i]
+                self.fb.fill_rect(x, y, w, h, self.fg if want_on else self.bg)
+                self._last_slots[i] = want_on
 
-        # Draw/erase the small tick near bar 5
-        xt, yt, wt, ht = self._bar5_tick
-        if want_tick and not self._last_slots[5]:
-            self._fill_rect(xt, yt, wt, ht, self.fg)
-            self._last_slots[5] = True
-        elif (not want_tick) and self._last_slots[5]:
-            self._fill_rect(xt, yt, wt, ht, self.bg)
-            self._last_slots[5] = False
+        # Tiny tick near the cap (index 5 in _last_slots)
+        tick_on_now = self._last_slots[5]
+        if not tick_on_now:
+            tick_want_on = soc >= _tick_on
+        else:
+            tick_want_on = not (soc <= _tick_off)
+
+        if tick_want_on != tick_on_now:
+            xt, yt, wt, ht = self._bar5_tick
+            self.fb.fill_rect(xt, yt, wt, ht, self.fg if tick_want_on else self.bg)
+            self._last_slots[5] = tick_want_on
