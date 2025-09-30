@@ -10,6 +10,7 @@ from rtc_datetime import RTCDateTime
 from escooter_fiido_q1_s.motor_board_espnow import MotorBoard
 from battery_soc_widget import BatterySOCWidget
 from motor_power_widget import MotorPowerWidget
+from widget_wheel_speed import WidgetWheelSpeed
 import vars as Vars
 import firmware_common.thisbutton as tb
 
@@ -109,12 +110,14 @@ async def main():
 
     writer_speed = Writer(fb, freesansbold50, verbose=False)
     writer_speed.set_clip(row_clip=True, col_clip=True, wrap=False)
+    
+    wheel_speed_widget = WidgetWheelSpeed(fb, LCD_W, LCD_H)
 
     # Boot banner (centered, FreeSans20)
     def draw_centered_lines(line1, line2):
         fb.fill(0)
         h = freesans20.height()
-        gap = 2
+        gap = 8
         w1 = font_text_width(freesans20, line1)
         w2 = font_text_width(freesans20, line2)
         total_h = 2*h + gap
@@ -221,27 +224,6 @@ async def main():
     battery_soc_widget.draw_contour()
     lcd.display.show()
 
-    # FreeSansBold50, anchored top-right at (129,0) like CP
-    def draw_wheel_speed(value_int):
-        txt = str(value_int)
-        target_right = 125   # CP anchored_position x
-        top = 0              # CP anchor y
-        maxw = LCD_W        # glass is 128 px wide
-
-        # Ensure text fits on the glass
-        txt = fit_right(freesansbold50, txt, maxw)
-        w = font_text_width(freesansbold50, txt)
-        x = target_right - w
-        if x < 0: x = 0
-        if x + w > maxw: x = maxw - w
-
-        # Clear a band as tall as the font
-        h = freesansbold50.height()
-        fb.fill_rect(0, top, LCD_W, min(h, LCD_H - top), 0)
-
-        Writer.set_textpos(fb, top, x)
-        writer_speed.printstring(txt)
-
     def draw_warning(msg):
         fb.fill_rect(0, 37, 80, 16, 0)
         if msg:
@@ -259,7 +241,12 @@ async def main():
     t_display = time.ticks_ms()
     t_comm = time.ticks_ms()
 
-    p = 0
+    power_dummy = 0
+    speed_dummy = 0
+    battery_dummy = 0
+    brakes_dummy = 0
+    time_dummy = 0
+    error_dummy = 0
 
     # Main loop
     while True:
@@ -269,9 +256,15 @@ async def main():
         if time.ticks_diff(now_ms, t_display) > 100:
             t_display = now_ms
 
+            battery_soc_prev = -1
+            vars.battery_soc_x1000 = 1000
+            battery_soc_prev = -1
             if battery_soc_prev != vars.battery_soc_x1000:
                 battery_soc_prev = vars.battery_soc_x1000
                 battery_soc_widget.update(int(vars.battery_soc_x1000/10))
+                
+                battery_dummy = (battery_dummy + 1) % 100
+                battery_soc_widget.update(battery_dummy)
 
             vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
             motor_power_prev = -1
@@ -280,13 +273,16 @@ async def main():
                 mp = filter_motor_power(vars.motor_power)
                 # motor_power_widget.update(int((mp * 100) / 400.0))
                 
-                p = (p + 5) % 101
-                motor_power_widget.update(p)  # p in [0, 100]
+                power_dummy = (power_dummy + 5) % 101
+                motor_power_widget.update(power_dummy)
 
+            wheel_speed_prev = -1
             if wheel_speed_prev != vars.wheel_speed_x10:
                 wheel_speed_prev = vars.wheel_speed_x10
                 #draw_wheel_speed(int(vars.wheel_speed_x10 / 10))
-                draw_wheel_speed(24)
+                
+                speed_dummy = (speed_dummy + 1) % 100
+                wheel_speed_widget.update(speed_dummy)
 
             lcd.display.show()
 
@@ -296,14 +292,14 @@ async def main():
             await motor.send_data_async()
             motor.receive_process_data()
 
-            if brakes_prev != vars.brakes_are_active:
-                brakes_prev = vars.brakes_are_active
-                draw_warning("brakes" if vars.brakes_are_active else "")
-                lcd.display.show()
-            elif vesc_fault_prev != vars.vesc_fault_code:
-                vesc_fault_prev = vars.vesc_fault_code
-                draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % vars.vesc_fault_code)
-                lcd.display.show()
+            # if brakes_prev != vars.brakes_are_active:
+            #     brakes_prev = vars.brakes_are_active
+            #     draw_warning("brakes" if vars.brakes_are_active else "")
+            #     lcd.display.show()
+            # elif vesc_fault_prev != vars.vesc_fault_code:
+            #     vesc_fault_prev = vars.vesc_fault_code
+            #     draw_warning("" if not vars.vesc_fault_code else "mot e: %d" % vars.vesc_fault_code)
+            #     lcd.display.show()
 
         # Buttons ~20 Hz
         if time.ticks_diff(now_ms, t_buttons) > 50:
