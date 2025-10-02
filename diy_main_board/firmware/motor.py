@@ -131,12 +131,12 @@ class Motor(object):
             try:
                 if message_id == 9 and dlc >= 6:     # CAN_PACKET_STATUS_1
                     motor_data.speed_erpm         = struct.unpack_from(">l", data, 0)[0]
-                    motor_data.motor_current_x100 = struct.unpack_from(">h", data, 4)[0]
+                    motor_data.motor_current_x10 = struct.unpack_from(">h", data, 4)[0]
 
                 elif message_id == 16 and dlc >= 6:  # CAN_PACKET_STATUS_4
                     motor_data.vesc_temperature_x10  = struct.unpack_from(">h", data, 0)[0]
                     motor_data.motor_temperature_x10 = struct.unpack_from(">h", data, 2)[0]
-                    motor_data.battery_current_x100  = struct.unpack_from(">h", data, 4)[0]
+                    motor_data.battery_current_x10  = struct.unpack_from(">h", data, 4)[0]
 
                 elif message_id == 27 and dlc >= 6:  # CAN_PACKET_STATUS_5
                     motor_data.battery_voltage_x10 = struct.unpack_from(">h", data, 4)[0]
@@ -215,8 +215,8 @@ class MotorData:
         self.wheel_speed = 0
         self.vesc_temperature_x10 = 0
         self.motor_temperature_x10 = 0
-        self.motor_current_x100 = 0
-        self.battery_current_x100 = 0
+        self.motor_current_x10 = 0
+        self.battery_current_x10 = 0
         self.battery_voltage_x10 = 0
         self.battery_soc_x1000 = 0
         self.vesc_fault_code = 0

@@ -17,21 +17,21 @@ cfg.brake_pin = 4
 
 # Right handlebar throttle
 cfg.throttle_1_pin = 0            # ADC input pin
-cfg.throttle_1_adc_min = 18300      # slightly above rest value
+cfg.throttle_1_adc_min = 18500      # slightly above rest value
 cfg.throttle_1_adc_max = 55600      # slightly below max value
 cfg.throttle_1_adc_over_max_error = 54500  # safety threshold
 
 # Left handlebar throttle
 cfg.throttle_2_pin = 1
-cfg.throttle_2_adc_min = 18500
+cfg.throttle_2_adc_min = 18700
 cfg.throttle_2_adc_max = 54500
 cfg.throttle_2_adc_over_max_error = 54500
 
 # This board MAC Address
-cfg.my_mac_address = [0x00, 0xB6, 0xB3, 0x01, 0xF7, 0xF2]
+cfg.my_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF2]
 
 # Display MAC Address for wireless comms
-cfg.display_mac_address = [0x00, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
+cfg.display_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
 
 
 #### Motors configurations ####
