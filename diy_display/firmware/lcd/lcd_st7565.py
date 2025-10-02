@@ -1,4 +1,4 @@
-# display_st7565_mpy.py
+# lcd_st7565.py
 # MicroPython ST7565/ST7567 driver aligned to the CircuitPython init you confirmed working.
 # - Page addressing, MONO_VLSB framebuffer
 # - Column offset (colstart) support (many ST7567 boards need 4)
@@ -178,7 +178,7 @@ class ST7565(framebuf.FrameBuffer):
 
 
 # -------- Wrapper with PWM backlight (same public API you used) -------------
-class Display:
+class LCD:
     def __init__(
         self,
         spi_clk_pin,
