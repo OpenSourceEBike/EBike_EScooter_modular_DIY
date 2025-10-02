@@ -10,7 +10,7 @@ class Display:
     MicroPython ESP-NOW Display link.
     """
     
-    battery_current_x100 = 0
+    battery_current_x10 = 0
 
     def __init__(self, vars, front_motor_data, rear_motor_data, mac_address: bytes, channel: int = 1):
         # Providers (may be partially uninitialized at boot)
@@ -133,11 +133,11 @@ class Display:
                 try: return int(v * 10)
                 except Exception: return 0
 
-            battery_current_x100 = self._front.battery_current_x100 + \
-                                    self._rear.battery_current_x100
+            battery_current_x10 = self._front.battery_current_x10 + \
+                                    self._rear.battery_current_x10
                                     
-            motor_current_x100 = self._front.motor_current_x100 + \
-                                    self._rear.motor_current_x100
+            motor_current_x10 = self._front.motor_current_x10 + \
+                                    self._rear.motor_current_x10
 
             vesc_temperature_x10 = max(self._front.vesc_temperature_x10,
                                     self._rear.vesc_temperature_x10)
@@ -148,9 +148,9 @@ class Display:
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
                 f"{self._rear.battery_voltage_x10} "
-                f"{Display.battery_current_x100} "
+                f"{battery_current_x10} "
                 f"{self._rear.battery_soc_x1000} "
-                f"{motor_current_x100} "
+                f"{motor_current_x10} "
                 f"{int(self._rear.wheel_speed * 10)} "
                 f"{brakes_are_active} "
                 f"{vesc_temperature_x10} "

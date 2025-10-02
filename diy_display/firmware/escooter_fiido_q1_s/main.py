@@ -207,15 +207,17 @@ async def main():
         main_screen_widget_1.update("Ready to")
         main_screen_widget_2.update("POWER ON")
         lcd.display.show()
+        
+        # clean buttons state
+        vars.buttons_state = 0
 
         pressed = False
         while True:
             buttons[button_POWER].tick()
-
-            # detect full click (press then release)
-            if not pressed and buttons[button_POWER].isHeld:
-                pressed = True
-            if pressed and not buttons[button_POWER].isHeld:
+            
+            # detect power button click
+            power_button_is_set = bool(vars.buttons_state & 0x0100)
+            if power_button_is_set:
                 break
 
             # lightweight heartbeat so peer sees us alive
