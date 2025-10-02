@@ -5,25 +5,23 @@ import network
 import uasyncio as asyncio
 import aioespnow
 
-from display_st7565 import Display
-from writer import Writer
-from fonts import freesans10
+from lcd.lcd_st7565 import LCD
+from fonts import ac437_hp_150_re_12
 from fonts import freesans20
 from fonts import freesansbold50
+from widgets.widget_battery_soc import BatterySOCWidget
+from widgets.widget_motor_power import MotorPowerWidget
+from widgets.widget_text_box import WidgetTextBox
 from rtc_datetime import RTCDateTime
 from escooter_fiido_q1_s.motor_board_espnow import MotorBoard
-from battery_soc_widget import BatterySOCWidget
-from motor_power_widget import MotorPowerWidget
-from widget_wheel_speed import WidgetWheelSpeed
-from widget_warning import WidgetWarning
-from widget_clock import WidgetClock
+from firmware_common.thisbutton import thisButton
+from firmware_common.utils import map_range
 
 import vars as Vars
-import firmware_common.thisbutton as tb
 
 # ---------------- Config ----------------
-my_mac_address = b"\x00\xb6\xb3\x01\xf7\xf3"
-mac_address_motor_board = b"\x00\xb6\xb3\x01\xf7\xf2"
+my_mac_address = b"\x68\xb6\xb3\x01\xf7\xf3"
+mac_address_motor_board = b"\x68\xb6\xb3\x01\xf7\xf2"
 
 LCD_W, LCD_H = 128, 64
 ESP_CHANNEL = 1
@@ -47,19 +45,6 @@ def filter_motor_power(p):
         elif p < 100: p = round(p/5)*5
         else: p = round(p/10)*10
     return p
-
-def font_text_width(font, s):
-    w = 0
-    for ch in s:
-        _, _, cw = font.get_ch(ch)
-        w += cw
-    return w
-
-def fit_right(font, s, maxw):
-    # Trim from left until it fits in maxw
-    while s and font_text_width(font, s) > maxw:
-        s = s[1:]
-    return s
 
 # -------------- Main --------------------
 async def main():
@@ -95,7 +80,7 @@ async def main():
     await motor.start()
 
     # LCD
-    lcd = Display(
+    lcd = LCD(
         spi_clk_pin=3, spi_mosi_pin=4, chip_select_pin=1,
         command_pin=2, reset_pin=0, backlight_pin=21,
         spi_clock_frequency=10_000_000,
@@ -108,37 +93,42 @@ async def main():
     # -------- RTC + Time UI --------
     rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
-    # Writers / Widgets
-    writer_small = Writer(fb, freesans20, verbose=False)
-    writer_small.set_clip(row_clip=True, col_clip=True, wrap=False)
+    # Widgets used on splash + small HUD
+    wheel_speed_widget = WidgetTextBox(fb, LCD_W, LCD_H,
+                                       font=freesansbold50,
+                                       left=0, top=2, right=1, bottom=0,
+                                       align_inside="right",
+                                       debug_box=False)
+    wheel_speed_widget.set_box(x1=LCD_W - 55, y1=0, x2=LCD_W - 1, y2=36)
     
-    wheel_speed_widget = WidgetWheelSpeed(fb, LCD_W, LCD_H, font=freesansbold50)
-    warning_widget = WidgetWarning(fb, LCD_W, LCD_H, x0=0, y0=39, fg=1, bg=0, font=freesans10, baseline_adjust=0)
-    clock_widget = WidgetClock(
-        fb, LCD_W, LCD_H,
-        font=freesans20,
-        x_offset=0,          # caixa agarrada ao canto
-        y_offset=0,
-        baseline_adjust=3,   # ↓ empurra a linha de base
-        top_nudge=0          # ↓ afina dentro da caixa
-    )
+    warning_widget = WidgetTextBox(fb, LCD_W, LCD_H,
+                                   font=ac437_hp_150_re_12,
+                                   left=0, top=0, right=0, bottom=0,
+                                   align_inside="left",
+                                   debug_box=False)
+    warning_widget.set_box(x1=0, y1=38, x2=63, y2=38+9)
+    
+    clock_widget = WidgetTextBox(fb, LCD_W, LCD_H,
+                                 font=freesans20,
+                                 left=0, top=0, right=0, bottom=0,
+                                 align_inside="right",
+                                 debug_box=False)
+    clock_widget.set_box(x1=LCD_W-52, y1=LCD_H-17, x2=LCD_W-3, y2=LCD_H-2)
 
-    # Boot banner (centered, FreeSans20)
-    def draw_centered_lines(line1, line2):
-        fb.fill(0)
-        h = freesans20.height()
-        gap = 8
-        w1 = font_text_width(freesans20, line1)
-        w2 = font_text_width(freesans20, line2)
-        total_h = 2*h + gap
-        y0 = (LCD_H - total_h)//2
-        x1 = (LCD_W - w1)//2
-        x2 = (LCD_W - w2)//2
-        Writer.set_textpos(fb, y0, x1); writer_small.printstring(line1)
-        Writer.set_textpos(fb, y0 + h + gap, x2); writer_small.printstring(line2)
-        lcd.display.show()
-
-    draw_centered_lines("Ready to", "POWER ON")
+    # Splash / power gate widgets
+    main_screen_widget_1 = WidgetTextBox(fb, LCD_W, LCD_H,
+                                         font=freesans20,
+                                         left=0, top=0, right=0, bottom=0,
+                                         align_inside="center",
+                                         debug_box=False)
+    main_screen_widget_1.set_box(x1=0, y1=int(LCD_H/4)*1, x2=LCD_W-1, y2=int(LCD_H/4)*2)
+    
+    main_screen_widget_2 = WidgetTextBox(fb, LCD_W, LCD_H,
+                                         font=freesans20,
+                                         left=0, top=0, right=0, bottom=0,
+                                         align_inside="center",
+                                         debug_box=False)
+    main_screen_widget_2.set_box(x1=0, y1=int(LCD_H/4)*3, x2=LCD_W-1, y2=int(LCD_H/4)*4)
 
     # Buttons
     nr_buttons = len(BUTTON_PINS)
@@ -150,7 +140,9 @@ async def main():
 
     async def turn_off():
         vars.motor_enable_state = False
-        draw_centered_lines("Ready to", "POWER OFF")
+        main_screen_widget_1.update("Ready to")
+        main_screen_widget_2.update("POWER OFF")
+        lcd.display.show()
         while buttons[button_POWER].isHeld:
             buttons[button_POWER].tick()
             await turn_off_execute()
@@ -196,7 +188,7 @@ async def main():
 
     buttons = [None]*nr_buttons
     for i, pin in enumerate(BUTTON_PINS):
-        btn = tb.thisButton(pin, True)
+        btn = thisButton(pin, True)
         btn.setDebounceThreshold(50)
         btn.setLongPressThreshold(1500)
         if 'click_start' in buttons_callbacks[i]:
@@ -209,10 +201,40 @@ async def main():
             btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
         buttons[i] = btn
 
-    # Main screen (widgets)
+    # -------- POWER-ON GATE (splash that waits for button) --------
+    async def wait_for_power_on():
+        fb.fill(0)
+        main_screen_widget_1.update("Ready to")
+        main_screen_widget_2.update("POWER ON")
+        lcd.display.show()
+
+        pressed = False
+        while True:
+            buttons[button_POWER].tick()
+
+            # detect full click (press then release)
+            if not pressed and buttons[button_POWER].isHeld:
+                pressed = True
+            if pressed and not buttons[button_POWER].isHeld:
+                break
+
+            # lightweight heartbeat so peer sees us alive
+            await motor.send_data_async()
+
+            await asyncio.sleep_ms(80)
+
+        vars.motor_enable_state = True
+        main_screen_widget_1.update("Starting…")
+        main_screen_widget_2.update("")
+        lcd.display.show()
+        await asyncio.sleep_ms(200)
+
+    # Run the gate before drawing the main UI
+    await wait_for_power_on()
+
+    # ------------- Main screen (widgets AFTER power-on) -------------
     fb.fill(0)
     motor_power_widget = MotorPowerWidget(fb, LCD_W, LCD_H)
-    motor_power_widget.draw_contour()
     battery_soc_widget = BatterySOCWidget(fb, LCD_W, LCD_H)
     battery_soc_widget.draw_contour()
     lcd.display.show()
@@ -232,12 +254,6 @@ async def main():
     t_time_tick = time.ticks_ms()
     t_rtc_try_update_once = time.ticks_ms()
     update_date_time_once = False
-    date_time_updated = None  # None=unknown, True=good, False=failed
-
-    # Dummies (for standalone demo)
-    power_dummy = 0
-    speed_dummy = 0
-    battery_dummy = 0
 
     # Main loop
     while True:
@@ -247,35 +263,26 @@ async def main():
         if time.ticks_diff(now_ms, t_display) > 100:
             t_display = now_ms
 
-            # Battery (demo spinner here; replace with real values)
-            battery_soc_prev = -1
+            # Battery
             vars.battery_soc_x1000 = 1000
             if battery_soc_prev != vars.battery_soc_x1000:
                 battery_soc_prev = vars.battery_soc_x1000
                 battery_soc_widget.update(int(vars.battery_soc_x1000/10))
-                # demo spin
-                battery_dummy = (battery_dummy + 1) % 100
-                battery_soc_widget.update(battery_dummy)
 
             # Motor power
             vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
-            motor_power_prev = -1
             if motor_power_prev != vars.motor_power:
                 motor_power_prev = vars.motor_power
-                mp = filter_motor_power(vars.motor_power)
-                # motor_power_widget.update(int((mp * 100) / 400.0))
-                # demo spin
-                power_dummy = (power_dummy + 5) % 101
-                motor_power_widget.update(power_dummy)
+                motor_power = filter_motor_power(vars.motor_power)
+                
+                # max battery current  at high speeds is set to 15A rear motor + 12.5A front motor --> ~2000W @ 72V
+                motor_power_percent = map_range(motor_power, 0, 2000, 0, 100, clamp=True)
+                motor_power_widget.update(motor_power_percent)
 
             # Wheel speed
-            wheel_speed_prev = -1
             if wheel_speed_prev != vars.wheel_speed_x10:
                 wheel_speed_prev = vars.wheel_speed_x10
-                # real: wheel_speed_widget.update(int(vars.wheel_speed_x10 / 10))
-                # demo spin
-                speed_dummy = (speed_dummy + 1) % 100
-                wheel_speed_widget.update(speed_dummy)
+                wheel_speed_widget.update(int(vars.wheel_speed_x10 / 10))
 
             lcd.display.show()
 
@@ -285,9 +292,6 @@ async def main():
             await motor.send_data_async()
             motor.receive_process_data()
 
-            # Warnings (demo values here)
-            brakes_prev = -1
-            vars.brakes_are_active = True  # demo
             if brakes_prev != vars.brakes_are_active:
                 brakes_prev = vars.brakes_are_active
                 warning_widget.update("brakes" if vars.brakes_are_active else "")
@@ -307,20 +311,25 @@ async def main():
         if (not update_date_time_once) and time.ticks_diff(now_ms, t_rtc_try_update_once) > 2000:
             update_date_time_once = True
             try:
-                date_time_updated = rtc.update_date_time_from_wifi_ntp()  # returns True/False
-            except Exception:
-                date_time_updated = False  # follow original behavior: only try once
+                rtc.update_date_time_from_wifi_ntp()
+            except Exception as ex:
+                print(ex)
 
         # -------- Time draw (1 Hz) --------
         if time.ticks_diff(now_ms, t_time_tick) > 1000:
             t_time_tick = now_ms
             try:
-                dt = rtc.date_time()  # tuple
-                clock_widget.update_from_tuple(dt, valid=date_time_updated)  # clears if not synced
-                lcd.display.show()    # <-- push buffer after drawing the clock
+                dt = rtc.date_time()
+                h, m = dt[3], dt[4]
+                if h < 10:
+                    time_str = '{:01d}:{:02d}'.format(h, m)
+                else:
+                    time_str = '{:02d}:{:02d}'.format(h, m)
+                clock_widget.update(time_str)
+                lcd.display.show()
             except Exception as ex:
-                clock_widget.update(valid=False)
-                lcd.display.show()    # also push the clear
+                clock_widget.update('')
+                lcd.display.show()
                 print(ex)
 
         await asyncio.sleep_ms(10)

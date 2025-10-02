@@ -1,4 +1,4 @@
-# battery_soc_widget_mpy.py
+# widget_battery_soc.py
 # Pixel-perfect MicroPython port of your CircuitPython battery widget.
 
 import framebuf

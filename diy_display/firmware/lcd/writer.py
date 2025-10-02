@@ -1,10 +1,10 @@
-# writer.py Implements the Writer class.
-# Handles colour, word wrap and tab stops
+# writer.py — Implements the Writer class.
+# Handles color, word wrap, and tab stops.
 
 # V0.5.3 Sep 2025 Add optional vertical clipping (vclip) so glyphs that
 # would overrun the bottom edge are cropped instead of being dropped.
 # V0.5.2 May 2025 Fix bug whereby glyph clipping might be attempted.
-# (restante cabeçalho inalterado)
+# (rest of header unchanged)
 
 import framebuf
 from uctypes import bytearray_at, addressof
@@ -66,7 +66,7 @@ class Writer:
         self.screenheight = device.height
         self.bgcolor = 0
         self.fgcolor = 1
-        self.row_clip = False   # legacy behaviour
+        self.row_clip = False   # legacy behavior
         self.col_clip = False
         self.wrap = True
         self.cpos = 0
@@ -76,8 +76,8 @@ class Writer:
         self.char_height = 0
         self.char_width = 0
 
-        # --- NOVO: clipping vertical opcional ---
-        self.vclip = False  # OFF por omissão
+        # --- NEW: optional vertical clipping ---
+        self.vclip = False  # OFF by default
 
     def set_vclip(self, enable=True):
         """Enable/disable vertical clipping of glyphs at the bottom edge."""
@@ -199,15 +199,15 @@ class Writer:
         glyph, char_height, char_width = self.font.get_ch(char)
         s = self._getstate()
 
-        # Se ultrapassar o fundo:
+        # If it would overrun the bottom:
         if s.text_row + char_height > self.screenheight:
             if not self.vclip:
-                # comportamento antigo: corta a linha (ou faz scroll conforme flags)
+                # legacy behavior: cut the line (or scroll depending on flags)
                 if self.row_clip:
                     return
                 self._newline()
-                # após newline, pode continuar
-        # Se ultrapassar à direita:
+                # after newline, can continue
+        # If it would overrun the right edge:
         if s.text_col + char_width - self.screenwidth > 0:
             if self.col_clip or self.wrap:
                 return
@@ -218,7 +218,7 @@ class Writer:
         self.char_height = char_height
         self.char_width = char_width
 
-    # Método usando blitting (monocromático)
+    # Monochrome blitting
     def _printchar(self, char, invert=False, recurse=False):
         s = self._getstate()
         self._get_char(char, recurse)
@@ -230,13 +230,13 @@ class Writer:
         h = self.char_height
         w = self.char_width
 
-        # --- NOVO: clipping vertical inferior ---
+        # --- NEW: bottom-edge vertical clipping ---
         bottom_over = (y + h) - self.screenheight
         if self.vclip and bottom_over > 0:
             visible_h = h - bottom_over
             if visible_h <= 0:
-                return  # nada visível
-            # cada linha da glyph tem ceil(w/8) bytes
+                return  # nothing visible
+            # each glyph row has ceil(w/8) bytes
             bytes_per_row = (w + 7) // 8
             total_bytes = visible_h * bytes_per_row
             buf_full = bytearray(self.glyph)
@@ -245,11 +245,11 @@ class Writer:
             buf = bytearray(self.glyph)
 
         if invert:
-            # inverter apenas a parte visível
+            # invert only the visible portion
             for i, v in enumerate(buf):
                 buf[i] = 0xFF & ~v
 
-        # FrameBuffer da porção visível
+        # FrameBuffer for the visible portion
         vis_h = h - bottom_over if (self.vclip and bottom_over > 0) else h
         fbc = framebuf.FrameBuffer(buf, w, vis_h, self.map)
         self.device.blit(fbc, x, y)
@@ -266,7 +266,7 @@ class Writer:
         return self.fgcolor, self.bgcolor
 
 
-# Writer para ecrãs a cores.
+# Writer for color displays.
 class CWriter(Writer):
     @staticmethod
     def create_color(ssd, idx, r, g, b):
@@ -274,7 +274,7 @@ class CWriter(Writer):
         if not hasattr(ssd, "lut"):
             return c
         if not 0 <= idx <= 15:
-            raise ValueError("Color nos must be 0..15")
+            raise ValueError("Color index must be 0..15")
         x = idx << 1
         ssd.lut[x] = c & 0xFF
         ssd.lut[x + 1] = c >> 8
@@ -302,7 +302,7 @@ class CWriter(Writer):
         h = self.char_height
         w = self.char_width
 
-        # --- NOVO: clipping vertical inferior para cor ---
+        # --- NEW: bottom-edge vertical clipping for color ---
         bottom_over = (y + h) - self.screenheight
         if self.vclip and bottom_over > 0:
             visible_h = h - bottom_over
@@ -315,9 +315,12 @@ class CWriter(Writer):
         else:
             buf = bytearray_at(addressof(self.glyph), len(self.glyph))
 
-        fbc = framebuf.FrameBuffer(buf, w,
-                                   h - bottom_over if (self.vclip and bottom_over > 0) else h,
-                                   self.map)
+        fbc = framebuf.FrameBuffer(
+            buf,
+            w,
+            h - bottom_over if (self.vclip and bottom_over > 0) else h,
+            self.map,
+        )
         palette = self.device.palette
         palette.bg(self.fgcolor if invert else self.bgcolor)
         palette.fg(self.bgcolor if invert else self.fgcolor)

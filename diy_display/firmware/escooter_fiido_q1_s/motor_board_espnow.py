@@ -87,7 +87,8 @@ class MotorBoard:
 
         try:
             parts = [int(s) for s in msg.decode("ascii").split()]
-        except Exception:
+        except Exception as ex:
+            print(ex)
             return
 
         if len(parts) != 9:
@@ -97,7 +98,7 @@ class MotorBoard:
 
         try:
             self._system_data.battery_voltage_x10   = parts[1]
-            self._system_data.battery_current_x100  = parts[2]
+            self._system_data.battery_current_x10   = parts[2]
             self._system_data.battery_soc_x1000     = parts[3]
             self._system_data.motor_current_x100    = parts[4]
             self._system_data.wheel_speed_x10       = parts[5]
