@@ -11,11 +11,11 @@ class MotorBoard:
     Bidirectional ESP-NOW link for the motor board.
     """
 
-    def __init__(self, esp: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
-        if not isinstance(esp, aioespnow.AIOESPNow):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
+        if not isinstance(espnow, aioespnow.AIOESPNow):
             raise TypeError("esp must be an aioespnow.AIOESPNow instance")
 
-        self._esp = esp
+        self._espnow = espnow
         self._peer_mac = bytes(peer_mac)
         if len(self._peer_mac) != 6:
             raise ValueError("peer_mac must be 6 bytes")
@@ -23,7 +23,7 @@ class MotorBoard:
 
         # Ensure peer exists (harmless if already added)
         try:
-            self._esp.add_peer(self._peer_mac)
+            self._espnow.add_peer(self._peer_mac)
         except OSError:
             pass
 
@@ -57,7 +57,7 @@ class MotorBoard:
     # ---------- RX path (background) ----------
     async def _rx_loop(self):
         try:
-            async for mac, msg in self._esp:
+            async for mac, msg in self._espnow:
                 if self._stopping:
                     break
                 if not msg:
@@ -66,7 +66,7 @@ class MotorBoard:
                 self._rx_latest = msg
                 # Keep dynamic peer (harmless if already added)
                 try:
-                    self._esp.add_peer(mac)
+                    self._espnow.add_peer(mac)
                 except OSError:
                     pass
         except asyncio.CancelledError:
@@ -111,9 +111,7 @@ class MotorBoard:
 
     # ---------- TX path ----------
     def _build_tx_payload(self) -> bytes:
-        
         motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-
         return f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.buttons_state}".encode("ascii")
 
     def send_data(self):
@@ -129,7 +127,7 @@ class MotorBoard:
     async def _asend_bg(self, payload: bytes):
         async with self._send_lock:
             try:
-                ok = await self._esp.asend(self._peer_mac, payload)
+                ok = await self._espnow.asend(self._peer_mac, payload)
             except OSError as e:
                 # Many ports use 116 for ETIMEDOUT; keep quiet to avoid spam
                 if not (e.args and e.args[0] == 116):
