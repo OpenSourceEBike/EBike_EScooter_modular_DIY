@@ -50,10 +50,6 @@ rtc = rtc_date_time.RTCDateTime(board.IO9, board.IO8)
 _espnow = _ESPNow.ESPNow()
 motor = motor_board_espnow.MotorBoard(_espnow, mac_address_motor_board, vars) # System data object to hold the EBike data
 
-# this will try send data over ESPNow and if there is an error, will restart
-vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-# just to check if is possible to send data to motor
-
 _display = Display.Display(
   board.IO3, # CLK / SCK pin
   board.IO4, # MOSI / SDI pin
@@ -154,10 +150,7 @@ brakes_are_active_previous = False
 vesc_fault_code_previous = 9999
 
 def turn_off_execute():
-  
-  motor.send_data()    
-  vars.display_communication_counter = (vars.display_communication_counter + 1) % 1024
-
+  motor.send_data()
 
 def turn_off():
 

@@ -13,11 +13,11 @@ class FrontLights:
         system_data: object exposing .front_lights_board_pins_state (int/bool)
     """
 
-    def __init__(self, esp: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
-        if not isinstance(esp, aioespnow.AIOESPNow):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
+        if not isinstance(espnow, aioespnow.AIOESPNow):
             raise TypeError("esp must be an aioespnow.AIOESPNow instance")
 
-        self._esp = esp
+        self._espnow = espnow
         self._peer_mac = bytes(peer_mac)
         if len(self._peer_mac) != 6:
             raise ValueError("peer_mac must be 6 bytes")
@@ -25,7 +25,7 @@ class FrontLights:
 
         # Ensure peer exists (harmless if already added)
         try:
-            self._esp.add_peer(self._peer_mac)
+            self._espnow.add_peer(self._peer_mac)
         except OSError:
             pass
 
@@ -34,10 +34,7 @@ class FrontLights:
 
     # ---------- payload ----------
     def _build_payload(self) -> bytes:
-        try:
-            pins_state = int(getattr(self._system_data, "front_lights_board_pins_state", 0))
-        except Exception:
-            pins_state = 0
+        pins_state = self._system_data.front_lights_board_pins_state
         return f"{int(BoardsIds.FRONT_LIGHTS)} {pins_state}".encode("ascii")
 
     # ---------- public API ----------
@@ -55,15 +52,15 @@ class FrontLights:
     async def _asend_bg(self, payload: bytes):
         async with self._send_lock:
             try:
-                ok = await self._esp.asend(self._peer_mac, payload)
+                ok = await self._espnow.asend(self._peer_mac, payload)
                 if not ok:
                     # (re)add peer and retry once
                     try:
-                        self._esp.add_peer(self._peer_mac)
+                        self._espnow.add_peer(self._peer_mac)
                     except OSError:
                         pass
                     try:
-                        await self._esp.asend(self._peer_mac, payload)
+                        await self._espnow.asend(self._peer_mac, payload)
                     except Exception:
                         pass
             except OSError as e:

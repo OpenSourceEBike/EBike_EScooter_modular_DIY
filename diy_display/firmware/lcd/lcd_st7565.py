@@ -1,9 +1,3 @@
-# lcd_st7565.py
-# MicroPython ST7565/ST7567 driver aligned to the CircuitPython init you confirmed working.
-# - Page addressing, MONO_VLSB framebuffer
-# - Column offset (colstart) support (many ST7567 boards need 4)
-# - Bias / contrast / ADC / COM scan / start line controls
-
 import time
 import framebuf
 from machine import Pin, SPI, PWM
@@ -105,6 +99,16 @@ class ST7565(framebuf.FrameBuffer):
     def reverse(self, state: bool):
         self._reverse = bool(state)
         self.cmd(0xA7 if self._reverse else 0xA6)  # invert display
+
+    def invert(self, enable: bool = True):
+        """Hardware invert (A7/A6): whites <-> blacks without touching RAM."""
+        self.reverse = bool(enable)
+
+    def clear(self, show: bool = True):
+        """Clear the framebuffer to black and optionally flush to the panel."""
+        self.fill(0)
+        if show:
+            self.show()
 
     @property
     def contrast(self) -> int:
@@ -231,7 +235,6 @@ class LCD:
 
         # Defaults: no extra flips here, stays as A1/C0 like CP working 
         self._display.contrast = initial_contrast  # start at 0; adjust later as needed
-        
         self._display.set_orientation(adc_reverse=True, com_reverse=False)
 
     @property
@@ -248,7 +251,7 @@ class LCD:
             self._backlight.duty_u16(65535 - val)
         else:
             self._backlight.duty_u16(val)
-            
+
     @property
     def framebuf(self):
         # expose the internal FrameBuffer
@@ -257,3 +260,11 @@ class LCD:
     def show(self):
         # flush to LCD
         self._display.show()
+
+    def invert(self, enable: bool = True):
+        """Invert display pixels using ST7565 hardware invert."""
+        self._display.invert(enable)
+
+    def clear(self, show: bool = True):
+        """Clear the screen (framebuffer) and optionally .show()."""
+        self._display.clear(show)
