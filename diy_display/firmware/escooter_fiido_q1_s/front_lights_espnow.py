@@ -8,14 +8,15 @@ class FrontLights:
     Send front-lights state over ESP-NOW with aioespnow.
 
     Args:
-        esp (aioespnow.AIOESPNow): active instance (esp.active(True) done by caller)
+        espnow (aioespnow.AIOESPNow): active instance (espnow.active(True) done by caller)
         peer_mac (bytes): 6-byte MAC of the receiver
+        radio_lock (asyncio.Lock): shared lock to serialize radio ops
         system_data: object exposing .front_lights_board_pins_state (int/bool)
     """
 
-    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, system_data):
         if not isinstance(espnow, aioespnow.AIOESPNow):
-            raise TypeError("esp must be an aioespnow.AIOESPNow instance")
+            raise TypeError("espnow must be an aioespnow.AIOESPNow instance")
 
         self._espnow = espnow
         self._peer_mac = bytes(peer_mac)
@@ -26,11 +27,10 @@ class FrontLights:
         # Ensure peer exists (harmless if already added)
         try:
             self._espnow.add_peer(self._peer_mac)
-        except OSError:
-            pass
+        except OSError as ex:
+            print(ex)
 
-        # Serialize async sends to avoid overlapping radio ops
-        self._send_lock = asyncio.Lock()
+        self._send_lock = radio_lock
 
     # ---------- payload ----------
     def _build_payload(self) -> bytes:

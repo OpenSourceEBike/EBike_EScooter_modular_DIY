@@ -91,12 +91,16 @@ async def main():
     espnow = aioespnow.AIOESPNow()
     espnow.active(True)
 
-    motor = MotorBoard(espnow, mac_address_motor_board, vars)
-    await motor.start()
+    # ------ Radio shared lock ------
+    radio_lock = asyncio.Lock()
 
-    power_switch = PowerSwitch(espnow, mac_address_power_switch, vars)
-    front_lights = FrontLights(espnow, mac_address_front_lights, vars)
-    rear_lights  = RearLights(espnow, mac_address_rear_lights, vars)
+    # ------ Peers ------
+    motor = MotorBoard(espnow, mac_address_motor_board, radio_lock, vars)
+    await motor.start()
+    
+    power_switch = PowerSwitch(espnow, mac_address_power_switch, radio_lock, vars)
+    front_lights = FrontLights(espnow, mac_address_front_lights, radio_lock, vars)
+    rear_lights  = RearLights(espnow, mac_address_rear_lights, radio_lock, vars)
 
     # LCD
     lcd = LCD(
@@ -155,7 +159,7 @@ async def main():
 
     async def turn_off_execute():
         await motor.send_data_async()
-        power_switch.send_data()
+        await power_switch.send_data_async()
         await front_lights.send_data_async()
         await rear_lights.send_data_async()
 
@@ -343,7 +347,7 @@ async def main():
             time_lights_tx = now_ms
 
             # Brake light (on brake OR strong regen current)
-            print(vars.motor_current_x10)
+            #print(vars.motor_current_x10)
             if vars.brakes_are_active or vars.motor_current_x10 < -150:
                 vars.rear_lights_board_pins_state |= REAR_STOP_BIT
             else:

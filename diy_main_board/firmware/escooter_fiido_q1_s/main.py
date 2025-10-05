@@ -11,7 +11,6 @@ from throttle import Throttle
 from firmware_common.utils import map_range
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 
-
 # Object that holds various runtime variables
 vars = Vars()
 
@@ -42,6 +41,47 @@ rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_m
 
 # ESP-NOW display link
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Optional BMS support (BLE) — BLE activation is deferred to bms.start()
+# ─────────────────────────────────────────────────────────────────────────────
+if cfg.has_jbd_bms:
+    import bluetooth
+    from bms_jbd import JbdBmsClient
+
+    # Create a single BLE instance; don't call active(True) here.
+    ble = bluetooth.BLE()
+    bms = JbdBmsClient(
+        ble=ble,
+        target_name=cfg.jbd_bms_bluetooth_name,
+        query_period_ms=1000,
+        interleave_cells=True,
+        debug=True,
+    )
+
+    async def bms_task(bms: JbdBmsClient):
+        """
+        Drive the client's cooperative state machine:
+        - drain BLE notifications
+        - schedule 0x03/0x04 polls
+        - keep reconnect logic responsive
+        NOTE: we start BLE only after ESP-NOW is up and we've paused briefly.
+        """
+        # Give Wi-Fi/ESP-NOW a moment to settle before starting BLE (coex-friendly)
+        await asyncio.sleep_ms(300)
+        bms.start(scan_ms=8000)  # start() will activate BLE with small retries
+        while True:
+            bms.tick()
+            await asyncio.sleep_ms(50)  # ~20 Hz tick
+
+    async def bms_read_task(bms: JbdBmsClient):
+        """
+        Periodically read cached data. No blocking, no BLE calls here.
+        """
+        while True:
+            if bms.is_connected() and bms.is_fresh(3000):
+                vars.bms_battery_current_x100 = bms.get_current_a_x100()
+            await asyncio.sleep_ms(1000)  # read cadence
 
 # Throttles
 throttle_1 = Throttle(
@@ -114,9 +154,6 @@ async def task_control_motor(wdt):
         throttle_1_value = throttle_1.value
         throttle_2_value = throttle_2.value
         throttle_value = max(throttle_1_value, throttle_2_value)
-        
-        #print(throttle_1.adc_value, throttle_2.adc_value)
-        #print(throttle_value)
 
         # Over-max safety (ADC glitch protection)
         if (throttle_1_value > cfg.throttle_1_adc_over_max_error) or \
@@ -172,8 +209,10 @@ async def task_control_motor(wdt):
         # Brakes
         vars.brakes_are_active = True if brake_sensor.value else False
 
-        # Command motor(s)        
-        if not vars.motors_enable_state:
+        # Command motor(s)
+        vars.motors_enable_state = False  # (as in your current safety state)
+
+        if vars.motors_enable_state is False:
             front_motor.set_motor_current_amps(0)
             rear_motor.set_motor_current_amps(0)
         else:
@@ -183,9 +222,12 @@ async def task_control_motor(wdt):
             else:
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
-                
+
+        if vars.bms_battery_current_x100 is not None:
+            print('bms_current', vars.bms_battery_current_x100 / 100)
+
         # Feed watchdog
-        #wdt.feed()
+        # wdt.feed()
 
         gc.collect()
         await asyncio.sleep(0.02)
@@ -277,30 +319,33 @@ async def task_various():
 
         gc.collect()
         await asyncio.sleep(0.1)
-        
+
 async def main():
     # Watchdog (min 1s on ESP32). task_control_motor() feeds it continuously.
-    #wdt = WDT(timeout=1000)
-    wdt=None
-    
+    # wdt = WDT(timeout=1000)
+    wdt = None
+
+    # Start ESP-NOW display first (brings Wi-Fi/ESP-NOW up)
     await display.start()
 
-    motors_refresh_data_task       = asyncio.create_task(task_motors_refresh_data())
-    control_motor_limit_current_task = asyncio.create_task(task_control_motor_limit_current())
-    control_motor_task             = asyncio.create_task(task_control_motor(wdt))
-    display_send_data_task         = asyncio.create_task(task_display_send_data())
-    display_receive_process_data_task = asyncio.create_task(task_display_receive_process_data())
-    various_task                   = asyncio.create_task(task_various())
+    # Build the task list
+    tasks = [
+        asyncio.create_task(task_motors_refresh_data()),
+        asyncio.create_task(task_control_motor_limit_current()),
+        asyncio.create_task(task_control_motor(wdt)),
+        asyncio.create_task(task_display_send_data()),
+        asyncio.create_task(task_display_receive_process_data()),
+        asyncio.create_task(task_various()),
+    ]
+
+    # Add BMS tasks only if enabled in config
+    if cfg.has_jbd_bms:
+        tasks.append(asyncio.create_task(bms_task(bms)))
+        tasks.append(asyncio.create_task(bms_read_task(bms)))
 
     print("Starting EBike/EScooter\n")
 
-    await asyncio.gather(
-        motors_refresh_data_task,
-        display_send_data_task,
-        display_receive_process_data_task,
-        control_motor_limit_current_task,
-        control_motor_task,
-        various_task
-    )
+    # Wait for all tasks (keeps main alive; propagates exceptions)
+    await asyncio.gather(*tasks)
 
 asyncio.run(main())

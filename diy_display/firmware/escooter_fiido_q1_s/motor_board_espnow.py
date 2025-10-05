@@ -11,9 +11,9 @@ class MotorBoard:
     Bidirectional ESP-NOW link for the motor board.
     """
 
-    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, system_data):
         if not isinstance(espnow, aioespnow.AIOESPNow):
-            raise TypeError("esp must be an aioespnow.AIOESPNow instance")
+            raise TypeError("espnow must be an aioespnow.AIOESPNow instance")
 
         self._espnow = espnow
         self._peer_mac = bytes(peer_mac)
@@ -24,8 +24,8 @@ class MotorBoard:
         # Ensure peer exists (harmless if already added)
         try:
             self._espnow.add_peer(self._peer_mac)
-        except OSError:
-            pass
+        except OSError as ex:
+            print(ex)
 
         # RX latest message buffer (bytes)
         self._rx_latest = None
@@ -33,7 +33,7 @@ class MotorBoard:
         # Tasks / locks
         self._rx_task = None
         self._stopping = False
-        self._send_lock = asyncio.Lock()
+        self._send_lock = radio_lock
 
     # ---------- lifecycle ----------
     async def start(self):
