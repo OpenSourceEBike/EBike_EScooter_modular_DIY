@@ -7,7 +7,7 @@ class PowerSwitch:
     Send power-switch state over ESP-NOW.
     """
 
-    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, system_data):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, system_data):
         if not isinstance(espnow, aioespnow.AIOESPNow):
             raise TypeError("espnow must be an aioespnow.AIOESPNow instance")
 
@@ -20,17 +20,16 @@ class PowerSwitch:
         # Ensure peer exists (harmless if already added)
         try:
             self._espnow.add_peer(self._peer_mac)
-        except OSError:
-            pass
+        except OSError as ex:
+            print(ex)
 
-        # Serialize async sends to avoid overlapping radio ops
-        self._send_lock = asyncio.Lock()
+        self._send_lock = radio_lock
 
     # ---------- payload ----------
     def _build_payload(self) -> bytes:
-        # irrelevant, to remove if future
+        # for compatibility, to remove if future
         comm_count = 0
-        
+
         return f"{int(BoardsIds.POWER_SWITCH)} {comm_count} {self._system_data.turn_off_relay}".encode("ascii")
 
     # ---------- public API ----------
@@ -41,6 +40,7 @@ class PowerSwitch:
 
     async def send_data_async(self):
         """Awaitable variant."""
+        print('abc')
         payload = self._build_payload()
         await self._asend_bg(payload)
 
@@ -49,7 +49,9 @@ class PowerSwitch:
         async with self._send_lock:
             try:
                 ok = await self._espnow.asend(self._peer_mac, payload)
+                print('sent')
                 if not ok:
+                    print('nok')
                     # (re)add peer and retry once
                     try:
                         self._espnow.add_peer(self._peer_mac)

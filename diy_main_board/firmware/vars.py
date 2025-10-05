@@ -8,6 +8,8 @@ class Cfg(object):
         self.throttle_2_adc_over_max_error = 0
         self.my_mac_address = 0
         self.display_mac_address = 0
+        self.has_jbd_bms = False
+        self.jbd_bms_bluetooth_name = ''
 
 class MotorCfg(object):
     def __init__(self, can_id):
@@ -56,6 +58,7 @@ class Vars(object):
         self.motors_enable_state = False
         self.buttons_state = 0
         self.cruise_control = CruiseControl()
+        self.bms_battery_current_x100 = None
         
         
 
