@@ -1,0 +1,284 @@
+diff --git a/ports/esp32/boards/ESP32_GENERIC_S3/mpconfigboard.cmake b/ports/esp32/boards/ESP32_GENERIC_S3/mpconfigboard.cmake
+index 9b0df3b37..3423a06dd 100644
+--- a/ports/esp32/boards/ESP32_GENERIC_S3/mpconfigboard.cmake
++++ b/ports/esp32/boards/ESP32_GENERIC_S3/mpconfigboard.cmake
+@@ -7,3 +7,9 @@ set(SDKCONFIG_DEFAULTS
+     boards/sdkconfig.spiram_sx
+     boards/ESP32_GENERIC_S3/sdkconfig.board
+ )
++
++# Link the CAN (TWAI) user C module for this board
++set(USER_C_MODULES
++  "${CMAKE_CURRENT_LIST_DIR}/../../usermods/can_twai/micropython.cmake"
++  ${USER_C_MODULES}
++)
+diff --git a/ports/esp32/boards/ESP32_GENERIC_S3/sdkconfig.board b/ports/esp32/boards/ESP32_GENERIC_S3/sdkconfig.board
+index 369330682..fb1fea306 100644
+--- a/ports/esp32/boards/ESP32_GENERIC_S3/sdkconfig.board
++++ b/ports/esp32/boards/ESP32_GENERIC_S3/sdkconfig.board
+@@ -1,2 +1,3 @@
+ CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
+ CONFIG_ESPTOOLPY_FLASHFREQ_80M=y
++CONFIG_TWAI_ISR_IN_IRAM=y
+diff --git a/ports/esp32/usermods/can_twai/can_twai.c b/ports/esp32/usermods/can_twai/can_twai.c
+new file mode 100644
+index 000000000..5378b9a37
+--- /dev/null
++++ b/ports/esp32/usermods/can_twai/can_twai.c
+@@ -0,0 +1,233 @@
++// Minimal TWAI (CAN) user module for MicroPython on ESP32-C3/S3/C6.
++// Provides: from can import CAN
++//
++// Example:
++//   from can import CAN
++//   c = CAN(tx=4, rx=5, baudrate=125000, mode=CAN.NO_ACK)  // NORMAL/NO_ACK/LISTEN_ONLY
++//   c.send(b'\x01\x02\x03\x04', 0x123, extframe=True)
++//   print(c.recv(timeout=1000))  // -> (id, is_ext, rtr, data)
++
++#include <string.h>
++#include "py/obj.h"
++#include "py/runtime.h"
++#include "py/mperrno.h"
++#include "py/mphal.h"          // mp_hal_get_pin_obj
++#include "shared/readline/readline.h"  // mp_printf via mp_printf(&mp_plat_print, ...)
++
++#include "driver/twai.h"
++#include "hal/twai_types.h"
++#include "freertos/FreeRTOS.h"
++#include "freertos/task.h"
++
++typedef struct {
++    mp_obj_base_t base;
++    bool started;
++    int baudrate;
++    int mode;
++} mp_can_obj_t;
++
++// Accept either a raw GPIO number (int) or a machine.Pin object.
++static int get_gpio_from_obj(mp_obj_t o) {
++    if (mp_obj_is_small_int(o)) {
++        return MP_OBJ_SMALL_INT_VALUE(o);
++    }
++    return mp_hal_get_pin_obj(o); // resolves Pin to GPIO number
++}
++
++// Raise OSError with ESP-IDF error code included.
++#define CHECK_ESP(call, what) do {                     \
++    esp_err_t __err = (call);                          \
++    if (__err != ESP_OK) {                             \
++        mp_raise_msg_varg(&mp_type_OSError,            \
++            MP_ERROR_TEXT(what " (err=0x%04x)"), __err); \
++    }                                                  \
++} while (0)
++
++static mp_obj_t can_make_new(const mp_obj_type_t *type,
++                             size_t n_args, size_t n_kw,
++                             const mp_obj_t *all_args) {
++    enum { ARG_tx, ARG_rx, ARG_baudrate, ARG_mode };
++    static const mp_arg_t allowed_args[] = {
++        { MP_QSTR_tx,       MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
++        { MP_QSTR_rx,       MP_ARG_REQUIRED | MP_ARG_OBJ, {.u_obj = MP_OBJ_NULL} },
++        { MP_QSTR_baudrate, MP_ARG_INT,                   {.u_int = 125000} },
++        // 0=NORMAL, 1=NO_ACK, 2=LISTEN_ONLY
++        { MP_QSTR_mode,     MP_ARG_INT,                   {.u_int = 0} },
++    };
++
++    mp_arg_val_t args[MP_ARRAY_SIZE(allowed_args)];
++    mp_arg_parse_all_kw_array(n_args, n_kw, all_args,
++        MP_ARRAY_SIZE(allowed_args), allowed_args, args);
++
++    int tx_gpio = get_gpio_from_obj(args[ARG_tx].u_obj);
++    int rx_gpio = get_gpio_from_obj(args[ARG_rx].u_obj);
++    int baud    = args[ARG_baudrate].u_int;
++    int mode    = args[ARG_mode].u_int;
++
++    // (Removed verbose init banner)
++
++    // Best-effort cleanup in case a previous run left the driver installed
++    // (common after soft reboots or exceptions before deinit).
++    twai_stop();                // ignore result
++    twai_driver_uninstall();    // ignore result
++
++    // General config
++    twai_general_config_t gcfg = TWAI_GENERAL_CONFIG_DEFAULT(
++        (gpio_num_t)tx_gpio, (gpio_num_t)rx_gpio, TWAI_MODE_NORMAL);
++
++    switch (mode) {
++        case 1: gcfg.mode = TWAI_MODE_NO_ACK;      break;
++        case 2: gcfg.mode = TWAI_MODE_LISTEN_ONLY; break;
++        default: gcfg.mode = TWAI_MODE_NORMAL;     break;
++    }
++
++    // Timing config
++    twai_timing_config_t tcfg;
++    switch (baud) {
++        case 125000:  tcfg = (twai_timing_config_t)TWAI_TIMING_CONFIG_125KBITS(); break;
++        case 250000:  tcfg = (twai_timing_config_t)TWAI_TIMING_CONFIG_250KBITS(); break;
++        case 500000:  tcfg = (twai_timing_config_t)TWAI_TIMING_CONFIG_500KBITS(); break;
++        case 1000000: tcfg = (twai_timing_config_t)TWAI_TIMING_CONFIG_1MBITS();   break;
++        default:
++            mp_raise_ValueError(MP_ERROR_TEXT("unsupported baudrate"));
++    }
++
++    // Accept-all filter
++    twai_filter_config_t fcfg = TWAI_FILTER_CONFIG_ACCEPT_ALL();
++
++    // Install + start driver (errors include ESP-IDF code)
++    CHECK_ESP(twai_driver_install(&gcfg, &tcfg, &fcfg), "CAN install failed");
++    CHECK_ESP(twai_start(), "CAN start failed");
++
++    mp_can_obj_t *self = mp_obj_malloc(mp_can_obj_t, type);
++    self->started  = true;
++    self->baudrate = baud;
++    self->mode     = mode;
++    return MP_OBJ_FROM_PTR(self);
++}
++
++static void can_deinit_impl(mp_can_obj_t *self) {
++    if (self->started) {
++        // Stop/uninstall even if they fail; best-effort deinit
++        twai_stop();
++        twai_driver_uninstall();
++        self->started = false;
++    }
++}
++
++static mp_obj_t can_deinit(mp_obj_t self_in) {
++    can_deinit_impl((mp_can_obj_t *)MP_OBJ_TO_PTR(self_in));
++    return mp_const_none;
++}
++static MP_DEFINE_CONST_FUN_OBJ_1(can_deinit_obj, can_deinit);
++
++static mp_obj_t can___del__(mp_obj_t self_in) {
++    can_deinit_impl((mp_can_obj_t *)MP_OBJ_TO_PTR(self_in));
++    return mp_const_none;
++}
++static MP_DEFINE_CONST_FUN_OBJ_1(can___del___obj, can___del__);
++
++static mp_obj_t can_send(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
++    // self, data, id, *, extframe=False, rtr=False, timeout=100
++    enum { ARG_extframe, ARG_rtr, ARG_timeout };
++    static const mp_arg_t kw_only[] = {
++        { MP_QSTR_extframe, MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
++        { MP_QSTR_rtr,      MP_ARG_KW_ONLY | MP_ARG_BOOL, {.u_bool = false} },
++        { MP_QSTR_timeout,  MP_ARG_KW_ONLY | MP_ARG_INT,  {.u_int = 100} },
++    };
++    mp_arg_val_t vals[MP_ARRAY_SIZE(kw_only)];
++    mp_arg_parse_all(n_args - 3, pos_args + 3, kw_args,
++                     MP_ARRAY_SIZE(kw_only), kw_only, vals);
++
++    // mp_can_obj_t *self = MP_OBJ_TO_PTR(pos_args[0]); // not used currently
++    mp_buffer_info_t buf;
++    mp_get_buffer_raise(pos_args[1], &buf, MP_BUFFER_READ);
++    uint32_t ident = mp_obj_get_int(pos_args[2]);
++    if (buf.len > 8) {
++        mp_raise_ValueError(MP_ERROR_TEXT("dlc>8"));
++    }
++
++    twai_message_t m = {0};
++    m.identifier = ident;
++    if (vals[ARG_extframe].u_bool) m.flags |= TWAI_MSG_FLAG_EXTD;
++    if (vals[ARG_rtr].u_bool)      m.flags |= TWAI_MSG_FLAG_RTR;
++    m.data_length_code = (uint8_t)buf.len;
++    if (!(m.flags & TWAI_MSG_FLAG_RTR)) {
++        memcpy(m.data, buf.buf, buf.len);
++    }
++
++    esp_err_t e = twai_transmit(&m, pdMS_TO_TICKS(vals[ARG_timeout].u_int));
++    if (e != ESP_OK) {
++        mp_raise_msg_varg(&mp_type_OSError,
++            MP_ERROR_TEXT("CAN tx failed (err=0x%04x)"), e);
++    }
++    return mp_const_none;
++}
++static MP_DEFINE_CONST_FUN_OBJ_KW(can_send_obj, 3, can_send);
++
++static mp_obj_t can_recv(size_t n_args, const mp_obj_t *pos_args, mp_map_t *kw_args) {
++    // self, *, timeout=0 (ms) -> (id, is_ext, rtr, data) or OSError(ETIMEDOUT/err)
++    enum { ARG_timeout };
++    static const mp_arg_t allowed[] = {
++        { MP_QSTR_timeout, MP_ARG_KW_ONLY | MP_ARG_INT, {.u_int = 0} },
++    };
++    mp_arg_val_t a[MP_ARRAY_SIZE(allowed)];
++    mp_arg_parse_all(n_args - 1, pos_args + 1, kw_args,
++                     MP_ARRAY_SIZE(allowed), allowed, a);
++
++    twai_message_t m;
++    esp_err_t e = twai_receive(&m, pdMS_TO_TICKS(a[ARG_timeout].u_int));
++    if (e != ESP_OK) {
++        if (e == ESP_ERR_TIMEOUT) {
++            mp_raise_OSError(MP_ETIMEDOUT);
++        }
++        mp_raise_msg_varg(&mp_type_OSError,
++            MP_ERROR_TEXT("CAN rx failed (err=0x%04x)"), e);
++    }
++
++    bool is_ext = (m.flags & TWAI_MSG_FLAG_EXTD) != 0;
++    bool rtr    = (m.flags & TWAI_MSG_FLAG_RTR)  != 0;
++    mp_obj_t tup[4] = {
++        mp_obj_new_int_from_uint(m.identifier),
++        mp_obj_new_bool(is_ext),
++        mp_obj_new_bool(rtr),
++        mp_obj_new_bytes(m.data, m.data_length_code),
++    };
++    return mp_obj_new_tuple(4, tup);
++}
++static MP_DEFINE_CONST_FUN_OBJ_KW(can_recv_obj, 1, can_recv);
++
++// Class attributes and methods
++static const mp_rom_map_elem_t can_locals_table[] = {
++    { MP_ROM_QSTR(MP_QSTR_send),       MP_ROM_PTR(&can_send_obj) },
++    { MP_ROM_QSTR(MP_QSTR_recv),       MP_ROM_PTR(&can_recv_obj) },
++    { MP_ROM_QSTR(MP_QSTR_deinit),     MP_ROM_PTR(&can_deinit_obj) },
++    { MP_ROM_QSTR(MP_QSTR___del__),    MP_ROM_PTR(&can___del___obj) },
++    { MP_ROM_QSTR(MP_QSTR_NORMAL),      MP_ROM_INT(0) },
++    { MP_ROM_QSTR(MP_QSTR_NO_ACK),      MP_ROM_INT(1) },
++    { MP_ROM_QSTR(MP_QSTR_LISTEN_ONLY), MP_ROM_INT(2) },
++};
++static MP_DEFINE_CONST_DICT(can_locals_dict, can_locals_table);
++
++MP_DEFINE_CONST_OBJ_TYPE(
++    can_type,
++    MP_QSTR_CAN,
++    MP_TYPE_FLAG_NONE,
++    make_new, can_make_new,
++    locals_dict, &can_locals_dict
++);
++
++static const mp_rom_map_elem_t can_module_globals_table[] = {
++    { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_can) },
++    { MP_ROM_QSTR(MP_QSTR_CAN),      MP_ROM_PTR(&can_type) },
++};
++static MP_DEFINE_CONST_DICT(can_module_globals, can_module_globals_table);
++
++const mp_obj_module_t mp_module_can = {
++    .base = { &mp_type_module },
++    .globals = (mp_obj_dict_t *)&can_module_globals,
++};
++
++// Register module as "can"
++MP_REGISTER_MODULE(MP_QSTR_can, mp_module_can);
++
+diff --git a/ports/esp32/usermods/can_twai/micropython.cmake b/ports/esp32/usermods/can_twai/micropython.cmake
+new file mode 100644
+index 000000000..aaef598a3
+--- /dev/null
++++ b/ports/esp32/usermods/can_twai/micropython.cmake
+@@ -0,0 +1,17 @@
++set(CAN_TWAI_DIR ${CMAKE_CURRENT_LIST_DIR})
++
++add_library(usermod_can_twai INTERFACE)
++target_sources(usermod_can_twai INTERFACE
++    ${CAN_TWAI_DIR}/can_twai.c
++)
++target_include_directories(usermod_can_twai INTERFACE
++    ${CAN_TWAI_DIR}
++)
++
++target_compile_definitions(usermod_can_twai INTERFACE
++    MICROPY_PY_USING_CAN_TWAI=1
++)
++
++# Link into MicroPython
++target_link_libraries(usermod INTERFACE usermod_can_twai)
++
