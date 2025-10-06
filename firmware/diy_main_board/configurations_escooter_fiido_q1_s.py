@@ -9,20 +9,24 @@ front_motor_cfg = MotorCfg(can_id=1)
 
 # Define the CAN TX and RX pins for communications with VESC
 # (VESC is a singleton in your codebase; setting on rear is enough)
-rear_motor_cfg.can_rx_pin = 3
-rear_motor_cfg.can_tx_pin = 2
+rear_motor_cfg.can_rx_pin = 6
+rear_motor_cfg.can_tx_pin = 5
+# default VESC is 500khz, but as I was getting errors, I reduced to 125khz
+rear_motor_cfg.can_baudrate = 125000
+# 0 is normal mode
+rear_motor_cfg.can_mode = 0
 
 # Brake pin for brake sensor
 cfg.brake_pin = 4
 
 # Right handlebar throttle
-cfg.throttle_1_pin = 0            # ADC input pin
+cfg.throttle_1_pin = 3            # ADC input pin
 cfg.throttle_1_adc_min = 18500      # slightly above rest value
 cfg.throttle_1_adc_max = 55600      # slightly below max value
 cfg.throttle_1_adc_over_max_error = 54500  # safety threshold
 
 # Left handlebar throttle
-cfg.throttle_2_pin = 1
+cfg.throttle_2_pin = 2
 cfg.throttle_2_adc_min = 18700
 cfg.throttle_2_adc_max = 54500
 cfg.throttle_2_adc_over_max_error = 54500
@@ -36,7 +40,7 @@ cfg.display_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
 #######################################################################
 # If you are using a Jiabaida BMS (https://jiabaida-bms.com/) on you battery
 # Keep this disabled/False as default
-cfg.has_jbd_bms = True
+cfg.has_jbd_bms = False
 
 cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
 #######################################################################

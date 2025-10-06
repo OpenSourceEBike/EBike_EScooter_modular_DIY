@@ -1,6 +1,6 @@
 import time
 import struct
-from can import CAN
+import CAN
 
 # Common errno values that appear on various ports/usermods
 _EAGAIN    = 11      # resource temporarily unavailable (queue full)
@@ -25,20 +25,30 @@ class Motor(object):
         self.last_tx_error = None  # tuple(code, repr)
 
         # Configure CAN once (singleton-style)
-        if (self.data.cfg.can_tx_pin is not None) and (self.data.cfg.can_rx_pin is not None):
-            if Motor._can is None:
-                # Prefer your cfg pins and params if available
-                tx_pin = getattr(self.data.cfg, "can_tx_pin", 2) or 2
-                rx_pin = getattr(self.data.cfg, "can_rx_pin", 3) or 3
-                baud   = getattr(self.data.cfg, "can_baudrate", 125000) or 125000
-                mode   = getattr(self.data.cfg, "can_mode", 0) or 0  # 0 = normal
+        if (Motor._can is None):
+            if (self.data.cfg.can_rx_pin is not None) and \
+               (self.data.cfg.can_tx_pin is not None) and \
+               (self.data.cfg.can_baudrate is not None) and \
+               (self.data.cfg.can_mode is not None):
+                tx_pin = self.data.cfg.can_tx_pin
+                rx_pin = self.data.cfg.can_rx_pin
+                baud   = self.data.cfg.can_baudrate
+                mode   = self.data.cfg.can_mode
 
                 Motor._can = CAN(
+                    0,
+                    extframe=True,
                     tx=tx_pin,
                     rx=rx_pin,
-                    baudrate=baud,
-                    mode=mode
+                    mode=CAN.NORMAL,
+                    bitrate=125000
                 )
+                
+                if mode == 0: mode = 'normal'
+                print(f'CAN configured with rx_pin: {rx_pin}, tx_pin: {tx_pin}, baudrate: {baud} and mode: {mode}')
+                
+            else:
+                print('Set the can_rx_pin, can_tx_pin, can_baudrate and can_mode on configurations')
 
     # ------------------ INTERNAL: TX (never raise) ------------------
 
@@ -85,7 +95,15 @@ class Motor(object):
         if not can:
             return None
         try:
-            return can.recv()
+            print('try can read')
+            if can.any():
+                data = dev.recv()
+                print('data', data)
+                message_id_full = data[0]
+                data = data[3]
+                return message_id_full, _, _, data
+            else:
+                return None
         except OSError as e:
             return None
         except Exception:
@@ -220,3 +238,4 @@ class MotorData:
         self.battery_voltage_x10 = 0
         self.battery_soc_x1000 = 0
         self.vesc_fault_code = 0
+
