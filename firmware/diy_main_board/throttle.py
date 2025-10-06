@@ -1,5 +1,5 @@
 from machine import ADC, Pin
-from firmware_common.utils import map_range
+from common.utils import map_range
 
 class Throttle:
     """Throttle input via ADC"""

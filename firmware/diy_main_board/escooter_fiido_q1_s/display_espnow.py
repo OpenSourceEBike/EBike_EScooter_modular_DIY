@@ -2,7 +2,7 @@ import time
 import network
 import uasyncio as asyncio
 import aioespnow
-from firmware_common.boards_ids import BoardsIds
+from common.boards_ids import BoardsIds
 
 
 class Display:

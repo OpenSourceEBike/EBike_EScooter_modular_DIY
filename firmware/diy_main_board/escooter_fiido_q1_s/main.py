@@ -23,10 +23,10 @@ while brake_sensor.value:
     time.sleep(1)
 
 # Motors: data + driver objects
-front_motor_data = MotorData(front_motor_cfg)
 rear_motor_data  = MotorData(rear_motor_cfg)
-front_motor = Motor(front_motor_data)
+front_motor_data = MotorData(front_motor_cfg)
 rear_motor  = Motor(rear_motor_data)
+front_motor = Motor(front_motor_data)
 
 # Init targets from configuration
 front_motor.data.motor_target_current_limit_max = front_motor.data.cfg.motor_max_current_limit_max
@@ -223,11 +223,13 @@ async def task_control_motor(wdt):
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
 
-        if vars.bms_battery_current_x100 is not None:
-            print('bms_current', vars.bms_battery_current_x100 / 100)
+#         if vars.bms_battery_current_x100 is not None:
+#             print('bms_current', vars.bms_battery_current_x100 / 100)
 
         # Feed watchdog
         # wdt.feed()
+        
+        print(rear_motor.motor_get_can_state())
 
         gc.collect()
         await asyncio.sleep(0.02)
