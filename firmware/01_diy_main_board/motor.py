@@ -1,17 +1,30 @@
+# motor.py — MicroPython (ESP32-S3) TWAI/CAN helper for VESC-style frames
+# Driver API assumed:
+#   from can import CAN
+#   CAN(tx=<gpio>, rx=<gpio>, baudrate=<int>, mode=<int>)
+#   can.recv() -> None or (msg_id:int, is_ext:bool, rtr:bool, data:bytes/bytearray)
+#   can.send(buf:bytes/bytearray, msg_id:int, extframe:bool=True/False, timeout:int=0)
+
 import time
 import struct
-import CAN
+from can import CAN
 
-# Common errno values that appear on various ports/usermods
-_EAGAIN    = 11      # resource temporarily unavailable (queue full)
-_EBUSY     = 16      # busy
-_ETIMEDOUT = 110     # timeout
+# Common errno values seen across ports/usermods (for resilient TX)
+_EAGAIN    = 11
+_EBUSY     = 16
+_ETIMEDOUT = 110
 _ENOTCONN  = 107
 _ECONNRST  = 104
 _ETXFAIL   = 0x0107
 
 
 class Motor(object):
+    """
+    Minimal wrapper around a shared CAN instance, with:
+      - fire-and-forget TX (never raises)
+      - non-blocking RX drain + VESC packet decoding
+      - simple TX health counters
+    """
     _can = None                 # shared CAN instance (singleton)
     _tx_4 = bytearray(4)
     _tx_8 = bytearray(8)
@@ -19,42 +32,34 @@ class Motor(object):
     def __init__(self, data):
         self.data = data
 
-        # TX health counters (simple observability)
+        # TX health / observability
         self.tx_ok = 0
         self.tx_drop = 0
         self.last_tx_error = None  # tuple(code, repr)
 
-        # Configure CAN once (singleton-style)
-        if (Motor._can is None):
-            if (self.data.cfg.can_rx_pin is not None) and \
-               (self.data.cfg.can_tx_pin is not None) and \
-               (self.data.cfg.can_baudrate is not None) and \
-               (self.data.cfg.can_mode is not None):
-                tx_pin = self.data.cfg.can_tx_pin
-                rx_pin = self.data.cfg.can_rx_pin
-                baud   = self.data.cfg.can_baudrate
-                mode   = self.data.cfg.can_mode
+        # Configure CAN once (singleton). Assume cfg fields exist and are valid.
+        if Motor._can is None:
+            tx_pin = int(self.data.cfg.can_tx_pin)
+            rx_pin = int(self.data.cfg.can_rx_pin)
+            baud   = int(self.data.cfg.can_baudrate)
+            mode   = int(self.data.cfg.can_mode)  # 0 == NORMAL in this driver
 
-                Motor._can = CAN(
-                    0,
-                    extframe=True,
-                    tx=tx_pin,
-                    rx=rx_pin,
-                    mode=CAN.NORMAL,
-                    bitrate=125000
-                )
-                
-                if mode == 0: mode = 'normal'
-                print(f'CAN configured with rx_pin: {rx_pin}, tx_pin: {tx_pin}, baudrate: {baud} and mode: {mode}')
-                
-            else:
-                print('Set the can_rx_pin, can_tx_pin, can_baudrate and can_mode on configurations')
+            Motor._can = CAN(
+                tx=tx_pin,
+                rx=rx_pin,
+                baudrate=baud,
+                mode=mode
+            )
+            mode_name = "NORMAL" if mode == 0 else str(mode)
+            print("CAN configured:",
+                  "rx_pin =", rx_pin, "tx_pin =", tx_pin,
+                  "baudrate =", baud, "mode =", mode_name)
 
     # ------------------ INTERNAL: TX (never raise) ------------------
 
     def _pack_and_send(self, buf, command) -> bool:
         """
-        Fire-and-forget send. Never raises on TX error; drops frame instead.
+        Fire-and-forget send. Never raises; drops on error.
         Returns True on success, False if dropped.
         """
         if Motor._can is None:
@@ -62,24 +67,23 @@ class Motor(object):
             self.tx_drop += 1
             return False
 
-        msg_id = (self.data.cfg.can_id | (command << 8))  # VESC-style id packing
+        # VESC-style composing: low 8b = node id, next 8b = command
+        msg_id = (int(self.data.cfg.can_id) & 0xFF) | ((int(command) & 0xFF) << 8)
 
         try:
-            # Non-blocking send: if queue full, driver may raise OSError
+            # Non-blocking send; extframe=True for VESC extended IDs pattern
             Motor._can.send(buf, msg_id, extframe=True, timeout=0)
             self.tx_ok += 1
-            # tiny yield to avoid starving other tasks
-            time.sleep_ms(3)
+            time.sleep_ms(3)  # small yield to avoid starving REPL/USB/CAN IRQs
             return True
 
         except OSError as e:
             code = e.args[0] if e.args else None
             self.last_tx_error = (code, repr(e))
             self.tx_drop += 1
-            # Silent drop for known transient/frequent errors
+            # Known transient/bus-state errors: just drop
             if code in (_EAGAIN, _EBUSY, _ETIMEDOUT, _ENOTCONN, _ECONNRST, _ETXFAIL, None):
                 return False
-            # Unknown error -> still don't raise
             return False
 
         except Exception as e:
@@ -87,7 +91,7 @@ class Motor(object):
             self.tx_drop += 1
             return False
 
-    # ------------------ INTERNAL: RX (never block) ------------------
+    # ------------------ INTERNAL: RX (non-blocking) ------------------
 
     @staticmethod
     def _recv_nonblock():
@@ -95,25 +99,19 @@ class Motor(object):
         if not can:
             return None
         try:
-            print('try can read')
-            if can.any():
-                data = dev.recv()
-                print('data', data)
-                message_id_full = data[0]
-                data = data[3]
-                return message_id_full, _, _, data
-            else:
-                return None
-        except OSError as e:
+            # Non-blocking in this driver: returns None if no frame available
+            return can.recv()
+        except OSError:
+            # Includes ETIMEDOUT when no frame within internal wait window
             return None
         except Exception:
             return None
 
-    # ------------------ PUBLIC: RX draining & decode ------------------
+    # ------------------ PUBLIC: RX drain & VESC decode ------------------
 
     def update_motor_data(self, motor_1, motor_2=None, budget_ms=10):
         """
-        Drain frames for ~budget_ms without blocking the system.
+        Drain frames for ~budget_ms without blocking.
         Decodes a subset of VESC CAN status packets into MotorData.
         """
         if Motor._can is None:
@@ -123,18 +121,17 @@ class Motor(object):
         while time.ticks_diff(end_at, time.ticks_ms()) > 0:
             tup = self._recv_nonblock()
             if not tup:
-                # brief yield to avoid tight spin when bus idle
-                time.sleep_us(300)
+                time.sleep_us(300)  # tiny yield when bus idle
                 continue
 
-            # Unpack safely
             try:
-                message_id_full, _, _, data = tup
+                message_id_full, is_ext, rtr, data = tup
             except Exception:
                 continue
             if not data:
                 continue
-            
+
+            # Extract command and node id from extended VESC id
             message_id = (message_id_full >> 8) & 0xFF
             can_id     = message_id_full & 0xFF
 
@@ -146,49 +143,54 @@ class Motor(object):
                 continue
 
             dlc = len(data)
-            try:
-                if message_id == 9 and dlc >= 6:     # CAN_PACKET_STATUS_1
-                    motor_data.speed_erpm         = struct.unpack_from(">l", data, 0)[0]
-                    motor_data.motor_current_x10 = struct.unpack_from(">h", data, 4)[0]
 
-                elif message_id == 16 and dlc >= 6:  # CAN_PACKET_STATUS_4
+            try:
+                # CAN_PACKET_STATUS_1 (cmd 9)
+                if message_id == 9 and dlc >= 6:
+                    motor_data.speed_erpm          = struct.unpack_from(">l", data, 0)[0]
+                    motor_data.motor_current_x10   = struct.unpack_from(">h", data, 4)[0]
+
+                # CAN_PACKET_STATUS_4 (cmd 16)
+                elif message_id == 16 and dlc >= 6:
                     motor_data.vesc_temperature_x10  = struct.unpack_from(">h", data, 0)[0]
                     motor_data.motor_temperature_x10 = struct.unpack_from(">h", data, 2)[0]
-                    motor_data.battery_current_x10  = struct.unpack_from(">h", data, 4)[0]
+                    motor_data.battery_current_x10   = struct.unpack_from(">h", data, 4)[0]
 
-                elif message_id == 27 and dlc >= 6:  # CAN_PACKET_STATUS_5
+                # CAN_PACKET_STATUS_5 (cmd 27)
+                elif message_id == 27 and dlc >= 6:
                     motor_data.battery_voltage_x10 = struct.unpack_from(">h", data, 4)[0]
 
-                elif message_id == 99 and dlc >= 2:  # CAN_PACKET_STATUS_7
+                # CAN_PACKET_STATUS_7 (cmd 99)
+                elif message_id == 99 and dlc >= 2:
                     motor_data.battery_soc_x1000 = struct.unpack_from(">h", data, 0)[0]
 
-                # Add other packet decoders here as needed
+                # (extend with more decoders as needed)
 
             except Exception:
-                # Malformed frame or unexpected length; ignore and continue
+                # Decode error (length/type), ignore and continue
                 pass
-            
+
     # ------------------ PUBLIC: Commands (fire-and-forget) ------------------
 
     def set_motor_current_amps(self, value):
-        """Set motor target current in Amps"""
+        """Set motor target current in Amps."""
         mA = int(value * 1000)
         struct.pack_into(">l", Motor._tx_4, 0, mA)
         self._pack_and_send(Motor._tx_4, 1)  # CAN_PACKET_SET_CURRENT = 1
 
     def set_motor_current_brake_amps(self, value):
-        """Set motor current brake / regen Amps"""
+        """Set motor brake/regen current in Amps."""
         mA = int(value * 1000)
         struct.pack_into(">l", Motor._tx_4, 0, mA)
         self._pack_and_send(Motor._tx_4, 2)  # CAN_PACKET_SET_CURRENT_BRAKE = 2
 
     def set_motor_speed_rpm(self, value):
-        """Set motor speed in RPM"""
+        """Set motor target speed in mechanical RPM."""
         struct.pack_into(">l", Motor._tx_4, 0, int(value))
         self._pack_and_send(Motor._tx_4, 3)  # CAN_PACKET_SET_RPM = 3
 
     def set_motor_current_limits(self, min, max):
-        """Set motor current limits in Amps"""
+        """Set motor current limits in Amps."""
         min_mA = int(min * 1000)
         max_mA = int(max * 1000)
         struct.pack_into(">l", Motor._tx_8, 0, min_mA)
@@ -196,7 +198,7 @@ class Motor(object):
         self._pack_and_send(Motor._tx_8, 21)  # CAN_PACKET_SET_CURRENT_LIMITS = 21
 
     def set_battery_current_limits(self, min, max):
-        """Set battery current limits in Amps"""
+        """Set battery current limits in Amps."""
         min_mA = int(min * 1000)
         max_mA = int(max * 1000)
         struct.pack_into(">l", Motor._tx_8, 0, min_mA)
@@ -206,15 +208,45 @@ class Motor(object):
     # ------------------ Optional: basic state peek ------------------
 
     def motor_get_can_state(self):
+        """Return (state, rx_err, tx_err) if exposed by the driver; otherwise None placeholders."""
         can = Motor._can
         if can is None:
             return (None, None, None)
-        # usermod may not expose these; getattr fallbacks keep it safe
-        return (
-            getattr(can, "state", None),
-            getattr(can, "rx_error", None) or getattr(can, "receive_error_count", None),
-            getattr(can, "tx_error", None) or getattr(can, "transmit_error_count", None),
-        )
+
+        state = None
+        rx_err = None
+        tx_err = None
+
+        # Use hasattr (no getattr as requested)
+        if hasattr(can, "state"):
+            try:
+                state = can.state
+            except Exception:
+                state = None
+
+        if hasattr(can, "receive_error_count"):
+            try:
+                rx_err = can.receive_error_count
+            except Exception:
+                rx_err = None
+        elif hasattr(can, "rx_error"):
+            try:
+                rx_err = can.rx_error
+            except Exception:
+                rx_err = None
+
+        if hasattr(can, "transmit_error_count"):
+            try:
+                tx_err = can.transmit_error_count
+            except Exception:
+                tx_err = None
+        elif hasattr(can, "tx_error"):
+            try:
+                tx_err = can.tx_error
+            except Exception:
+                tx_err = None
+
+        return (state, rx_err, tx_err)
 
 
 class MotorData:
@@ -228,7 +260,7 @@ class MotorData:
         self.motor_min_current_start = 0
         self.motor_target_speed = 0.0
 
-        # Live telemetry
+        # Live telemetry (decoded from VESC CAN packets)
         self.speed_erpm = 0
         self.wheel_speed = 0
         self.vesc_temperature_x10 = 0
@@ -238,4 +270,3 @@ class MotorData:
         self.battery_voltage_x10 = 0
         self.battery_soc_x1000 = 0
         self.vesc_fault_code = 0
-

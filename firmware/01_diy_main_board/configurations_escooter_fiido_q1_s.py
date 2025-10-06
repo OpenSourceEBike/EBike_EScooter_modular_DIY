@@ -40,7 +40,7 @@ cfg.display_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
 #######################################################################
 # If you are using a Jiabaida BMS (https://jiabaida-bms.com/) on you battery
 # Keep this disabled/False as default
-cfg.has_jbd_bms = False
+cfg.has_jbd_bms = True
 
 cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
 #######################################################################

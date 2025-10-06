@@ -8,7 +8,7 @@ from motor import MotorData, Motor
 from configurations_escooter_fiido_q1_s import cfg, front_motor_cfg, rear_motor_cfg
 from brake import Brake
 from throttle import Throttle
-from firmware_common.utils import map_range
+from common.utils import map_range
 import escooter_fiido_q1_s.display_espnow as DisplayESPnow
 
 # Object that holds various runtime variables
@@ -210,7 +210,7 @@ async def task_control_motor(wdt):
         vars.brakes_are_active = True if brake_sensor.value else False
 
         # Command motor(s)
-        vars.motors_enable_state = False  # (as in your current safety state)
+        vars.motors_enable_state = True  # (as in your current safety state)
 
         if vars.motors_enable_state is False:
             front_motor.set_motor_current_amps(0)
@@ -223,13 +223,11 @@ async def task_control_motor(wdt):
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
 
-#         if vars.bms_battery_current_x100 is not None:
-#             print('bms_current', vars.bms_battery_current_x100 / 100)
+        #if vars.bms_battery_current_x100 is not None:
+            #print('bms_current', vars.bms_battery_current_x100 / 100)
 
         # Feed watchdog
         # wdt.feed()
-        
-        print(rear_motor.motor_get_can_state())
 
         gc.collect()
         await asyncio.sleep(0.02)
