@@ -734,8 +734,8 @@
 					(hide yes)
 				)
 			)
-			(property "Value" "SN65HVD230_module"
-				(at -10.414 12.446 0)
+			(property "Value" "SN65HVD230"
+				(at -6.096 9.906 0)
 				(effects
 					(font
 						(size 1.27 1.27)
@@ -804,7 +804,7 @@
 			)
 			(symbol "TJA1050_module_1_1"
 				(pin input line
-					(at -12.7 2.54 0)
+					(at -12.7 1.27 0)
 					(length 2.54)
 					(name "CAN_TX"
 						(effects
@@ -822,7 +822,7 @@
 					)
 				)
 				(pin output line
-					(at -12.7 -2.54 0)
+					(at -12.7 -1.27 0)
 					(length 2.54)
 					(name "CAN_RX"
 						(effects
@@ -876,7 +876,7 @@
 					)
 				)
 				(pin bidirectional line
-					(at 12.7 2.54 180)
+					(at 12.7 1.27 180)
 					(length 2.54)
 					(name "CANH"
 						(effects
@@ -894,7 +894,7 @@
 					)
 				)
 				(pin bidirectional line
-					(at 12.7 -2.54 180)
+					(at 12.7 -1.27 180)
 					(length 2.54)
 					(name "CANL"
 						(effects
@@ -995,7 +995,7 @@
 				(pin bidirectional line
 					(at -19.05 10.16 0)
 					(length 2.54)
-					(name "GPIO1"
+					(name "GPIO6"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1013,7 +1013,7 @@
 				(pin bidirectional line
 					(at -19.05 7.62 0)
 					(length 2.54)
-					(name "GPIO2"
+					(name "GPIO5"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1031,7 +1031,7 @@
 				(pin bidirectional line
 					(at -19.05 5.08 0)
 					(length 2.54)
-					(name "GPIO3"
+					(name "GPIO4"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1049,7 +1049,7 @@
 				(pin bidirectional line
 					(at -19.05 2.54 0)
 					(length 2.54)
-					(name "GPIO4"
+					(name "GPIO3"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1067,7 +1067,7 @@
 				(pin bidirectional line
 					(at -19.05 0 0)
 					(length 2.54)
-					(name "GPIO5"
+					(name "GPIO2"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1085,7 +1085,7 @@
 				(pin bidirectional line
 					(at -19.05 -2.54 0)
 					(length 2.54)
-					(name "GPIO6"
+					(name "GPIO1"
 						(effects
 							(font
 								(size 1.27 1.27)
@@ -1486,7 +1486,7 @@
 	)
 	(text "VESC CAN\nconnector"
 		(exclude_from_sim no)
-		(at 342.9 149.606 90)
+		(at 341.63 144.526 90)
 		(effects
 			(font
 				(size 1.524 1.524)
@@ -1497,7 +1497,7 @@
 	)
 	(text "SN65HVD230\nCAN transceiver"
 		(exclude_from_sim no)
-		(at 274.32 125.222 0)
+		(at 273.05 121.412 0)
 		(effects
 			(font
 				(size 1.524 1.524)
@@ -1620,7 +1620,7 @@
 	)
 	(wire
 		(pts
-			(xy 189.23 113.03) (xy 255.27 113.03)
+			(xy 189.23 113.03) (xy 254 113.03)
 		)
 		(stroke
 			(width 0)
@@ -1630,7 +1630,7 @@
 	)
 	(wire
 		(pts
-			(xy 283.21 152.4) (xy 283.21 156.21)
+			(xy 281.94 147.32) (xy 281.94 151.13)
 		)
 		(stroke
 			(width 0)
@@ -1672,7 +1672,7 @@
 	)
 	(polyline
 		(pts
-			(xy 269.24 127) (xy 297.18 127)
+			(xy 267.97 123.19) (xy 295.91 123.19)
 		)
 		(stroke
 			(width 0)
@@ -1692,7 +1692,7 @@
 	)
 	(polyline
 		(pts
-			(xy 297.18 153.67) (xy 269.24 153.67)
+			(xy 295.91 148.59) (xy 267.97 148.59)
 		)
 		(stroke
 			(width 0)
@@ -1712,7 +1712,7 @@
 	)
 	(wire
 		(pts
-			(xy 255.27 139.7) (xy 270.51 139.7)
+			(xy 254 135.89) (xy 269.24 135.89)
 		)
 		(stroke
 			(width 0)
@@ -1722,7 +1722,7 @@
 	)
 	(polyline
 		(pts
-			(xy 269.24 127) (xy 269.24 153.67)
+			(xy 267.97 123.19) (xy 267.97 148.59)
 		)
 		(stroke
 			(width 0)
@@ -1742,7 +1742,7 @@
 	)
 	(wire
 		(pts
-			(xy 191.77 115.57) (xy 252.73 115.57)
+			(xy 191.77 115.57) (xy 251.46 115.57)
 		)
 		(stroke
 			(width 0)
@@ -1867,7 +1867,7 @@
 	)
 	(wire
 		(pts
-			(xy 255.27 113.03) (xy 255.27 139.7)
+			(xy 254 113.03) (xy 254 135.89)
 		)
 		(stroke
 			(width 0)
@@ -1887,17 +1887,7 @@
 	)
 	(wire
 		(pts
-			(xy 295.91 140.97) (xy 295.91 139.7)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "70e54c0b-277f-4aab-9a96-756311f96289")
-	)
-	(wire
-		(pts
-			(xy 295.91 143.51) (xy 327.66 143.51)
+			(xy 294.64 138.43) (xy 326.39 138.43)
 		)
 		(stroke
 			(width 0)
@@ -1917,7 +1907,7 @@
 	)
 	(wire
 		(pts
-			(xy 275.59 118.11) (xy 283.21 118.11)
+			(xy 274.32 114.3) (xy 281.94 114.3)
 		)
 		(stroke
 			(width 0)
@@ -1970,7 +1960,7 @@
 	)
 	(wire
 		(pts
-			(xy 252.73 115.57) (xy 252.73 144.78)
+			(xy 251.46 115.57) (xy 251.46 138.43)
 		)
 		(stroke
 			(width 0)
@@ -1980,7 +1970,7 @@
 	)
 	(wire
 		(pts
-			(xy 283.21 118.11) (xy 283.21 132.08)
+			(xy 281.94 114.3) (xy 281.94 127)
 		)
 		(stroke
 			(width 0)
@@ -2023,7 +2013,7 @@
 	)
 	(wire
 		(pts
-			(xy 252.73 144.78) (xy 270.51 144.78)
+			(xy 251.46 138.43) (xy 269.24 138.43)
 		)
 		(stroke
 			(width 0)
@@ -2096,16 +2086,6 @@
 	)
 	(wire
 		(pts
-			(xy 295.91 144.78) (xy 295.91 143.51)
-		)
-		(stroke
-			(width 0)
-			(type default)
-		)
-		(uuid "bee144b2-e27f-4549-859d-31d43fbea176")
-	)
-	(wire
-		(pts
 			(xy 151.13 146.05) (xy 151.13 147.32)
 		)
 		(stroke
@@ -2147,7 +2127,7 @@
 	)
 	(wire
 		(pts
-			(xy 325.12 146.05) (xy 325.12 147.32)
+			(xy 323.85 140.97) (xy 323.85 142.24)
 		)
 		(stroke
 			(width 0)
@@ -2211,7 +2191,7 @@
 	)
 	(wire
 		(pts
-			(xy 327.66 146.05) (xy 325.12 146.05)
+			(xy 326.39 140.97) (xy 323.85 140.97)
 		)
 		(stroke
 			(width 0)
@@ -2253,7 +2233,7 @@
 	)
 	(polyline
 		(pts
-			(xy 297.18 127) (xy 297.18 153.67)
+			(xy 295.91 123.19) (xy 295.91 148.59)
 		)
 		(stroke
 			(width 0)
@@ -2274,7 +2254,7 @@
 	)
 	(wire
 		(pts
-			(xy 295.91 140.97) (xy 327.66 140.97)
+			(xy 294.64 135.89) (xy 326.39 135.89)
 		)
 		(stroke
 			(width 0)
@@ -2294,7 +2274,7 @@
 		(uuid "ffa1162b-9724-4f1d-af91-b67e2d519de7")
 	)
 	(label "VESC-CAN_LOW"
-		(at 312.42 143.51 0)
+		(at 311.15 138.43 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2314,7 +2294,7 @@
 		(uuid "17f751fb-b4bc-4aff-b2c4-a4d68c6a8f93")
 	)
 	(label "CAN_RX"
-		(at 260.35 144.78 0)
+		(at 259.08 138.43 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2334,7 +2314,7 @@
 		(uuid "2ef28adc-313f-49c9-be01-6ae970412a2c")
 	)
 	(label "+3.3V"
-		(at 275.59 118.11 0)
+		(at 274.32 114.3 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2344,7 +2324,7 @@
 		(uuid "3a797748-0e90-4ece-9304-f5898f46151f")
 	)
 	(label "CAN_L"
-		(at 298.45 143.51 0)
+		(at 297.18 138.43 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2384,7 +2364,7 @@
 		(uuid "77f20994-b527-47cc-8503-2f61f76517ae")
 	)
 	(label "VESC-CAN_HIGH"
-		(at 312.42 140.97 0)
+		(at 311.15 135.89 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2404,7 +2384,7 @@
 		(uuid "92e0fda9-0d9d-49f6-832e-d7a6bac555f4")
 	)
 	(label "CAN_H"
-		(at 298.45 140.97 0)
+		(at 297.18 135.89 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2424,7 +2404,7 @@
 		(uuid "ad71bc09-75ca-484c-8e10-7178628f934d")
 	)
 	(label "CAN_TX"
-		(at 260.35 139.7 0)
+		(at 259.08 135.89 0)
 		(effects
 			(font
 				(size 1.27 1.27)
@@ -2695,6 +2675,7 @@
 				(font
 					(size 1.27 1.27)
 				)
+				(hide yes)
 			)
 		)
 		(property "Value" "ESP32S3_ZERO"
@@ -2931,7 +2912,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 283.21 156.21 0)
+		(at 281.94 151.13 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -2939,7 +2920,7 @@
 		(dnp no)
 		(uuid "7878deb9-a8d8-42fc-baf6-14acc0c6cfb9")
 		(property "Reference" "#PWR08"
-			(at 283.21 162.56 0)
+			(at 281.94 157.48 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2948,7 +2929,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 283.337 160.6042 0)
+			(at 282.067 155.5242 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2956,7 +2937,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 283.21 156.21 0)
+			(at 281.94 151.13 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2965,7 +2946,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 283.21 156.21 0)
+			(at 281.94 151.13 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -2974,7 +2955,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 283.21 156.21 0)
+			(at 281.94 151.13 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3134,7 +3115,7 @@
 	)
 	(symbol
 		(lib_id "Connector_Generic:Conn_01x03")
-		(at 332.74 143.51 0)
+		(at 331.47 138.43 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -3142,7 +3123,7 @@
 		(dnp no)
 		(uuid "973369fb-3aa9-4dd6-a7d5-323ea6ee9ae1")
 		(property "Reference" "J2"
-			(at 332.74 136.144 0)
+			(at 331.47 131.064 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3151,7 +3132,7 @@
 			)
 		)
 		(property "Value" "Connector_4"
-			(at 335.915 143.51 90)
+			(at 334.645 138.43 90)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3159,7 +3140,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 332.74 143.51 0)
+			(at 331.47 138.43 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3168,7 +3149,7 @@
 			)
 		)
 		(property "Datasheet" "~"
-			(at 332.74 143.51 0)
+			(at 331.47 138.43 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3177,7 +3158,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 332.74 143.51 0)
+			(at 331.47 138.43 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3339,7 +3320,7 @@
 	)
 	(symbol
 		(lib_id "TJA1050:TJA1050_module")
-		(at 283.21 142.24 0)
+		(at 281.94 137.16 0)
 		(unit 1)
 		(exclude_from_sim no)
 		(in_bom yes)
@@ -3347,7 +3328,7 @@
 		(dnp no)
 		(uuid "a41cd980-ade3-4b71-9785-2bdaf5a013ef")
 		(property "Reference" "U3"
-			(at 285.2294 129.54 0)
+			(at 283.9594 124.46 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3356,8 +3337,8 @@
 				(hide yes)
 			)
 		)
-		(property "Value" "SN65HVD230_module"
-			(at 272.796 131.572 0)
+		(property "Value" "SN65HVD230"
+			(at 275.844 127.254 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3366,7 +3347,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 283.21 154.94 0)
+			(at 281.94 149.86 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3376,7 +3357,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 283.21 142.24 0)
+			(at 281.94 137.16 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3385,7 +3366,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 283.21 142.24 0)
+			(at 281.94 137.16 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3561,7 +3542,7 @@
 	)
 	(symbol
 		(lib_id "power:GND")
-		(at 325.12 147.32 0)
+		(at 323.85 142.24 0)
 		(mirror y)
 		(unit 1)
 		(exclude_from_sim no)
@@ -3570,7 +3551,7 @@
 		(dnp no)
 		(uuid "b6e5bee4-cc59-4739-ba90-18668a305c07")
 		(property "Reference" "#PWR09"
-			(at 325.12 153.67 0)
+			(at 323.85 148.59 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3579,7 +3560,7 @@
 			)
 		)
 		(property "Value" "GND"
-			(at 325.12 151.638 0)
+			(at 323.85 146.558 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3587,7 +3568,7 @@
 			)
 		)
 		(property "Footprint" ""
-			(at 325.12 147.32 0)
+			(at 323.85 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3596,7 +3577,7 @@
 			)
 		)
 		(property "Datasheet" ""
-			(at 325.12 147.32 0)
+			(at 323.85 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
@@ -3605,7 +3586,7 @@
 			)
 		)
 		(property "Description" ""
-			(at 325.12 147.32 0)
+			(at 323.85 142.24 0)
 			(effects
 				(font
 					(size 1.27 1.27)
