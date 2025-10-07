@@ -21,14 +21,14 @@ cfg.brake_pin = 4
 
 # Right handlebar throttle
 cfg.throttle_1_pin = 3            # ADC input pin
-cfg.throttle_1_adc_min = 18500      # slightly above rest value
-cfg.throttle_1_adc_max = 55600      # slightly below max value
+cfg.throttle_1_adc_min = 16600      # slightly above rest value
+cfg.throttle_1_adc_max = 49500      # slightly below max value
 cfg.throttle_1_adc_over_max_error = 54500  # safety threshold
 
 # Left handlebar throttle
 cfg.throttle_2_pin = 2
-cfg.throttle_2_adc_min = 18700
-cfg.throttle_2_adc_max = 54500
+cfg.throttle_2_adc_min = 16600
+cfg.throttle_2_adc_max = 48500
 cfg.throttle_2_adc_over_max_error = 54500
 
 # This board MAC Address
@@ -40,7 +40,7 @@ cfg.display_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
 #######################################################################
 # If you are using a Jiabaida BMS (https://jiabaida-bms.com/) on you battery
 # Keep this disabled/False as default
-cfg.has_jbd_bms = True
+cfg.has_jbd_bms = False
 
 cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
 #######################################################################
