@@ -100,7 +100,7 @@ class MotorBoard:
             self._system_data.battery_voltage_x10   = parts[1]
             self._system_data.battery_current_x10   = parts[2]
             self._system_data.battery_soc_x1000     = parts[3]
-            self._system_data.motor_current_x100    = parts[4]
+            self._system_data.motor_current_x10    = parts[4]
             self._system_data.wheel_speed_x10       = parts[5]
             self._system_data.brakes_are_active     = (parts[6] == 1)
             self._system_data.vesc_temperature_x10  = parts[7]

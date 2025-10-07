@@ -7,7 +7,7 @@ class PowerSwitch:
     Send power-switch state over ESP-NOW.
     """
 
-    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, system_data):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, vars):
         if not isinstance(espnow, aioespnow.AIOESPNow):
             raise TypeError("espnow must be an aioespnow.AIOESPNow instance")
 
@@ -15,7 +15,7 @@ class PowerSwitch:
         self._peer_mac = bytes(peer_mac)
         if len(self._peer_mac) != 6:
             raise ValueError("peer_mac must be 6 bytes")
-        self._system_data = system_data
+        self._vars = vars
 
         # Ensure peer exists (harmless if already added)
         try:
@@ -23,14 +23,17 @@ class PowerSwitch:
         except OSError as ex:
             print(ex)
 
+        self._comm_count = 0
         self._send_lock = radio_lock
 
     # ---------- payload ----------
     def _build_payload(self) -> bytes:
-        # for compatibility, to remove if future
-        comm_count = 0
-
-        return f"{int(BoardsIds.POWER_SWITCH)} {comm_count} {self._system_data.turn_off_relay}".encode("ascii")
+        self._comm_count += 1
+        if self._comm_count > 1024:
+            self._comm_count = 0
+        
+        turn_off_relay = 1 if self._vars.turn_off_relay else 0
+        return f"{int(BoardsIds.POWER_SWITCH)} {self._comm_count} {turn_off_relay}".encode("ascii")
 
     # ---------- public API ----------
     def send_data(self):
