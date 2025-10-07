@@ -4,7 +4,7 @@ This MicroPython were built with MicroPython v1.26.1 sources and with added CAN 
 
 Flash the MicroPython:
 
-python3 esptool.py erase_flash
-python3 esptool.py write_flash 0 ./micropython_v1.26.1_can_twai.bin
+``python3 esptool.py erase_flash``<br>
+``python3 esptool.py write_flash 0 ./micropython_v1.26.1_can_twai.bin``
 
 
