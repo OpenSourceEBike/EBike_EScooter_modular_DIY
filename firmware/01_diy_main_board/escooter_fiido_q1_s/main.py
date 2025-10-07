@@ -154,6 +154,10 @@ async def task_control_motor(wdt):
         throttle_1_value = throttle_1.value
         throttle_2_value = throttle_2.value
         throttle_value = max(throttle_1_value, throttle_2_value)
+        
+        # print(throttle_1.adc_value, throttle_1.value)
+        # print(throttle_2.adc_value, throttle_2.value)
+        # print()
 
         # Over-max safety (ADC glitch protection)
         if (throttle_1_value > cfg.throttle_1_adc_over_max_error) or \
