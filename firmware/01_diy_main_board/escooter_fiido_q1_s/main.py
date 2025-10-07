@@ -210,8 +210,6 @@ async def task_control_motor(wdt):
         vars.brakes_are_active = True if brake_sensor.value else False
 
         # Command motor(s)
-        vars.motors_enable_state = True  # (as in your current safety state)
-
         if vars.motors_enable_state is False:
             front_motor.set_motor_current_amps(0)
             rear_motor.set_motor_current_amps(0)
