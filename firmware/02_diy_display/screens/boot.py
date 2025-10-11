@@ -20,7 +20,7 @@ class BootScreen(BaseScreen):
         box_2.set_box(x1=0, y1=int(self.fb.height/4)*3, x2=self.fb.width-1, y2=int(self.fb.height/4)*4)
         
         box_1.update("Ready to")
-        box_2.update("POWER OFF")
+        box_2.update("POWER ON")
         
     def render(self):
         pass

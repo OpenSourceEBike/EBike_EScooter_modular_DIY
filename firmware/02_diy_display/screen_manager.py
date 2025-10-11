@@ -10,8 +10,9 @@ class ScreenManager:
         self.boot    = BootScreen(fb)
         self.main    = MainScreen(fb)
         self.chg     = ChargingScreen(fb)
-        self.poff    = PowerOffScreen(fb, countdown_s=3, on_poweroff=None)
-        self.current = self.main
+#         self.poff    = PowerOffScreen(fb, countdown_s=3, on_poweroff=None)
+        self.poff    = PowerOffScreen(fb)
+        self.current = self.boot
         self.current.on_enter()
         self._charge_seen_ms = None
 
