@@ -5,18 +5,18 @@ from screens.charging import ChargingScreen
 from screens.poweroff import PowerOffScreen
 
 class ScreenManager:
-    def __init__(self, fb, poweroff_cb):
+    def __init__(self, fb, vars):
         self.fb = fb
         self.boot    = BootScreen(fb)
         self.main    = MainScreen(fb)
         self.chg     = ChargingScreen(fb)
-        self.poff    = PowerOffScreen(fb, countdown_s=3, on_poweroff=poweroff_cb)
-        self.current = self.boot
+        self.poff    = PowerOffScreen(fb, countdown_s=3, on_poweroff=None)
+        self.current = self.main
         self.current.on_enter()
         self._charge_seen_ms = None
 
-    def render(self, vars):
-        self.current.render(vars)
+    def render(self):
+        self.current.render()
         try:
             self.fb.show()
         except Exception:
