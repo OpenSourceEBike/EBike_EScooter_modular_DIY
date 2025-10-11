@@ -32,3 +32,4 @@ class Vars:
         self.rear_lights_board_pins_state = 0
         self.front_lights_board_pins_state = 0
         self.buttons_state = 0x0101  # initial value
+        self.shutdown_request = False
