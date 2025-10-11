@@ -20,16 +20,5 @@ class PowerOffScreen(BaseScreen):
         except TypeError:
             self.fb.text(4, 16, "Shutting down...", 1)
 
-    def render(self, data):
-        # Show countdown
-        elapsed_ms = time.ticks_diff(time.ticks_ms(), self._started_at)
-        remain = max(0, self.countdown_s - elapsed_ms // 1000)
-        try:
-            self.fb.fill_rect(0, 28, self.fb.width, 20, 0)
-            self.fb.text("Powering off in: {}s".format(remain), 4, 30, 1)
-        except TypeError:
-            self.fb.fill_rect(0, 28, self.fb.width, 20, 0)
-            self.fb.text(4, 30, "Powering off in: {}s".format(remain), 1)
-
-        if remain <= 0:
-            self.on_poweroff()
+    def render(self):
+        pass
