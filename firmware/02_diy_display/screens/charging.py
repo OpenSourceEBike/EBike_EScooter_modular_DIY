@@ -1,18 +1,20 @@
 
 from .base import BaseScreen
-from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_text_box import WidgetTextBox
-from fonts import ac437_hp_150_re_12 as font_small
+from fonts import freesans20 as font
 
 class ChargingScreen(BaseScreen):
     NAME = "Charging"
 
     def on_enter(self):
         self.clear()
-        self.title_bar("Charging")
-        self.batt = BatterySOCWidget(self.fb, self.fb.width, self.fb.height)
-        self.tbox = WidgetTextBox(self.fb)
-        self.tbox.set_box(2, 14, self.fb.width-2, self.fb.height-2)
+        
+        box_1 = WidgetTextBox(self.fb, self.fb.width-1, self.fb.width-1,
+                                        font=font,
+                                        align_inside="center")
+        box_1.set_box(x1=0, y1=int(self.fb.height/4)*1, x2=self.fb.width-1, y2=int(self.fb.height/4)*3)
+        
+        box_1.update("Charging...")
 
     def render(self):
         pass
