@@ -18,17 +18,17 @@ pin_bl    = const(21)
 spi_baud  = const(10_000_000)
 
 # Power button pin (active-low with PULL_UP)
-power_btn_pin = const(5)
+power_btn_pin = const(20)
+lights_btn_pin = const(25)
 
 # Long-press
 power_btn_long_ms = const(700)
 debounce_ms       = const(30)
 
 # Charging detection
-charge_current_threshold_a = const(2)
+charge_current_threshold_a_x10 = const(20)
 charge_detect_hold_ms      = const(2000)
 
 # UI
 ui_hz = const(10)
 poweroff_countdown_s = const(3)
-wheel_stop_kmh = const(0)

@@ -22,5 +22,5 @@ class BootScreen(BaseScreen):
         box_1.update("Ready to")
         box_2.update("POWER ON")
         
-    def render(self):
+    def render(self, vars):
         pass

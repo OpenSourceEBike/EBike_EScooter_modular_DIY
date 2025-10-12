@@ -14,6 +14,7 @@ class Vars:
         self.vesc_fault_code = 0
         self.battery_voltage_x10 = 0
         self.battery_current_x10 = 0
+        self.bms_battery_current_x10 = 0
         self.battery_soc_x1000 = 0
         self.motor_power = 0
         self.motor_current_x10 = 0
@@ -33,3 +34,4 @@ class Vars:
         self.front_lights_board_pins_state = 0
         self.buttons_state = 0x0101  # initial value
         self.shutdown_request = False
+        self.buttons = None
