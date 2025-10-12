@@ -16,5 +16,5 @@ class ChargingScreen(BaseScreen):
         
         box_1.update("Charging...")
 
-    def render(self):
+    def render(self, vars):
         pass

@@ -100,7 +100,7 @@ lcd.display.show()
 rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
 BTN_POWER, BTN_LIGHTS = 0, 1
-BUTTON_PINS = [5, 6]  # POWER=IO5, LIGHTS=IO6
+BUTTON_PINS = [cfg.power_btn_pin, 6]  # POWER=IO5, LIGHTS=IO6
 
 nr_buttons = len(BUTTON_PINS)
 button_POWER, button_LIGHTS = range(nr_buttons)
@@ -123,7 +123,7 @@ button_POWER, button_LIGHTS = range(nr_buttons)
 #     buttons_state_previous = bool(vars.buttons_state & 0x0100)
 #     while True:
 #         # Poll just the POWER button; reset on press
-#         buttons[button_POWER].tick()
+#         vars.buttons[button_POWER].tick()
 #         if bool(vars.buttons_state & 0x0100) != buttons_state_previous:
 #             machine.reset()
 
@@ -170,7 +170,7 @@ buttons_callbacks = {
     },
 }
 
-buttons = [None]*nr_buttons
+vars.buttons = [None]*nr_buttons
 for i, pin in enumerate(BUTTON_PINS):
     btn = thisButton(pin, True)
     btn.setDebounceThreshold(50)
@@ -183,7 +183,7 @@ for i, pin in enumerate(BUTTON_PINS):
         btn.assignLongClickStart(buttons_callbacks[i]['long_click_start'])
     if 'long_click_release' in buttons_callbacks[i]:
         btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
-    buttons[i] = btn
+    vars.buttons[i] = btn
 
 # async def wait_for_power_on():
 #     lcd.clear()
@@ -193,7 +193,7 @@ for i, pin in enumerate(BUTTON_PINS):
 #     vars.buttons_state = 0
 
 #     while True:
-#         buttons[button_POWER].tick()
+#         vars.buttons[button_POWER].tick()
 #         if bool(vars.buttons_state & 0x0100):
 #             break
 #         await motor.send_data_async()
@@ -228,11 +228,21 @@ async def ui_task(fb, panel, vars):
     sm = ScreenManager(fb, vars)
     tick = 1 / cfg.ui_hz
     while True:
-        sm.update()
-        sm.render()
+        
+        sm.update(vars)
+        sm.render(vars)
         panel.show()
+        
         await asyncio.sleep(tick)    
     
+async def main_task(vars):
+    
+    while True:
+        
+        for i in range(len(vars.buttons)):
+            vars.buttons[i].tick()
+        
+        await asyncio.sleep(0.05)
 
 # Main loop
 # while True:
@@ -249,12 +259,6 @@ async def ui_task(fb, panel, vars):
     # if time.ticks_diff(now_ms, time_motor_tx) > 150:
     #     time_motor_tx = now_ms
     #     await motor.send_data_async()
-
-    # # Buttons
-    # if time.ticks_diff(now_ms, time_buttons) > 50:
-    #     time_buttons = now_ms
-    #     for i in range(len(buttons)):
-    #         buttons[i].tick()
 
     # # Lights
     # if time.ticks_diff(now_ms, time_lights_tx) > 50:
@@ -299,7 +303,7 @@ async def main():
             # asyncio.create_task(task_control_motor(wdt)),
             # asyncio.create_task(task_display_send_data()),
             # asyncio.create_task(task_display_receive_process_data()),
-            # asyncio.create_task(task_various()),
+            asyncio.create_task(main_task(vars))
         ]
         
         await asyncio.gather(*tasks)

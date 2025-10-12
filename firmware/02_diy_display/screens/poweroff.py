@@ -12,6 +12,8 @@ class PowerOffScreen(BaseScreen):
     #     self._started_at = None
 
     def on_enter(self):
+        self.clear()
+        
         box_1 = WidgetTextBox(self.fb, self.fb.width-1, self.fb.width-1,
                                         font=font,
                                         align_inside="center")
@@ -25,5 +27,5 @@ class PowerOffScreen(BaseScreen):
         box_1.update("Ready to")
         box_2.update("POWER OFF")
 
-    def render(self):
+    def render(self, vars):
         pass

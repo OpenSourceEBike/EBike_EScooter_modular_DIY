@@ -38,5 +38,5 @@ class MainScreen(BaseScreen):
         clock_widget.set_box(x1=self.fb.width-52, y1=self.fb.width-17, x2=self.fb.width-3, y2=self.fb.width-2)
         clock_widget.update('')
 
-    def render(self):
+    def render(self, vars):
         pass
