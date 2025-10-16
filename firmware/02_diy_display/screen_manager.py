@@ -13,7 +13,7 @@ class ScreenManager:
         self.charging     = ChargingScreen(fb)
 #         self.power_off    = PowerOffScreen(fb, countdown_s=3, on_poweroff=None)
         self.power_off    = PowerOffScreen(fb)
-        self.current = self.boot
+        self.current = self.charging #self.boot
         self.current.on_enter()
         self._charge_seen_ms = None
         self._button_power_long_click_previous = 0
