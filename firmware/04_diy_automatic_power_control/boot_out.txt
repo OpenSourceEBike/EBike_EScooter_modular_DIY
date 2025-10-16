@@ -1,0 +1,3 @@
+Adafruit CircuitPython 9.0.0-beta.0 on 2024-01-27; S2Mini with ESP32S2-S2FN4R2
+Board ID:lolin_s2_mini
+UID:84722E052869

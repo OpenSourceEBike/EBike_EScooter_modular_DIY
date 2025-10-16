@@ -1,140 +1,292 @@
-# widget_battery_soc.py
-# Pixel-perfect MicroPython port of your CircuitPython battery widget.
+# widgets/widget_battery_soc.py
+# Battery SOC widget with (x, y), 1x/2x scaling, and integrated blinking.
+# - Blinks the last active bar while charging
+# - If NO bar is active, the OUTLINE blinks (even if charging is OFF)
 
-import framebuf
+import framebuf, time
 
 BLACK = 0x0000
 WHITE = 0xFFFF
 
-# --- Hysteresis thresholds (percent) ---
-# If a bar is OFF it turns ON when SOC >= bar_on[i]
-# If a bar is ON  it turns OFF when SOC <= bar_off[i]
-# Example: bar0: ON at 25%, OFF at 15% (your request)
-_bar_on  = [25, 45, 65, 85, 92]   # bars 1..5 (cap is index 4)
-_bar_off = [15, 35, 55, 75, 88]
+# Hysteresis thresholds (percent) for 4 tall bars + cap (index 4)
+_BAR_ON  = [20, 40, 60, 80, 90]
+_BAR_OFF = [10, 30, 50, 70, 80]
 
-# Tiny tick beside the cap (can be different if you want)
-_tick_on  = 92
-_tick_off = 88
 
 class BatterySOCWidget:
-    def __init__(self, fb: framebuf.FrameBuffer, display_width, display_height,
+    # Base geometry (unscaled)
+    _BODY_W = 38
+    _BODY_H = 14
+    _CAP_W  = 6
+
+    def __init__(self, fb: framebuf.FrameBuffer,
+                 x: int = 0, y: int = 0, scale: int = 1,
                  fg=WHITE, bg=BLACK):
-        self.fb = fb
-        self._w = display_width
-        self._h = display_height
-        self.fg = fg
-        self.bg = bg
+        if scale not in (1, 2):
+            raise ValueError("scale must be 1 or 2")
+        self.fb, self.fg, self.bg = fb, fg, bg
+        self.x, self.y = int(x), int(y)
+        self.scale = int(scale)
 
-        # Bars geometry (same as CP)
-        self.soc_bar_width  = 8
-        self.soc_bar_height = 11
-        self.bar_x0 = 2
-        self.bar_y0 = self._h - self.soc_bar_height - 2  # = h - 13
+        self.total_width  = (self._BODY_W + 9) * self.scale   # +9 for cap + dots/line
+        self.total_height = 15 * self.scale
 
-        # Precomputed bar rectangles (x, y, w, h)
+        # Bars (already scaled, in pixel-space)
+        self.soc_bar_width  = 8 * self.scale
+        self.soc_bar_height = 11 * self.scale
+        self._bar_x0 = self.x + 2 * self.scale
+        self._bar_y0 = self.y + 2 * self.scale
+
+        self._recompute_bar_rects()
+
+        # Runtime states (5 bars + tick)
+        self._last_slots = [False] * 6
+        self._last_soc   = None
+
+        # Blink state (bar blink)
+        self._charging_enabled = False
+        self._blink_ton = 300
+        self._blink_toff = 300
+        self._blink_last_idx = None   # bar index (0..4)
+        self._blink_visible = True
+        self._blink_t0 = time.ticks_ms()
+
+        # Outline blink (used when no bar is active)
+        self._outline_visible = True
+        self._outline_t0 = time.ticks_ms()
+
+        # Track previous frame state: did we have any active bars?
+        self._had_active_bar = False
+
+    # ---------- positioning ----------
+    def move_to(self, x: int, y: int):
+        self.x, self.y = int(x), int(y)
+        self._bar_x0 = self.x + 2 * self.scale
+        self._bar_y0 = self.y + 2 * self.scale
+        self._recompute_bar_rects()
+
+    # ---------- low-level helpers ----------
+    def _hseg_px(self, x0, x1, y, c, h=1):
+        """Horizontal segment in pixel space; vertical thickness = h px."""
+        if x1 < x0: x0, x1 = x1, x0
+        self.fb.fill_rect(int(x0), int(y), int(x1 - x0 + 1), int(h), c)
+
+    def _vseg_px(self, x, y0, y1, c, w=None):
+        """Vertical segment in pixel space; horizontal thickness = w px."""
+        if y1 < y0: y0, y1 = y1, y0
+        if w is None: w = self.scale
+        self.fb.fill_rect(int(x), int(y0), int(w), int(y1 - y0 + 1), c)
+
+    def _recompute_bar_rects(self):
+        s = self.scale; w = self.soc_bar_width; h = self.soc_bar_height
+        # Four tall bars
         self._bars = [
-            (self.bar_x0 + (self.soc_bar_width + 1) * 0,
-             self.bar_y0, self.soc_bar_width, self.soc_bar_height),
-            (self.bar_x0 + (self.soc_bar_width + 1) * 1,
-             self.bar_y0, self.soc_bar_width, self.soc_bar_height),
-            (self.bar_x0 + (self.soc_bar_width + 1) * 2,
-             self.bar_y0, self.soc_bar_width, self.soc_bar_height),
-            (self.bar_x0 + (self.soc_bar_width + 1) * 3,
-             self.bar_y0, self.soc_bar_width, self.soc_bar_height),
-            # Cap bar (narrower/shorter, shifted down)
-            (self.bar_x0 + (self.soc_bar_width + 1) * 4,
-             self.bar_y0 + 3, self.soc_bar_width - 2, self.soc_bar_height - 6),
+            (self._bar_x0 + (w + 1*s)*i, self._bar_y0, w, h)
+            for i in range(4)
         ]
-        # Tiny vertical tick beside the cap
+        # Cap (narrower/shorter, shifted down)
+        self._bars.append((
+            self._bar_x0 + (w + 1*s)*4,
+            self._bar_y0 + 3*s,
+            w - 2*s,
+            h - 6*s
+        ))
+        # Tiny vertical tick next to the cap
         self._bar5_tick = (
-            self.bar_x0 + (self.soc_bar_width + 1) * 4 + self.soc_bar_width - 2,
-            self.bar_y0 + 3 + 1,
-            1,
-            self.soc_bar_height - 6 - 2,
+            self._bar_x0 + (w + 1*s)*4 + w - 2*s,
+            self._bar_y0 + 4*s,
+            1*s,
+            h - 8*s
         )
 
-        self._last_slots = [False] * 6  # bars 0..4 + tick(5)
+    # ---------- outline drawing ----------
+    def _draw_outline(self, on: bool):
+        """Draw/erase the battery outline only (no interior clear)."""
+        l, t, s = self.x, self.y, self.scale
+        col = self.fg if on else self.bg
 
-    # --- 1px segment helpers (inclusive endpoints) ---
-    def _hseg(self, x0, x1, y, c):
-        if x1 < x0:
-            x0, x1 = x1, x0
-        self.fb.fill_rect(int(x0), int(y), int(x1 - x0 + 1), 1, c)
+        # Left, top, cap top, cap bottom, right joint, bottom
+        self._vseg_px(l,                     t + self._BODY_H*s, t,                 col)       # l1
+        self._hseg_px(l,                     l + self._BODY_W*s,       t,           col, h=2)  # l2
+        self._vseg_px(l + self._BODY_W*s,    t,                          t + 3*s,   col)       # l3
+        self._hseg_px(l + self._BODY_W*s,    l + (self._BODY_W + self._CAP_W)*s, t + 3*s, col, h=2)  # l4
+        # dots/line at the far right
+        self._vseg_px(l + (self._BODY_W + 7)*s, t + 4*s,  t + 4*s + 1, col)
+        self._vseg_px(l + (self._BODY_W + 8)*s, t + 5*s,  t + 9*s,     col)
+        self._vseg_px(l + (self._BODY_W + 7)*s, t + 10*s, t + 10*s + 1,col)
+        # bottom cap, right joint down, body bottom
+        self._hseg_px(l + (self._BODY_W + 6)*s, l + self._BODY_W*s,   t + 11*s, col, h=2)      # l6
+        self._vseg_px(l + self._BODY_W*s,       t + 11*s,  t + 14*s, col)                      # l7
+        self._hseg_px(l + self._BODY_W*s,       l,            t + self._BODY_H*s, col, h=2)    # l8
 
-    def _vseg(self, x, y0, y1, c):
-        if y1 < y0:
-            y0, y1 = y1, y0
-        self.fb.fill_rect(int(x), int(y0), 1, int(y1 - y0 + 1), c)
-
-    # --- public API ---
+    # ---------- public: draw full widget outline and clear interior ----------
     def draw_contour(self):
-        """Replicates your exact CP lines l1..l8 + l5_1/l5/l5_2."""
-        h = self._h
+        """Draw the outline at (x, y) and clear the interior (keeps 1px*scale border)."""
+        l, t, s = self.x, self.y, self.scale
 
-        # l1
-        self._vseg(0,            h - 1,          h - 1 - 14, self.fg)
-        # l2
-        self._hseg(0,            0 + 34 + 4,     h - 1 - 14, self.fg)
-        # l3
-        self._vseg(0 + 34 + 4,   h - 1 - 14,     h - 1 - 14 + 3, self.fg)
-        # l4
-        self._hseg(0 + 34 + 4,   0 + 34 + 4 + 6, h - 1 - 14 + 3, self.fg)
-        # l5_1 (dot)
-        self._vseg(0 + 34 + 4 + 7, h - 1 - 14 + 4, h - 1 - 14 + 4, self.fg)
-        # l5 (vertical)
-        self._vseg(0 + 34 + 4 + 8, h - 1 - 14 + 5, h - 1 - 14 + 5 + 4, self.fg)
-        # l5_2 (dot)
-        self._vseg(0 + 34 + 4 + 7, h - 1 - 14 + 5 + 5, h - 1 - 14 + 5 + 5, self.fg)
-        # l6
-        self._hseg(0 + 34 + 4 + 6, 0 + 34 + 4,   h - 1 - 14 + 3 + 8, self.fg)
-        # l7
-        self._vseg(0 + 34 + 4,   h - 1 - 14 + 3 + 8, h - 1 - 14 + 3 + 8 + 3, self.fg)
-        # l8
-        self._hseg(0 + 34 + 4,   0,              h - 1 - 14 + 3 + 8 + 3, self.fg)
+        # Outline ON
+        self._draw_outline(True)
 
-        # Clear only the true interior so the outline never gets erased
-        top    = h - 1 - 14
-        bottom = h - 1 - 14 + 3 + 8 + 3
-        self._clear_interior(1, top + 1, (0 + 34 + 4) - 1, bottom - 1)
+        # Clear interior of the body (preserves 1px*scale border)
+        ix = l + 1*s; iy = t + 1*s
+        iw = (self._BODY_W - 2)*s; ih = (self._BODY_H - 2)*s
+        self.fb.fill_rect(ix, iy, iw, ih, self.bg)
 
-        # Start with all bars off
-        self._last_slots = [False] * 6
+        # Reset states
+        self._last_slots = [False]*6
+        self._last_soc = None
+        self._restore_blink_bar()
 
-    def _clear_interior(self, x_left, y_top, x_right, y_bottom):
-        """Clear inside the main battery body (keeps 1px outline)."""
-        self.fb.fill_rect(x_left, y_top, x_right - x_left + 1,
-                          y_bottom - y_top + 1, self.bg)
+        # Ensure outline is visible initially
+        self._outline_visible = True
+        self._outline_t0 = time.ticks_ms()
 
-    def update(self, battery_soc: int):
-        # Clamp 0..100
-        soc = 0 if battery_soc < 0 else 100 if battery_soc > 100 else battery_soc
+        # Also reset "had active bar" tracker
+        self._had_active_bar = False
 
-        # Decide desired state per bar using hysteresis
-        # self._last_slots[i] holds current state (False=OFF, True=ON)
-        for i in range(5):
-            currently_on = self._last_slots[i]
-            if not currently_on:
-                # OFF -> consider turning ON
-                want_on = soc >= _bar_on[i]
-            else:
-                # ON -> consider turning OFF
-                want_on = not (soc <= _bar_off[i])
+    # ---------- main logic ----------
+    def update(self, soc: int):
+        """Update bars/tick with hysteresis and run blinking logic."""
+        soc = max(0, min(100, int(soc)))
+        if soc != self._last_soc:
+            self._last_soc = soc
+            # Bars 0..4 (with hysteresis)
+            for i in range(5):
+                on = self._last_slots[i]
+                want_on = soc >= _BAR_ON[i] if not on else not (soc <= _BAR_OFF[i])
+                if want_on != on:
+                    x, y, w, h = self._bars[i]
+                    self.fb.fill_rect(x, y, w, h, self.fg if want_on else self.bg)
+                    self._last_slots[i] = want_on
+            # Tick shares thresholds with cap (index 4)
+            tick_on = self._last_slots[5]
+            want_tick = soc >= _BAR_ON[4] if not tick_on else not (soc <= _BAR_OFF[4])
+            if want_tick != tick_on:
+                xt, yt, wt, ht = self._bar5_tick
+                self.fb.fill_rect(xt, yt, wt, ht, self.fg if want_tick else self.bg)
+                self._last_slots[5] = want_tick
+            # SOC change may shift the blinking target
+            self._ensure_blink_target_after_soc_change()
 
-            # Draw/erase if state changed
-            if want_on != currently_on:
-                x, y, w, h = self._bars[i]
-                self.fb.fill_rect(x, y, w, h, self.fg if want_on else self.bg)
-                self._last_slots[i] = want_on
+        # Decide blinking mode:
+        last_idx = self._find_last_on_bar()
 
-        # Tiny tick near the cap (index 5 in _last_slots)
-        tick_on_now = self._last_slots[5]
-        if not tick_on_now:
-            tick_want_on = soc >= _tick_on
+        if last_idx is None:
+            # EMPTY: no active bars -> blink outline
+            if self._had_active_bar:
+                # Transitioned from non-empty to empty: reset phase
+                self._outline_visible = True
+                self._outline_t0 = time.ticks_ms()
+            # FIX: also guarantee a phase if we are empty and outline has never been timed
+            if self._outline_t0 is None:                       # <-- safe guard
+                self._outline_visible = True
+                self._outline_t0 = time.ticks_ms()             # <-- ensure timer
+            self._animate_outline()
+            self._restore_blink_bar()
+            self._had_active_bar = False
+
         else:
-            tick_want_on = not (soc <= _tick_off)
+            # NON-EMPTY
+            if not self._had_active_bar:
+                self._restore_outline()
+            self._had_active_bar = True
 
-        if tick_want_on != tick_on_now:
+            if self._charging_enabled:
+                self._animate_blink_bar()
+            else:
+                self._restore_blink_bar()
+
+    # ---------- charging / timing API ----------
+    def set_charging(self, enabled: bool):
+        """Enable/disable bar blinking. Outline blinking when empty is always allowed."""
+        self._charging_enabled = bool(enabled)
+        if not enabled:
+            self._restore_blink_bar()
+        now = time.ticks_ms()
+        self._blink_t0 = now
+        self._outline_t0 = now if self._find_last_on_bar() is None else self._outline_t0  # FIX: seed outline if empty
+
+    def set_blink_timing(self, ton_ms: int, toff_ms: int):
+        """Set blink ON/OFF durations (ms). Applies to both bar and outline blinking."""
+        self._blink_ton = max(0, int(ton_ms))
+        self._blink_toff = max(0, int(toff_ms))
+
+    # ---------- blink helpers (BAR) ----------
+    def _find_last_on_bar(self):
+        for i in range(4, -1, -1):
+            if self._last_slots[i]:
+                return i
+        return None
+
+    def _animate_blink_bar(self):
+        idx = self._find_last_on_bar()
+        if idx is None:
+            self._restore_blink_bar()
+            self._blink_last_idx = None
+            return
+
+        if self._blink_last_idx is not None and self._blink_last_idx != idx:
+            self._restore_blink_bar()
+            self._blink_visible = True
+            self._blink_t0 = time.ticks_ms()
+
+        self._blink_last_idx = idx
+        now = time.ticks_ms()
+        elapsed = time.ticks_diff(now, self._blink_t0)
+
+        if self._blink_visible:
+            if elapsed >= self._blink_ton:
+                self._draw_bar(idx, False)
+                self._blink_visible = False
+                self._blink_t0 = now
+        else:
+            if elapsed >= self._blink_toff:
+                self._draw_bar(idx, True)
+                self._blink_visible = True
+                self._blink_t0 = now
+
+    def _draw_bar(self, i: int, on: bool):
+        # Draw/erase bar i
+        x, y, w, h = self._bars[i]
+        self.fb.fill_rect(x, y, w, h, self.fg if on else self.bg)
+
+        # If it's the cap (index 4), also toggle the tick in sync
+        if i == 4:
             xt, yt, wt, ht = self._bar5_tick
-            self.fb.fill_rect(xt, yt, wt, ht, self.fg if tick_want_on else self.bg)
-            self._last_slots[5] = tick_want_on
+            self.fb.fill_rect(xt, yt, wt, ht, self.fg if on else self.bg)
+
+    def _restore_blink_bar(self):
+        """If a bar is currently hidden due to blinking, restore it."""
+        if self._blink_last_idx is not None and not self._blink_visible:
+            self._draw_bar(self._blink_last_idx, True)
+            self._blink_visible = True
+
+    def _ensure_blink_target_after_soc_change(self):
+        """Keep blink state consistent after SOC changes."""
+        idx = self._find_last_on_bar()
+        if idx != self._blink_last_idx:
+            self._restore_blink_bar()
+            self._blink_last_idx = idx
+            self._blink_visible = True
+
+    # ---------- blink helpers (OUTLINE when empty) ----------
+    def _animate_outline(self):
+        now = time.ticks_ms()
+        elapsed = time.ticks_diff(now, self._outline_t0)
+
+        if self._outline_visible:
+            if elapsed >= self._blink_ton:
+                self._draw_outline(False)
+                self._outline_visible = False
+                self._outline_t0 = now
+        else:
+            if elapsed >= self._blink_toff:
+                self._draw_outline(True)
+                self._outline_visible = True
+                self._outline_t0 = now
+
+    def _restore_outline(self):
+        """Ensure the outline is visible (used when bars exist)."""
+        if not self._outline_visible:
+            self._draw_outline(True)
+            self._outline_visible = True

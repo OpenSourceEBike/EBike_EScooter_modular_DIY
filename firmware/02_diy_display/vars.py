@@ -16,6 +16,7 @@ class Vars:
         self.battery_current_x10 = 0
         self.bms_battery_current_x10 = 0
         self.battery_soc_x1000 = 0
+        self.battery_is_charging = False
         self.motor_power = 0
         self.motor_current_x10 = 0
         self.wheel_speed_x10 = 0
