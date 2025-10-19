@@ -11,43 +11,16 @@ from escooter_fiido_q1_s.power_switch_espnow import PowerSwitch
 from escooter_fiido_q1_s.front_lights_espnow import FrontLights
 from escooter_fiido_q1_s.rear_lights_espnow import RearLights
 from common.thisbutton import thisButton
-from common.utils import map_range
 from screen_manager import ScreenManager
 import vars as Vars
 import configurations as cfg
-
-
-BTN_POWER, BTN_LIGHTS = 0, 1
 
 # ----- Rear/front light bit masks
 REAR_TAIL_BIT       = 1
 REAR_STOP_BIT       = 2
 FRONT_HEAD_BIT      = 1
 
-# -------------- Helpers -----------------
-# def filter_motor_power(p):
-#     if p < 0:
-#         if p > -10: p = 0
-#         elif p > -25: pass
-#         elif p > -50: p = round(p/2)*2
-#         elif p > -100: p = round(p/5)*5
-#         else: p = round(p/10)*10lcd
-#     else:
-#         if p < 10: p = 0
-#         elif p < 25: pass
-#         elif p < 50: p = round(p/2)*2
-#         elif p < 100: p = round(p/5)*5
-#         else: p = round(p/10)*10
-#     return p
-
-    
-
 print("Starting Display")
-vars = Vars.Vars()
-
-vars.rear_lights_board_pins_state = 0
-vars.front_lights_board_pins_state = 0
-vars.lights_state = False
 
 # WiFi STA
 sta = network.WLAN(network.STA_IF)
@@ -75,6 +48,8 @@ except Exception:
 espnow = aioespnow.AIOESPNow()
 espnow.active(True)
 
+vars = Vars.Vars()
+
 radio_lock = asyncio.Lock()
 
 motor = MotorBoard(espnow, cfg.mac_address_motor_board, radio_lock, vars)
@@ -91,45 +66,35 @@ lcd = LCD(
     backlight_pin=cfg.pin_bl,
     spi_clock_frequency=cfg.spi_baud,
 )
-lcd.backlight_pwm(0.1)
 fb = lcd.display
-
+lcd.backlight_pwm(0.1)
 lcd.clear()
 lcd.display.show()
 
-rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
+vars.rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
 
-BTN_POWER, BTN_LIGHTS = 0, 1
-BUTTON_PINS = [cfg.power_btn_pin, 6]  # POWER=IO5, LIGHTS=IO6
+BUTTON_PINS = [
+    cfg.power_button_pin,
+    cfg.lights_button_pin
+    ]
 
 nr_buttons = len(BUTTON_PINS)
 button_POWER, button_LIGHTS = range(nr_buttons)
 
-# --------- Strict power-off path ----------
-# async def turn_off_execute():
-#     await motor.send_data_async()
-#     await power_switch.send_data_async()
-#     await front_lights.send_data_async()
-#     await rear_lights.send_data_async()
-
-# async def turn_off():
-#     # Request OFF states for all boards once
-#     vars.turn_off_relay = True
-#     vars.motor_enable_state = False
-#     vars.front_lights_board_pins_state = 0
-#     vars.rear_lights_board_pins_state = 0
-
-#     # Block forever here: no UI updates, no timers
-#     buttons_state_previous = bool(vars.buttons_state & 0x0100)
-#     while True:
-#         # Poll just the POWER button; reset on press
-#         vars.buttons[button_POWER].tick()
-#         if bool(vars.buttons_state & 0x0100) != buttons_state_previous:
-#             machine.reset()
-
-#         # Keep telling the power switch to remain off
-#         await turn_off_execute()
-#         await asyncio.sleep_ms(150)
+def filter_motor_power(p):
+    if p < 0:
+        if p > -10: p = 0
+        elif p > -25: pass
+        elif p > -50: p = round(p/2)*2
+        elif p > -100: p = round(p/5)*5
+        else: p = round(p/10)*10
+    else:
+        if p < 10: p = 0
+        elif p < 25: pass
+        elif p < 50: p = round(p/2)*2
+        elif p < 100: p = round(p/5)*5
+        else: p = round(p/10)*10
+    return p    
 
 # --- button callbacks ---
 def button_power_click_start_cb():
@@ -141,9 +106,6 @@ def button_power_click_release_cb():
     vars.buttons_state &= ~1
 
 def button_power_long_click_start_cb():
-    # If safe, request shutdown (do NOT create a task; main loop will block into turn_off)
-    if vars.motor_enable_state and vars.wheel_speed_x10 < 20:
-        vars.shutdown_request = True
     vars.buttons_state |= 2
     if vars.buttons_state & 0x0200: vars.buttons_state &= ~0x0200
     else: vars.buttons_state |= 0x0200
@@ -185,111 +147,137 @@ for i, pin in enumerate(BUTTON_PINS):
         btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
     vars.buttons[i] = btn
 
-# async def wait_for_power_on():
-#     lcd.clear()
-#     main_screen_widget_1.update("Ready to")
-#     main_screen_widget_2.update("POWER ON")
-#     lcd.display.show()
-#     vars.buttons_state = 0
-
-#     while True:
-#         vars.buttons[button_POWER].tick()
-#         if bool(vars.buttons_state & 0x0100):
-#             break
-#         await motor.send_data_async()
-#         await asyncio.sleep_ms(80)
-
-#     vars.motor_enable_state = True
-
-# await wait_for_power_on()
-
-# ------------- Main screen -------------
-# lcd.clear()
-
-# # --- trackers ---
-# battery_soc_prev = 9999
-# motor_power_prev = 9999
-# wheel_speed_prev = 9999
-# brakes_prev = False
-# vesc_fault_prev = 9999
-
-# time_buttons        = time.ticks_ms()
-# time_display        = time.ticks_ms()
-# time_motor_tx       = time.ticks_ms()
-# time_motor_rx       = time.ticks_ms()
-# time_lights_tx      = time.ticks_ms()
-# time_tick           = time.ticks_ms()
-# t_rtc_try_update_once = time.ticks_ms()
-# update_date_time_once = False
-
-async def ui_task(fb, panel, vars):
-    global cfg
-    
-    sm = ScreenManager(fb, vars)
-    tick = 1 / cfg.ui_hz
+async def power_off_forever():
+    """
+    Block forever: keep OFF states latched and only poll POWER to allow a hard reset.
+    Any change on POWER bit (0x0100) triggers machine.reset().
+    """
+    buttons_state_previous = bool(vars.buttons_state & 0x0100)
     while True:
-        
-        sm.update(vars)
-        sm.render(vars)
-        panel.show()
-        
-        await asyncio.sleep(tick)    
+        # Poll just the POWER button
+        vars.buttons[button_POWER].tick()
+        current = bool(vars.buttons_state & 0x0100)
+        if current != buttons_state_previous:
+            machine.reset()
+
+        try:
+            # Ensure desired OFF states are in vars before calling this
+            await motor.send_data_async()
+            await power_switch.send_data_async()
+            front_lights.send_data()
+            rear_lights.send_data()
+        except Exception as ex:
+            print("send_all_off_once err:", ex)
+
+        await asyncio.sleep_ms(100)
+
+async def ui_task(fb, lcd, vars):
+
+    screen_manager = ScreenManager(fb, vars)
     
+    hz = int(cfg.ui_hz) if isinstance(cfg.ui_hz, (int, float)) else 10
+    tick = 1 / max(1, hz)
+    
+    while True:
+        screen_manager.update(vars)
+        screen_manager.render(vars)
+        lcd.show()
+    
+        await asyncio.sleep(tick)
+
 async def main_task(vars):
-    
+    charge_seen_ms = None
+    motor_power_previous = 0
+    time_counter_previous = 0
+    minute_previous = None
+    update_date_time_once = False
+    time_rtc_try_update_once = time.ticks_ms()
+
     while True:
-        
+        now = time.ticks_ms()
+
+        # Auto-detect charging
+        if vars.wheel_speed_x10 == 0 and vars.bms_battery_current_x10 > cfg.charge_current_threshold_a_x10:
+            if charge_seen_ms is None:
+               charge_seen_ms = now
+            elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
+                vars.battery_is_charging = True
+        else:
+            vars.battery_is_charging = False
+            charge_seen_ms = None
+
+        # Motor power
+        motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
+        if motor_power_previous != motor_power:
+            motor_power_previous = motor_power
+            vars.motor_power = filter_motor_power(motor_power)
+
+        # Buttons
         for i in range(len(vars.buttons)):
             vars.buttons[i].tick()
-        
+
+        # Try NTP once after ~2s
+        if (not update_date_time_once) and time.ticks_diff(now, time_rtc_try_update_once) > 2000:
+            update_date_time_once = True
+            try:
+                vars.rtc.update_date_time_from_wifi_ntp()
+            except Exception as ex:
+                print(ex)
+
+        # Time
+        if time.ticks_diff(now, time_counter_previous) > 1000:
+            time_counter_previous = now
+            try:
+                date_time = vars.rtc.date_time()
+                hour, minute = date_time[3], date_time[4]
+                if minute != minute_previous:
+                    minute_previous = minute
+                    time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
+                    vars.time_string = time_string
+            except Exception as ex:
+                vars.time_string = ''
+                print(ex)
+            
+        # Shutdown
+        if vars.shutdown_request:
+            vars.turn_off_relay = True
+            vars.motor_enable_state = False
+            vars.front_lights_board_pins_state = 0
+            vars.rear_lights_board_pins_state = 0
+            await power_off_forever()  # never returns
+
         await asyncio.sleep(0.05)
 
-# Main loop
-# while True:
-    
+async def motor_rx_task(vars):
+    while True:
+        motor.receive_process_data()
+        await asyncio.sleep(0.100)
 
-    # # Motor RX
-    # if time.ticks_diff(now_ms, time_motor_rx) > 100:
-    #     time_motor_rx = now_ms
-    #     motor.receive_process_data()
+async def motor_tx_task(vars):
+    while True:
+        await motor.send_data_async()
+        await asyncio.sleep(0.150)
 
+async def lights_task(vars):
+    while True:
+        # Brake light (on brake OR strong regen current)
+        if vars.brakes_are_active or vars.motor_current_x10 < -150:
+            vars.rear_lights_board_pins_state |= REAR_STOP_BIT
+        else:
+            vars.rear_lights_board_pins_state &= ~REAR_STOP_BIT
 
+        # Head/Tail with main lights_state
+        if vars.lights_state:
+            vars.front_lights_board_pins_state |= FRONT_HEAD_BIT
+            vars.rear_lights_board_pins_state  |= REAR_TAIL_BIT
+        else:
+            vars.front_lights_board_pins_state &= ~FRONT_HEAD_BIT
+            vars.rear_lights_board_pins_state  &= ~REAR_TAIL_BIT
 
-    # # Motor TX
-    # if time.ticks_diff(now_ms, time_motor_tx) > 150:
-    #     time_motor_tx = now_ms
-    #     await motor.send_data_async()
+        front_lights.send_data()
+        rear_lights.send_data()
 
-    # # Lights
-    # if time.ticks_diff(now_ms, time_lights_tx) > 50:
-    #     time_lights_tx = now_ms
-
-    #     # Brake light (on brake OR strong regen current)
-    #     if vars.brakes_are_active or vars.motor_current_x10 < -150:
-    #         vars.rear_lights_board_pins_state |= REAR_STOP_BIT
-    #     else:
-    #         vars.rear_lights_board_pins_state &= ~REAR_STOP_BIT
-
-    #     # Head/Tail with main lights_state
-    #     if vars.lights_state:
-    #         vars.front_lights_board_pins_state |= FRONT_HEAD_BIT
-    #         vars.rear_lights_board_pins_state  |= REAR_TAIL_BIT
-    #     else:
-    #         vars.front_lights_board_pins_state &= ~FRONT_HEAD_BIT
-    #         vars.rear_lights_board_pins_state  &= ~REAR_TAIL_BIT
-
-    #     front_lights.send_data()
-    #     rear_lights.send_data()
-
-    # # Try NTP once after ~2s
-    # if (not update_date_time_once) and time.ticks_diff(now_ms, t_rtc_try_update_once) > 2000:
-    #     update_date_time_once = True
-    #     try:
-    #         rtc.update_date_time_from_wifi_ntp()
-    #     except Exception as ex:
-    #         print(ex)
-
-    # await asyncio.sleep_ms(10)
+        await asyncio.sleep(0.05)
 
 # Entry
 async def main():
@@ -299,10 +287,9 @@ async def main():
     try:
         tasks = [
             asyncio.create_task(ui_task(fb, lcd, vars)),
-            # asyncio.create_task(task_control_motor_limit_current()),
-            # asyncio.create_task(task_control_motor(wdt)),
-            # asyncio.create_task(task_display_send_data()),
-            # asyncio.create_task(task_display_receive_process_data()),
+            asyncio.create_task(motor_rx_task(vars)),
+            asyncio.create_task(motor_tx_task(vars)),
+            asyncio.create_task(lights_task(vars)),
             asyncio.create_task(main_task(vars))
         ]
         

@@ -11,12 +11,12 @@ class ScreenManager:
         self.boot    = BootScreen(fb)
         self.main    = MainScreen(fb)
         self.charging     = ChargingScreen(fb)
-#         self.power_off    = PowerOffScreen(fb, countdown_s=3, on_poweroff=None)
         self.power_off    = PowerOffScreen(fb)
-        self.current = self.charging #self.boot
+        self.current = self.boot
         self.current.on_enter()
         self._charge_seen_ms = None
         self._button_power_long_click_previous = 0
+        self._charging_state_previous = False
 
     def render(self, vars):
         self.current.render(vars)
@@ -34,21 +34,14 @@ class ScreenManager:
         self.current.on_enter()
 
     def update(self, vars):
-        now = time.ticks_ms()
         
-        #----- Auto-detect charging (wheel=0 AND ibat>threshold for >= 2s)
-        if vars.wheel_speed_x10 == 0 and vars.bms_battery_current_x10 > cfg.charge_current_threshold_a_x10:
-            if self._charge_seen_ms is None:
-                self._charge_seen_ms = now
-            elif time.ticks_diff(now, self._charge_seen_ms) >= cfg.charge_detect_hold_ms:
-                if self.current in (self.main,):
-                    # enter Charging mode automatically
-                    vars.motor_enable_state = False
-                    self.force("Charging")
-        else:
-            self._charge_seen_ms = None
+        # Enter charging screen
+        if vars.battery_is_charging != self._charging_state_previous:
+            self._charging_state_previous = vars.battery_is_charging
+            vars.motor_enable_state = False
+            self.force("Charging")
 
-        # ----- Button-based transitions
+        # Button-based transitions
         button_power_long_click = vars.buttons_state & 0x0200
         if self._button_power_long_click_previous != button_power_long_click:
             self._button_power_long_click_previous = button_power_long_click
@@ -75,6 +68,7 @@ class ScreenManager:
             # Power off rule from Main (wheel=0)
             if self.current in (self.main,) and vars.wheel_speed_x10 == 0:
                 vars.motor_enable_state = False
+                vars.shutdown_request = True
                 self.force("PowerOff")
                 return
 

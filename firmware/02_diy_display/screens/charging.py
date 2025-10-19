@@ -12,15 +12,18 @@ class ChargingScreen(BaseScreen):
         
         # BATTERY SOC
         batt_scale = 2
-        # Place at bottom-left, keeping 1px margin
         batt_x = 18
         batt_y = 0
         self._battery_soc_widget = BatterySOCWidget(self.fb, x=batt_x, y=batt_y, scale=batt_scale)
         self._battery_soc_widget.draw_contour()
         self._battery_soc_widget.set_blink_timing(600, 300)
-        self._battery_soc_widget.set_charging(True)
+        self._charging_state_previous = None
+        self._battery_soc_widget.set_charging(False)
         self._battery_soc_widget.update(0)
 
     def render(self, vars):
-        #self._battery_soc_widget.update(vars.battery_soc_x1000//10)
-        self._battery_soc_widget.update(85)
+        if vars.battery_is_charging != self._charging_state_previous:
+            self._charging_state_previous = vars.battery_is_charging
+            self._battery_soc_widget.set_charging(vars.battery_is_charging)
+
+        self._battery_soc_widget.update(vars.battery_soc_x1000//10)

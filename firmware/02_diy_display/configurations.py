@@ -7,19 +7,19 @@ mac_address_motor_board    = b"\x68\xb6\xb3\x01\xf7\xf2"
 mac_address_rear_lights    = b"\x68\xb6\xb3\x01\xf7\xf4"
 mac_address_front_lights   = b"\x68\xb6\xb3\x01\xf7\xf5"
 
-# ---- ST7565 pins from your main.py ----
-pin_spi_clk   = const(3)   # SCK
-pin_spi_mosi  = const(4)   # MOSI
-pin_cs    = const(1)
-pin_dc    = const(2)
-pin_rst   = const(0)
-pin_bl    = const(21)
+# LCD ST7565 pins
+pin_spi_mosi                = const(43)
+pin_spi_clk                 = const(44)
+pin_dc                      = const(13)
+pin_cs                      = const(12)
+pin_rst                     = const(11)
+pin_bl                      = const(10)
 
 spi_baud  = const(10_000_000)
 
 # Power button pin (active-low with PULL_UP)
-power_btn_pin = const(20)
-lights_btn_pin = const(25)
+power_button_pin = const(6)
+lights_button_pin = const(7)
 
 # Long-press
 power_btn_long_ms = const(700)

@@ -36,3 +36,5 @@ class Vars:
         self.buttons_state = 0x0101  # initial value
         self.shutdown_request = False
         self.buttons = None
+        self.rtc = None
+        self.time_string = ''
