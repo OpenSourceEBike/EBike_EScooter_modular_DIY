@@ -104,20 +104,35 @@ class BatterySOCWidget:
         """Draw/erase the battery outline only (no interior clear)."""
         l, t, s = self.x, self.y, self.scale
         col = self.fg if on else self.bg
+        h = 2 if s > 1 else 1   # single pixel at scale=1, double at scale=2
 
-        # Left, top, cap top, cap bottom, right joint, bottom
-        self._vseg_px(l,                     t + self._BODY_H*s, t,                 col)       # l1
-        self._hseg_px(l,                     l + self._BODY_W*s,       t,           col, h=2)  # l2
-        self._vseg_px(l + self._BODY_W*s,    t,                          t + 3*s,   col)       # l3
-        self._hseg_px(l + self._BODY_W*s,    l + (self._BODY_W + self._CAP_W)*s, t + 3*s, col, h=2)  # l4
-        # dots/line at the far right
-        self._vseg_px(l + (self._BODY_W + 7)*s, t + 4*s,  t + 4*s + 1, col)
-        self._vseg_px(l + (self._BODY_W + 8)*s, t + 5*s,  t + 9*s,     col)
-        self._vseg_px(l + (self._BODY_W + 7)*s, t + 10*s, t + 10*s + 1,col)
-        # bottom cap, right joint down, body bottom
-        self._hseg_px(l + (self._BODY_W + 6)*s, l + self._BODY_W*s,   t + 11*s, col, h=2)      # l6
-        self._vseg_px(l + self._BODY_W*s,       t + 11*s,  t + 14*s, col)                      # l7
-        self._hseg_px(l + self._BODY_W*s,       l,            t + self._BODY_H*s, col, h=2)    # l8
+        # Symmetric cap geometry for both scales
+        cap_top_y = t + 3 * s
+        cap_bottom_y = t + self._BODY_H * s - 3 * s
+
+        # Left side and top
+        self._vseg_px(l, t + self._BODY_H * s, t, col)                             # l1
+        self._hseg_px(l, l + self._BODY_W * s, t, col, h=h)                        # l2
+
+        # Right joint up + cap top
+        self._vseg_px(l + self._BODY_W * s, t, cap_top_y, col)                     # l3
+        self._hseg_px(l + self._BODY_W * s,
+                      l + (self._BODY_W + self._CAP_W) * s,
+                      cap_top_y, col, h=h)                                         # l4
+
+        # dots/line at the far right (ornamental)
+        self._vseg_px(l + (self._BODY_W + 7) * s, t + 4 * s,  t + 4 * s + 1, col)
+        self._vseg_px(l + (self._BODY_W + 8) * s, t + 5 * s,  t + 9 * s,     col)
+        self._vseg_px(l + (self._BODY_W + 7) * s, t + 10 * s, t + 10 * s + 1, col)
+
+        # Cap bottom + right joint down
+        self._hseg_px(l + (self._BODY_W + self._CAP_W) * s,
+                      l + self._BODY_W * s,
+                      cap_bottom_y, col, h=h)                                      # l6
+        self._vseg_px(l + self._BODY_W * s, cap_bottom_y, t + self._BODY_H * s, col)  # l7
+
+        # Bottom
+        self._hseg_px(l + self._BODY_W * s, l, t + self._BODY_H * s, col, h=h)     # l8
 
     # ---------- public: draw full widget outline and clear interior ----------
     def draw_contour(self):
@@ -290,3 +305,12 @@ class BatterySOCWidget:
         if not self._outline_visible:
             self._draw_outline(True)
             self._outline_visible = True
+
+    # ---------- new public method ----------
+    def count_active_bars(self, include_tick: bool = False) -> int:
+        """
+        Return how many bars are currently ON.
+        If include_tick=True, includes the small tick next to the cap (index 5).
+        """
+        n = 6 if include_tick else 5
+        return sum(1 for on in self._last_slots[:n] if on)
