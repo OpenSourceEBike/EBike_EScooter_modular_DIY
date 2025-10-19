@@ -19,7 +19,7 @@ spi_baud  = const(10_000_000)
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = const(6)
-lights_button_pin = const(7)
+lights_button_pin = const(5)
 
 # Long-press
 power_btn_long_ms = const(700)

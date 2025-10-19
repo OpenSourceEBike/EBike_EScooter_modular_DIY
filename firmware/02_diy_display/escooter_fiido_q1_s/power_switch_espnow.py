@@ -43,7 +43,6 @@ class PowerSwitch:
 
     async def send_data_async(self):
         """Awaitable variant."""
-        print('abc')
         payload = self._build_payload()
         await self._asend_bg(payload)
 
@@ -52,10 +51,7 @@ class PowerSwitch:
         async with self._send_lock:
             try:
                 ok = await self._espnow.asend(self._peer_mac, payload)
-                print('sent')
                 if not ok:
-                    print('nok')
-                    # (re)add peer and retry once
                     try:
                         self._espnow.add_peer(self._peer_mac)
                     except OSError:

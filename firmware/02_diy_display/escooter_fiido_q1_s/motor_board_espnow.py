@@ -1,5 +1,5 @@
 # motor_board.py
-# MicroPython (ESP32/ESP32-C3) — ESP-NOW MotorBoard using aioespnow only.
+# MicroPython (ESP32-S3) — ESP-NOW MotorBoard using aioespnow only.
 
 import uasyncio as asyncio
 import aioespnow
@@ -77,7 +77,6 @@ class MotorBoard:
     def receive_process_data(self):
         """
         Non-blocking: decode & apply the most recent DISPLAY frame, if any.
-        Expects 9 integers as described in the class docstring.
         """
         msg = self._rx_latest
         if not msg:
@@ -100,7 +99,7 @@ class MotorBoard:
             self._system_data.battery_voltage_x10   = parts[1]
             self._system_data.battery_current_x10   = parts[2]
             self._system_data.battery_soc_x1000     = parts[3]
-            self._system_data.motor_current_x10    = parts[4]
+            self._system_data.motor_current_x10     = parts[4]
             self._system_data.wheel_speed_x10       = parts[5]
             self._system_data.brakes_are_active     = (parts[6] == 1)
             self._system_data.vesc_temperature_x10  = parts[7]
