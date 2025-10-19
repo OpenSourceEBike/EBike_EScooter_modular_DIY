@@ -11,6 +11,7 @@ from escooter_fiido_q1_s.power_switch_espnow import PowerSwitch
 from escooter_fiido_q1_s.front_lights_espnow import FrontLights
 from escooter_fiido_q1_s.rear_lights_espnow import RearLights
 from common.thisbutton import thisButton
+from common.utils import map_range
 from screen_manager import ScreenManager
 import vars as Vars
 import configurations as cfg
@@ -210,7 +211,8 @@ async def main_task(vars):
         motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
         if motor_power_previous != motor_power:
             motor_power_previous = motor_power
-            vars.motor_power = filter_motor_power(motor_power)
+            motor_power = filter_motor_power(motor_power)
+            vars.motor_power = map_range(motor_power, 0, 1800, 0, 100, clamp=True)
 
         # Buttons
         for i in range(len(vars.buttons)):
