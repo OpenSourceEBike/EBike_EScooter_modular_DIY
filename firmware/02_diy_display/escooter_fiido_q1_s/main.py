@@ -187,7 +187,6 @@ async def ui_task(fb, lcd, vars):
         await asyncio.sleep(tick)
 
 async def main_task(vars):
-    charge_seen_ms = None
     motor_power_previous = 0
     time_counter_previous = 0
     minute_previous = None
@@ -195,18 +194,6 @@ async def main_task(vars):
     time_rtc_try_update_once = time.ticks_ms()
 
     while True:
-        now = time.ticks_ms()
-
-        # Auto-detect charging
-        if vars.wheel_speed_x10 == 0 and vars.bms_battery_current_x10 > cfg.charge_current_threshold_a_x10:
-            if charge_seen_ms is None:
-               charge_seen_ms = now
-            elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
-                vars.battery_is_charging = True
-        else:
-            vars.battery_is_charging = False
-            charge_seen_ms = None
-
         # Motor power
         motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
         if motor_power_previous != motor_power:
@@ -219,6 +206,7 @@ async def main_task(vars):
             vars.buttons[i].tick()
 
         # Try NTP once after ~2s
+        now = time.ticks_ms()
         if (not update_date_time_once) and time.ticks_diff(now, time_rtc_try_update_once) > 2000:
             update_date_time_once = True
             try:
@@ -227,6 +215,7 @@ async def main_task(vars):
                 print(ex)
 
         # Time
+        now = time.ticks_ms()
         if time.ticks_diff(now, time_counter_previous) > 1000:
             time_counter_previous = now
             try:

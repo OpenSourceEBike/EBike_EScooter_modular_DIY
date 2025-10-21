@@ -11,7 +11,7 @@ class MotorBoard:
     Bidirectional ESP-NOW link for the motor board.
     """
 
-    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, system_data):
+    def __init__(self, espnow: aioespnow.AIOESPNow, peer_mac: bytes, radio_lock: asyncio.Lock, vars):
         if not isinstance(espnow, aioespnow.AIOESPNow):
             raise TypeError("espnow must be an aioespnow.AIOESPNow instance")
 
@@ -19,7 +19,7 @@ class MotorBoard:
         self._peer_mac = bytes(peer_mac)
         if len(self._peer_mac) != 6:
             raise ValueError("peer_mac must be 6 bytes")
-        self._system_data = system_data
+        self._vars = vars
 
         # Ensure peer exists (harmless if already added)
         try:
@@ -96,22 +96,26 @@ class MotorBoard:
             return
 
         try:
-            self._system_data.battery_voltage_x10   = parts[1]
-            self._system_data.battery_current_x10   = parts[2]
-            self._system_data.battery_soc_x1000     = parts[3]
-            self._system_data.motor_current_x10     = parts[4]
-            self._system_data.wheel_speed_x10       = parts[5]
-            self._system_data.brakes_are_active     = (parts[6] == 1)
-            self._system_data.vesc_temperature_x10  = parts[7]
-            self._system_data.motor_temperature_x10 = parts[8]
+            self._vars.battery_voltage_x10   = parts[1]
+            self._vars.battery_current_x10   = parts[2]
+            self._vars.battery_soc_x1000     = parts[3]
+            self._vars.motor_current_x10     = parts[4]
+            self._vars.wheel_speed_x10       = parts[5]
+            
+            flags = parts[6]
+            self._vars.brakes_are_active   = bool(flags & (1 << 0))
+            self._vars.battery_is_charging = bool(flags & (1 << 1))
+
+            self._vars.vesc_temperature_x10  = parts[7]
+            self._vars.motor_temperature_x10 = parts[8]
             
         except Exception as e:
             print("rx apply error:", e)
 
     # ---------- TX path ----------
     def _build_tx_payload(self) -> bytes:
-        motor_enable_state = 1 if self._system_data.motor_enable_state else 0
-        return f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._system_data.buttons_state}".encode("ascii")
+        motor_enable_state = 1 if self._vars.motor_enable_state else 0
+        return f"{int(BoardsIds.MAIN_BOARD)} {motor_enable_state} {self._vars.buttons_state}".encode("ascii")
 
     def send_data(self):
         """Fire-and-forget send using aioespnow (schedules an async task)."""
