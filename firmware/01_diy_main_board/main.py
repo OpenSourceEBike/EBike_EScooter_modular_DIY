@@ -1,8 +1,8 @@
 #############################################
 #
 # Choose here which EBike/EScooter model firmware to run:
-#model = 'escooter_fiido_q1_s'
-model = 'escooter_iscooter_i12'
+model = 'escooter_fiido_q1_s'
+# model = 'escooter_iscooter_i12'
 # model = 'ebike_bafang_m500'
 # model = 'escooter_xiaomi_m365'
 

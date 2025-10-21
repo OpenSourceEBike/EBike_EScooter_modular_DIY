@@ -145,6 +145,9 @@ class Display:
             motor_temperature_x10 = max(self._front.motor_temperature_x10,
                                     self._rear.motor_temperature_x10)
 
+            # Build flags byte (bit 0 = brakes, bit 1 = charging)
+            flags = (brakes_are_active & 1) | ((self._vars.battery_is_charging & 1) << 1)
+
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
                 f"{self._rear.battery_voltage_x10} "
@@ -152,7 +155,7 @@ class Display:
                 f"{self._rear.battery_soc_x1000} "
                 f"{motor_current_x10} "
                 f"{int(self._rear.wheel_speed * 10)} "
-                f"{brakes_are_active} "
+                f"{flags} "
                 f"{vesc_temperature_x10} "
                 f"{motor_temperature_x10}"
             ).encode("ascii")

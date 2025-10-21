@@ -302,9 +302,10 @@ async def task_control_motor_limit_current():
         gc.collect()
         await asyncio.sleep(0.1)
 
-wheel_speed_previous_motor_speed_erpm = 0
 async def task_various():
-    global wheel_speed_previous_motor_speed_erpm
+    wheel_speed_previous_motor_speed_erpm = 0
+    charge_seen_ms = False
+    
     while True:
         # Calculate rear motor wheel speed
         if rear_motor.data.speed_erpm != wheel_speed_previous_motor_speed_erpm:
@@ -318,6 +319,17 @@ async def task_various():
             # Small floor near zero
             if abs(rear_motor.data.wheel_speed) < 2.0:
                 rear_motor.data.wheel_speed = 0.0
+                
+        # Auto-detect charging
+        now = time.ticks_ms()
+        if rear_motor.data.wheel_speed == 0 and vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x10:
+            if charge_seen_ms is None:
+               charge_seen_ms = now
+            elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
+                vars.battery_is_charging = True
+        else:
+            vars.battery_is_charging = False
+            charge_seen_ms = None
 
         gc.collect()
         await asyncio.sleep(0.1)
