@@ -147,10 +147,14 @@ class BatterySOCWidget:
         iw = (self._BODY_W - 2)*s; ih = (self._BODY_H - 2)*s
         self.fb.fill_rect(ix, iy, iw, ih, self.bg)
 
-        # Reset states
+        # Reset states (do NOT redraw any bar here)
         self._last_slots = [False]*6
         self._last_soc = None
-        self._restore_blink_bar()
+
+        # Reset blink states so no bar gets redrawn spuriously
+        self._blink_last_idx = None
+        self._blink_visible = True
+        self._blink_t0 = time.ticks_ms()
 
         # Ensure outline is visible initially
         self._outline_visible = True
@@ -163,6 +167,22 @@ class BatterySOCWidget:
     def update(self, soc: int):
         """Update bars/tick with hysteresis and run blinking logic."""
         soc = max(0, min(100, int(soc)))
+
+        # --- Hard-clear path when truly empty (fixes ghost bars on big drops) ---
+        if soc == 0 and any(self._last_slots):
+            for i in range(5):
+                if self._last_slots[i]:
+                    x, y, w, h = self._bars[i]
+                    self.fb.fill_rect(x, y, w, h, self.bg)
+                    self._last_slots[i] = False
+            if self._last_slots[5]:
+                xt, yt, wt, ht = self._bar5_tick
+                self.fb.fill_rect(xt, yt, wt, ht, self.bg)
+                self._last_slots[5] = False
+            # No bar should be considered a blink target now
+            self._blink_last_idx = None
+            self._blink_visible = True
+
         if soc != self._last_soc:
             self._last_soc = soc
             # Bars 0..4 (with hysteresis)
@@ -188,16 +208,17 @@ class BatterySOCWidget:
 
         if last_idx is None:
             # EMPTY: no active bars -> blink outline
+            self._blink_last_idx = None     # guard: never restore any bar
+            self._blink_visible = True
+
             if self._had_active_bar:
                 # Transitioned from non-empty to empty: reset phase
                 self._outline_visible = True
                 self._outline_t0 = time.ticks_ms()
-            # FIX: also guarantee a phase if we are empty and outline has never been timed
-            if self._outline_t0 is None:                       # <-- safe guard
+            if self._outline_t0 is None:
                 self._outline_visible = True
-                self._outline_t0 = time.ticks_ms()             # <-- ensure timer
+                self._outline_t0 = time.ticks_ms()
             self._animate_outline()
-            self._restore_blink_bar()
             self._had_active_bar = False
 
         else:
@@ -219,7 +240,8 @@ class BatterySOCWidget:
             self._restore_blink_bar()
         now = time.ticks_ms()
         self._blink_t0 = now
-        self._outline_t0 = now if self._find_last_on_bar() is None else self._outline_t0  # FIX: seed outline if empty
+        if self._find_last_on_bar() is None:
+            self._outline_t0 = now  # seed outline if empty
 
     def set_blink_timing(self, ton_ms: int, toff_ms: int):
         """Set blink ON/OFF durations (ms). Applies to both bar and outline blinking."""
@@ -236,8 +258,8 @@ class BatterySOCWidget:
     def _animate_blink_bar(self):
         idx = self._find_last_on_bar()
         if idx is None:
-            self._restore_blink_bar()
             self._blink_last_idx = None
+            self._blink_visible = True
             return
 
         if self._blink_last_idx is not None and self._blink_last_idx != idx:
@@ -261,25 +283,32 @@ class BatterySOCWidget:
                 self._blink_t0 = now
 
     def _draw_bar(self, i: int, on: bool):
-        # Draw/erase bar i
         x, y, w, h = self._bars[i]
         self.fb.fill_rect(x, y, w, h, self.fg if on else self.bg)
-
-        # If it's the cap (index 4), also toggle the tick in sync
         if i == 4:
             xt, yt, wt, ht = self._bar5_tick
             self.fb.fill_rect(xt, yt, wt, ht, self.fg if on else self.bg)
 
     def _restore_blink_bar(self):
-        """If a bar is currently hidden due to blinking, restore it."""
+        """
+        If a bar is hidden due to blinking, restore it — but ONLY if that bar
+        is still logically ON. This prevents 'ghost' redraw after SOC drops.
+        """
         if self._blink_last_idx is not None and not self._blink_visible:
-            self._draw_bar(self._blink_last_idx, True)
+            idx = self._blink_last_idx
+            if 0 <= idx < 5 and self._last_slots[idx]:
+                self._draw_bar(idx, True)
+            # Either way, stop hiding
             self._blink_visible = True
+            # If it wasn't logically on, also drop the target
+            if idx is not None and (idx < 0 or idx > 4 or not self._last_slots[idx]):
+                self._blink_last_idx = self._find_last_on_bar()
 
     def _ensure_blink_target_after_soc_change(self):
         """Keep blink state consistent after SOC changes."""
         idx = self._find_last_on_bar()
         if idx != self._blink_last_idx:
+            # If previous blink bar was hidden, restore only if still on
             self._restore_blink_bar()
             self._blink_last_idx = idx
             self._blink_visible = True
