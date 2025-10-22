@@ -55,9 +55,9 @@ class MainScreen(BaseScreen):
         self._clock_widget = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
             font=font,
-            align_inside="right"
+            align_inside="right",
         )
-        self._clock_widget.set_box(x1=self.fb.width - 52, y1=self.fb.width - 17, x2=self.fb.width - 3, y2=self.fb.width - 2)
+        self._clock_widget.set_box(x1=self.fb.width - 52, y1=self.fb.height - 17, x2=self.fb.width - 3, y2=self.fb.height - 2)
         self._clock_widget.update('')
 
     def render(self, vars):

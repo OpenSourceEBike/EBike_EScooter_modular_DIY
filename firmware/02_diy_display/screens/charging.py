@@ -1,16 +1,13 @@
-
-import time
 from .base import BaseScreen
 from widgets.widget_text_box import WidgetTextBox
 from widgets.widget_battery_soc import BatterySOCWidget
-from fonts import freesans14, freesansbold14
+from fonts import freesansbold14
 
 class ChargingScreen(BaseScreen):
     NAME = "Charging"
 
     def __init__(self, fb):
         super().__init__(fb)
-        self._time_timer_previous = 0
 
     def on_enter(self):
         self.clear()
@@ -18,7 +15,7 @@ class ChargingScreen(BaseScreen):
         # Title
         self._title = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
-            font=freesans14,
+            font=freesansbold14,
             align_inside="center"
         )
         self._title.set_box(x1=0, y1=0, x2=self.fb.width - 1, y2=20)
@@ -38,7 +35,7 @@ class ChargingScreen(BaseScreen):
         # Battery voltage
         self._battery_voltage = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
-            font=freesans14,
+            font=freesansbold14,
             align_inside="left"
         )
         self._battery_voltage.set_box(x1=20, y1=self.fb.height - 12, x2=20+46, y2=self.fb.height - 1)
@@ -47,7 +44,7 @@ class ChargingScreen(BaseScreen):
         # Battery SOC	
         self._battery_soc = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
-            font=freesans14,
+            font=freesansbold14,
             align_inside="right"
         )
         self._battery_soc.set_box(x1=22+47, y1=self.fb.height - 12, x2=22+46+40, y2=self.fb.height - 1)
