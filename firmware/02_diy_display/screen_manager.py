@@ -8,11 +8,11 @@ import configurations as cfg
 class ScreenManager:
     def __init__(self, fb, vars):
         self.fb = fb
-        self.boot    = BootScreen(fb)
-        self.main    = MainScreen(fb)
-        self.charging     = ChargingScreen(fb)
-        self.power_off    = PowerOffScreen(fb)
-        self.current = self.charging
+        self.boot       = BootScreen(fb)
+        self.main       = MainScreen(fb)
+        self.charging   = ChargingScreen(fb)
+        self.power_off  = PowerOffScreen(fb)
+        self.current    = self.boot
         self.current.on_enter()
         self._charge_seen_ms = None
         self._button_power_long_click_previous = 0
