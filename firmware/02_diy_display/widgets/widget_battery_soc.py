@@ -39,6 +39,10 @@ class BatterySOCWidget:
 
         self._recompute_bar_rects()
 
+        # Visibility
+        self.visible = True
+        self._current_soc = 0  # remember last SOC even when hidden
+
         # Runtime states (5 bars + tick)
         self._last_slots = [False] * 6
         self._last_soc   = None
@@ -57,6 +61,41 @@ class BatterySOCWidget:
 
         # Track previous frame state: did we have any active bars?
         self._had_active_bar = False
+
+    # ---------- visibility API ----------
+    def set_visible(self, visible: bool, clear: bool = True):
+        """
+        Toggle widget visibility.
+        - When turning OFF and clear=True, the area is cleared to bg.
+        - When turning ON, the widget is fully redrawn using the last SOC.
+        """
+        visible = bool(visible)
+        if visible == self.visible:
+            return
+
+        if not visible:
+            # Going hidden: optionally clear the full bounding box
+            if clear:
+                self.fb.fill_rect(self.x, self.y, self.total_width, self.total_height, self.bg)
+            # Pause visuals by just marking invisible; logic still tracks SOC
+            self.visible = False
+        else:
+            # Going visible: redraw fresh
+            self.visible = True
+            self.draw_contour()
+            # Force a full bar recompute on next update
+            prev_soc = self._current_soc
+            self._last_soc = None
+            self.update(prev_soc)
+
+    def hide(self, clear: bool = True):
+        self.set_visible(False, clear=clear)
+
+    def show(self):
+        self.set_visible(True, clear=False)
+
+    def is_visible(self) -> bool:
+        return self.visible
 
     # ---------- positioning ----------
     def move_to(self, x: int, y: int):
@@ -102,6 +141,8 @@ class BatterySOCWidget:
     # ---------- outline drawing ----------
     def _draw_outline(self, on: bool):
         """Draw/erase the battery outline only (no interior clear)."""
+        if not self.visible:
+            return
         l, t, s = self.x, self.y, self.scale
         col = self.fg if on else self.bg
         h = 2 if s > 1 else 1   # single pixel at scale=1, double at scale=2
@@ -137,6 +178,8 @@ class BatterySOCWidget:
     # ---------- public: draw full widget outline and clear interior ----------
     def draw_contour(self):
         """Draw the outline at (x, y) and clear the interior (keeps 1px*scale border)."""
+        if not self.visible:
+            return
         l, t, s = self.x, self.y, self.scale
 
         # Outline ON
@@ -167,6 +210,9 @@ class BatterySOCWidget:
     def update(self, soc: int):
         """Update bars/tick with hysteresis and run blinking logic."""
         soc = max(0, min(100, int(soc)))
+        self._current_soc = soc
+        if not self.visible:
+            return
 
         # --- Hard-clear path when truly empty (fixes ghost bars on big drops) ---
         if soc == 0 and any(self._last_slots):
@@ -236,7 +282,7 @@ class BatterySOCWidget:
     def set_charging(self, enabled: bool):
         """Enable/disable bar blinking. Outline blinking when empty is always allowed."""
         self._charging_enabled = bool(enabled)
-        if not enabled:
+        if not enabled and self.visible:
             self._restore_blink_bar()
         now = time.ticks_ms()
         self._blink_t0 = now
@@ -256,6 +302,8 @@ class BatterySOCWidget:
         return None
 
     def _animate_blink_bar(self):
+        if not self.visible:
+            return
         idx = self._find_last_on_bar()
         if idx is None:
             self._blink_last_idx = None
@@ -283,6 +331,8 @@ class BatterySOCWidget:
                 self._blink_t0 = now
 
     def _draw_bar(self, i: int, on: bool):
+        if not self.visible:
+            return
         x, y, w, h = self._bars[i]
         self.fb.fill_rect(x, y, w, h, self.fg if on else self.bg)
         if i == 4:
@@ -294,6 +344,8 @@ class BatterySOCWidget:
         If a bar is hidden due to blinking, restore it — but ONLY if that bar
         is still logically ON. This prevents 'ghost' redraw after SOC drops.
         """
+        if not self.visible:
+            return
         if self._blink_last_idx is not None and not self._blink_visible:
             idx = self._blink_last_idx
             if 0 <= idx < 5 and self._last_slots[idx]:
@@ -306,6 +358,8 @@ class BatterySOCWidget:
 
     def _ensure_blink_target_after_soc_change(self):
         """Keep blink state consistent after SOC changes."""
+        if not self.visible:
+            return
         idx = self._find_last_on_bar()
         if idx != self._blink_last_idx:
             # If previous blink bar was hidden, restore only if still on
@@ -315,6 +369,8 @@ class BatterySOCWidget:
 
     # ---------- blink helpers (OUTLINE when empty) ----------
     def _animate_outline(self):
+        if not self.visible:
+            return
         now = time.ticks_ms()
         elapsed = time.ticks_diff(now, self._outline_t0)
 
@@ -331,11 +387,13 @@ class BatterySOCWidget:
 
     def _restore_outline(self):
         """Ensure the outline is visible (used when bars exist)."""
+        if not self.visible:
+            return
         if not self._outline_visible:
             self._draw_outline(True)
             self._outline_visible = True
 
-    # ---------- new public method ----------
+    # ---------- public helper ----------
     def count_active_bars(self, include_tick: bool = False) -> int:
         """
         Return how many bars are currently ON.

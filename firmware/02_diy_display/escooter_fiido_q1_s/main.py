@@ -82,6 +82,64 @@ BUTTON_PINS = [
 nr_buttons = len(BUTTON_PINS)
 button_POWER, button_LIGHTS = range(nr_buttons)
 
+def enter_espnow_low_power(sta, ap, espnow_channel=1, txpower_dbm=2):
+    """
+    Keep ESP-NOW alive but minimize power:
+    - disconnect from WiFi AP (no IP traffic)
+    - fix channel back to the ESP-NOW channel
+    - enable WiFi power-save (modem sleep)
+    - reduce TX power (dBm)
+    """
+    try:
+        if sta.isconnected():
+            sta.disconnect()
+    except Exception as _:
+        pass
+
+    # Make sure SoftAP is off
+    try:
+        if ap.active():
+            ap.active(False)
+    except Exception as _:
+        pass
+
+    # Re-pin the channel used by all your peers (must match!)
+    try:
+        sta.config(channel=espnow_channel)
+    except Exception as _:
+        pass
+
+    # Enable power save (MicroPython exposes different names across versions)
+    # We try a few common spellings safely.
+    try:
+        # ESP-IDF style in some firmwares
+        WIFI_PM_MAX_MODEM = getattr(network, "WIFI_PM_MAX_MODEM", None)
+        WIFI_PM_MIN_MODEM = getattr(network, "WIFI_PM_MIN_MODEM", None)
+        WIFI_PS_MAX_MODEM = getattr(network, "WIFI_PS_MAX_MODEM", None)
+        WIFI_PS_MIN_MODEM = getattr(network, "WIFI_PS_MIN_MODEM", None)
+
+        if WIFI_PM_MAX_MODEM is not None:
+            sta.config(pm=WIFI_PM_MAX_MODEM)      # deepest modem sleep
+        elif WIFI_PM_MIN_MODEM is not None:
+            sta.config(pm=WIFI_PM_MIN_MODEM)
+        elif WIFI_PS_MAX_MODEM is not None:
+            sta.config(pm=WIFI_PS_MAX_MODEM)
+        elif WIFI_PS_MIN_MODEM is not None:
+            sta.config(pm=WIFI_PS_MIN_MODEM)
+        else:
+            # Some ports use a boolean flag
+            sta.config(ps_mode=True)
+    except Exception as _:
+        pass
+
+    # Lower TX power to the minimum that still works for your distances (dBm)
+    try:
+        # Typical valid range ~2..20 dBm; tune for reliability
+        sta.config(txpower=txpower_dbm)
+    except Exception as _:
+        pass
+
+
 def filter_motor_power(p):
     if p < 0:
         if p > -10: p = 0
@@ -205,29 +263,20 @@ async def main_task(vars):
         for i in range(len(vars.buttons)):
             vars.buttons[i].tick()
 
+        # Time
         # Try NTP once after ~2s
         now = time.ticks_ms()
-        if (not update_date_time_once) and time.ticks_diff(now, time_rtc_try_update_once) > 2000:
+        if (not update_date_time_once) and \
+           not vars.screen_boot_waiting and \
+           time.ticks_diff(now, time_rtc_try_update_once) > 2000:
             update_date_time_once = True
             try:
                 vars.rtc.update_date_time_from_wifi_ntp()
             except Exception as ex:
                 print(ex)
-
-        # Time
-        now = time.ticks_ms()
-        if time.ticks_diff(now, time_counter_previous) > 1000:
-            time_counter_previous = now
-            try:
-                date_time = vars.rtc.date_time()
-                hour, minute = date_time[3], date_time[4]
-                if minute != minute_previous:
-                    minute_previous = minute
-                    time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
-                    vars.time_string = time_string
-            except Exception as ex:
-                vars.time_string = ''
-                print(ex)
+            else:
+                # We got time; drop to low-power ESP-NOW mode
+                enter_espnow_low_power(sta, ap, espnow_channel=1, txpower_dbm=2)
             
         # Shutdown
         if vars.shutdown_request:
@@ -251,19 +300,24 @@ async def motor_tx_task(vars):
 
 async def lights_task(vars):
     while True:
-        # Brake light (on brake OR strong regen current)
-        if vars.brakes_are_active or vars.motor_current_x10 < -150:
-            vars.rear_lights_board_pins_state |= REAR_STOP_BIT
-        else:
-            vars.rear_lights_board_pins_state &= ~REAR_STOP_BIT
+        
+        if not vars.screen_boot_waiting:
+            # Brake light (on brake OR strong regen current)
+            if vars.brakes_are_active or vars.regen_braking_is_active:
+                vars.rear_lights_board_pins_state |= REAR_STOP_BIT
+            else:
+                vars.rear_lights_board_pins_state &= ~REAR_STOP_BIT
 
-        # Head/Tail with main lights_state
-        if vars.lights_state:
-            vars.front_lights_board_pins_state |= FRONT_HEAD_BIT
-            vars.rear_lights_board_pins_state  |= REAR_TAIL_BIT
+            # Head/Tail with main lights_state
+            if vars.lights_state:
+                vars.front_lights_board_pins_state |= FRONT_HEAD_BIT
+                vars.rear_lights_board_pins_state  |= REAR_TAIL_BIT
+            else:
+                vars.front_lights_board_pins_state &= ~FRONT_HEAD_BIT
+                vars.rear_lights_board_pins_state  &= ~REAR_TAIL_BIT
         else:
-            vars.front_lights_board_pins_state &= ~FRONT_HEAD_BIT
-            vars.rear_lights_board_pins_state  &= ~REAR_TAIL_BIT
+            vars.front_lights_board_pins_state = 0
+            vars.rear_lights_board_pins_state = 0
 
         front_lights.send_data()
         rear_lights.send_data()
