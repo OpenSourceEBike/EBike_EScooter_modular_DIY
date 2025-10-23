@@ -124,6 +124,8 @@ class Display:
         """
         try:
             brakes_are_active = 1 if self._vars.brakes_are_active else 0
+            regen_braking_is_active = 1 if self._vars.regen_braking_is_active else 0
+            battery_is_charging = 1 if self._vars.battery_is_charging else 0
 
             # guard providers (None-safe)
             def _i(v): 
@@ -145,8 +147,9 @@ class Display:
             motor_temperature_x10 = max(self._front.motor_temperature_x10,
                                     self._rear.motor_temperature_x10)
 
-            # Build flags byte (bit 0 = brakes, bit 1 = charging)
-            flags = (brakes_are_active & 1) | ((self._vars.battery_is_charging & 1) << 1)
+            flags = ((brakes_are_active & 0) << 0) | \
+                    ((regen_braking_is_active & 1) << 1) | \
+                    ((battery_is_charging & 1) << 2) | \
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "

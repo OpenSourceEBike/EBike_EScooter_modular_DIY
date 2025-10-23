@@ -10,7 +10,7 @@ class Cfg(object):
         self.display_mac_address = 0
         self.has_jbd_bms = False
         self.jbd_bms_bluetooth_name = ''
-        self.charge_current_threshold_a_x10 = 0
+        self.charge_current_threshold_a_x100 = 0
         self.charge_detect_hold_ms = 0
 
 class MotorCfg(object):
@@ -54,6 +54,7 @@ class Vars(object):
         self.motor_power = 0
         self.motor_temperature_sensor_x10 = 0
         self.brakes_are_active = True
+        self.regen_braking_is_active = False
         self.torque_weight_x10 = 0
         self.cadence = 0
         self.assist_level = 0
