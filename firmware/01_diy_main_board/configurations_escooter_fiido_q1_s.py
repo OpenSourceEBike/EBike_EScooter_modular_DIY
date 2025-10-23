@@ -46,7 +46,7 @@ cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
 #######################################################################
 
 # Charging detection
-cfg.charge_current_threshold_a_x10 = 20
+cfg.charge_current_threshold_a_x100 = 20
 cfg.charge_detect_hold_ms = 2000
 
 #### Motors configurations ####
