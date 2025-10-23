@@ -16,6 +16,7 @@ class ScreenManager:
         self.current.on_enter()
         self._charge_seen_ms = None
         self._button_power_long_click_previous = 0
+        self._button_power_click_previous = 0
         self._charging_state_previous = False
 
     def render(self, vars):
@@ -40,8 +41,18 @@ class ScreenManager:
             self._charging_state_previous = vars.battery_is_charging
             vars.motor_enable_state = False
             self.force("Charging")
+            
+        # Enter main from boot?
+        button_power_click = vars.buttons_state & 0x0100
+        if self._button_power_click_previous != button_power_click:
+            self._button_power_click_previous = button_power_click
 
-        # Button-based transitions
+            if self.current in (self.boot,):
+                vars.motor_enable_state = True
+                vars.screen_boot_waiting = False
+                self.force("Main")
+                return
+
         button_power_long_click = vars.buttons_state & 0x0200
         if self._button_power_long_click_previous != button_power_long_click:
             self._button_power_long_click_previous = button_power_long_click
@@ -71,9 +82,4 @@ class ScreenManager:
                 vars.shutdown_request = True
                 self.force("PowerOff")
                 return
-
-            # Boot -> Main (explicit rule)
-            if self.current in (self.boot,):
-                vars.motor_enable_state = True
-                self.force("Main")
-                return
+            

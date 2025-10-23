@@ -52,6 +52,11 @@ class WidgetTextBox:
         self.debug_box = bool(debug_box)
         self.formatter = formatter
 
+        # visibility + last content
+        self.visible = True
+        self._last_text = None     # resolved string (after formatter)
+        self._last_valid = False
+
         self._text_pos = None         # absolute TEXT position (screen coords)
         self._text_pos_anchor = "topleft"
 
@@ -62,6 +67,41 @@ class WidgetTextBox:
         self._map = wr.map
 
         self._prev_box = None
+
+    # ---------- visibility API ----------
+    def set_visible(self, visible: bool, clear: bool = True):
+        """
+        Toggle widget visibility.
+        - When turning OFF and clear=True, clears the previously drawn box.
+        - When turning ON, redraws using the last valid text (if any).
+        """
+        visible = bool(visible)
+        if visible == self.visible:
+            return
+
+        if not visible:
+            # Going hidden
+            if clear and self._prev_box:
+                self._clear(self._prev_box)
+                if self.debug_box:
+                    self._box_outline(self._prev_box)
+            self.visible = False
+            # We keep _prev_box so a later show() can reuse placement if needed
+        else:
+            # Going visible
+            self.visible = True
+            if self._last_valid and self._last_text is not None:
+                # Force a redraw with the last content
+                self.update(self._last_text, valid=True)
+
+    def hide(self, clear: bool = True):
+        self.set_visible(False, clear=clear)
+
+    def show(self):
+        self.set_visible(True, clear=False)
+
+    def is_visible(self) -> bool:
+        return self.visible
 
     # ---------- helpers ----------
     def _as_text(self, obj):
@@ -156,10 +196,20 @@ class WidgetTextBox:
 
     # ---------- drawing (LOW RAM) ----------
     def update(self, text, valid=True):
+        # Store last content so show() can redraw immediately
         if not valid or text is None:
-            self.invalidate()
+            self._last_text = None
+            self._last_valid = False
+            if self.visible:
+                self.invalidate()
             return
         s = self._as_text(text)
+        self._last_text = s
+        self._last_valid = True
+
+        if not self.visible:
+            # Don't draw while hidden (keeps RAM usage minimal)
+            return
 
         # 1) Box (visible clip)
         if self._box_coords:
