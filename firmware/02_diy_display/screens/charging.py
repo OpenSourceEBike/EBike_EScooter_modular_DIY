@@ -1,8 +1,8 @@
 from .base import BaseScreen
 from widgets.widget_text_box import WidgetTextBox
 from widgets.widget_battery_soc import BatterySOCWidget
-from fonts import freesansbold16 as font1
-from fonts import freesansbold12 as font2
+from fonts import robotobold18 as font1
+from fonts import robotomedium14 as font2
 
 class ChargingScreen(BaseScreen):
     NAME = "Charging"
@@ -25,7 +25,7 @@ class ChargingScreen(BaseScreen):
         # Battery SOC widget
         batt_scale = 2
         batt_x = 18
-        batt_y = 18
+        batt_y = 21
         self._battery_soc_widget = BatterySOCWidget(self.fb, x=batt_x, y=batt_y, scale=batt_scale)
         self._battery_soc_widget.draw_contour()
         self._battery_soc_widget.set_blink_timing(600, 300)
@@ -39,7 +39,7 @@ class ChargingScreen(BaseScreen):
             font=font2,
             align_inside="left"
         )
-        self._battery_voltage.set_box(x1=20, y1=self.fb.height - 12, x2=20+46, y2=self.fb.height - 1)
+        self._battery_voltage.set_box(x1=29, y1=self.fb.height - 12, x2=29+37, y2=self.fb.height - 1)
         self._battery_voltage.update('')
 
         # Battery SOC	
@@ -48,11 +48,12 @@ class ChargingScreen(BaseScreen):
             font=font2,
             align_inside="right"
         )
-        self._battery_soc.set_box(x1=22+47, y1=self.fb.height - 12, x2=22+46+40, y2=self.fb.height - 1)
+        self._battery_soc.set_box(x1=26+43, y1=self.fb.height - 12, x2=26+42+32, y2=self.fb.height - 1)
         self._battery_soc.update('')
 
 
     def render(self, vars):
+        
         if vars.battery_is_charging != self._charging_state_previous:
             self._charging_state_previous = vars.battery_is_charging
             self._battery_soc_widget.set_charging(vars.battery_is_charging)

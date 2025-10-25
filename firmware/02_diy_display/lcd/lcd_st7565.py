@@ -228,9 +228,10 @@ class LCD:
             use_bias_1_7=use_bias_1_7,
         )
 
-        # Backlight PWM (kHz). Invert if your board uses 0=ON.
+        # Backlight PWM (10 kHz). Invert if your board uses 0=ON.
         self._bl_inverted = bool(backlight_inverted)
-        self._backlight = PWM(Pin(backlight_pin), freq=10_000)
+        self._backlight = PWM(Pin(backlight_pin))
+        self._backlight.freq(10_000)
         self.backlight_pwm(0.5)
 
         # Defaults: no extra flips here, stays as A1/C0 like CP working 
@@ -245,12 +246,9 @@ class LCD:
         """
         Set backlight brightness (0.0..1.0). If inverted, 0.0 = full ON.
         """
-        p = max(0.0, min(float(duty_cycle_percent), 1.0))
-        val = int(65535 * p)
         if self._bl_inverted:
-            self._backlight.duty_u16(65535 - val)
-        else:
-            self._backlight.duty_u16(val)
+            duty_cycle_percent = 1.0 - duty_cycle_percent
+        self._backlight.duty_u16(int(duty_cycle_percent * 65535))
 
     @property
     def framebuf(self):

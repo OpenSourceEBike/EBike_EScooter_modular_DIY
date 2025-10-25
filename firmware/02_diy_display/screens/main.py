@@ -3,7 +3,7 @@ from .base import BaseScreen
 from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
 from widgets.widget_text_box import WidgetTextBox
-from fonts import ac437_hp_150_re_12 as font_small, freesans20 as font, freesansbold50 as font_big
+from fonts import ac437_hp_150_re_12 as font_small, robotobold18 as font, freesansbold50 as font_big
 
 class MainScreen(BaseScreen):
     NAME = "Main"
@@ -85,7 +85,7 @@ class MainScreen(BaseScreen):
             self._warning_text_previous = warning_text
             self._warning_widget.update(warning_text)
         
-        # Time
+        # Time        
         now = time.ticks_ms()
         if time.ticks_diff(now, self._time_timer_previous) > 1000:
             self._time_timer_previous = now
