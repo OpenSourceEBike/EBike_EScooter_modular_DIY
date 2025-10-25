@@ -68,7 +68,7 @@ lcd = LCD(
     spi_clock_frequency=cfg.spi_baud,
 )
 fb = lcd.display
-lcd.backlight_pwm(0.1)
+lcd.backlight_pwm(0.5)
 lcd.clear()
 lcd.display.show()
 
