@@ -63,7 +63,7 @@ class Vars(object):
         self.motors_enable_state = False
         self.buttons_state = 0
         self.cruise_control = CruiseControl()
-        self.bms_battery_current_x100 = 0
+        self.bms_battery_current_x100 = None
         self.battery_is_charging = False
         
         

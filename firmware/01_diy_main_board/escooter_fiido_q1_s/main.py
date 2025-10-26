@@ -215,7 +215,7 @@ async def task_control_motor(wdt):
 
         # Consider less then 10 negative amps of motor current for regen_brakes_are_active = True
         motor_current = (rear_motor.data.motor_current_x10 + front_motor.data.motor_current_x10) // 10
-        vars.regen_braking_is_active = True if motor_current < 10 else False
+        vars.regen_braking_is_active = True if motor_current < -10 else False
 
         # Command motor(s)
         if vars.motors_enable_state is False:
@@ -229,8 +229,8 @@ async def task_control_motor(wdt):
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
 
-        #if vars.bms_battery_current_x100 is not None:
-            #print('bms_current', vars.bms_battery_current_x100 / 100)
+        # if vars.bms_battery_current_x100 is not None:
+           # print('bms_current', vars.bms_battery_current_x100 / 100)
 
         # Feed watchdog
         # wdt.feed()
@@ -328,7 +328,9 @@ async def task_various():
         # Note: BMS battery current is positive when charging
         if cfg.has_jbd_bms:
             now = time.ticks_ms()
-            if rear_motor.data.wheel_speed == 0 and vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
+            if rear_motor.data.wheel_speed == 0 and \
+               vars.bms_battery_current_x100 is not None and \
+               vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
                 if charge_seen_ms is None:
                     charge_seen_ms = now
                 elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
