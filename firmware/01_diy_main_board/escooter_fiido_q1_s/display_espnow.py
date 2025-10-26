@@ -3,7 +3,7 @@ import network
 import uasyncio as asyncio
 import aioespnow
 from common.boards_ids import BoardsIds
-
+from configurations_escooter_fiido_q1_s import cfg
 
 class Display:
     """
@@ -126,6 +126,11 @@ class Display:
             brakes_are_active = 1 if self._vars.brakes_are_active else 0
             regen_braking_is_active = 1 if self._vars.regen_braking_is_active else 0
             battery_is_charging = 1 if self._vars.battery_is_charging else 0
+            
+            if not cfg.has_jbd_bms:
+                battery_is_charging = 0
+                
+            #print(brakes_are_active, regen_braking_is_active, battery_is_charging)
 
             # guard providers (None-safe)
             def _i(v): 
@@ -147,9 +152,9 @@ class Display:
             motor_temperature_x10 = max(self._front.motor_temperature_x10,
                                     self._rear.motor_temperature_x10)
 
-            flags = ((brakes_are_active & 0) << 0) | \
+            flags = ((brakes_are_active & 1) << 0) | \
                     ((regen_braking_is_active & 1) << 1) | \
-                    ((battery_is_charging & 1) << 2) | \
+                    ((battery_is_charging & 1) << 2)
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
