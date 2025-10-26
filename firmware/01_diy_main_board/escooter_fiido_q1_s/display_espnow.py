@@ -129,8 +129,6 @@ class Display:
             
             if not cfg.has_jbd_bms:
                 battery_is_charging = 0
-                
-            #print(brakes_are_active, regen_braking_is_active, battery_is_charging)
 
             # guard providers (None-safe)
             def _i(v): 
