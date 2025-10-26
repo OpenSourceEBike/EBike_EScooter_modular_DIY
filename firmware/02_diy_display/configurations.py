@@ -15,7 +15,11 @@ pin_cs                      = const(12)
 pin_rst                     = const(11)
 pin_bl                      = const(10)
 
-spi_baud  = const(10_000_000)
+spi_baud                    = const(10_000_000)
+
+enable_rtc_time             = True
+rtc_scl_pin                 = const(8)
+rtc_sda_pin                 = const(7)
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = const(6)

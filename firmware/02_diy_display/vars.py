@@ -39,4 +39,3 @@ class Vars:
         self.buttons = None
         self.rtc = None
         self.time_string = ''
-        self.screen_boot_waiting = True
