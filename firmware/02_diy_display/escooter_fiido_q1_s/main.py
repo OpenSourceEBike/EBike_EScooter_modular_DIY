@@ -12,7 +12,7 @@ from escooter_fiido_q1_s.front_lights_espnow import FrontLights
 from escooter_fiido_q1_s.rear_lights_espnow import RearLights
 from common.thisbutton import thisButton
 from common.utils import map_range
-from screen_manager import ScreenManager
+from screen_manager import ScreenManager, ScreenID
 import vars as Vars
 import configurations as cfg
 
@@ -72,7 +72,10 @@ lcd.backlight_pwm(0.5)
 lcd.clear()
 lcd.display.show()
 
-vars.rtc = RTCDateTime(rtc_scl_pin=9, rtc_sda_pin=8)
+screen_manager = ScreenManager(fb, vars)
+
+if cfg.enable_rtc_time:
+    vars.rtc = RTCDateTime(rtc_scl_pin=cfg.rtc_scl_pin, rtc_sda_pin=cfg.rtc_sda_pin)
 
 BUTTON_PINS = [
     cfg.power_button_pin,
@@ -231,8 +234,7 @@ async def power_off_forever():
         await asyncio.sleep_ms(100)
 
 async def ui_task(fb, lcd, vars):
-
-    screen_manager = ScreenManager(fb, vars)
+    global screen_manager
     
     hz = int(cfg.ui_hz) if isinstance(cfg.ui_hz, (int, float)) else 10
     tick = 1 / max(1, hz)
@@ -245,13 +247,17 @@ async def ui_task(fb, lcd, vars):
         await asyncio.sleep(tick)
 
 async def main_task(vars):
+    global screen_manager
+    
     motor_power_previous = 0
     time_counter_previous = 0
-    minute_previous = None
     update_date_time_once = False
     time_rtc_try_update_once = time.ticks_ms()
+    first_transition_to_main_screen = False
 
     while True:
+        now = time.ticks_ms()
+        
         # Motor power
         motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
         if motor_power_previous != motor_power:
@@ -264,11 +270,17 @@ async def main_task(vars):
             vars.buttons[i].tick()
 
         # Time
+        if not first_transition_to_main_screen and \
+            screen_manager.current_is(ScreenID.MAIN):
+            first_transition_to_main_screen = True
+            time_rtc_try_update_once = now
+        
+        
         # Try NTP once after ~2s
-        now = time.ticks_ms()
-        if (not update_date_time_once) and \
-           not vars.screen_boot_waiting and \
-           time.ticks_diff(now, time_rtc_try_update_once) > 2000:
+        if not update_date_time_once and \
+            cfg.enable_rtc_time and \
+            screen_manager.current_is(ScreenID.MAIN) and \
+            time.ticks_diff(now, time_rtc_try_update_once) > 2000:
             update_date_time_once = True
             try:
                 vars.rtc.update_date_time_from_wifi_ntp()
@@ -277,7 +289,19 @@ async def main_task(vars):
             else:
                 # We got time; drop to low-power ESP-NOW mode
                 enter_espnow_low_power(sta, ap, espnow_channel=1, txpower_dbm=2)
-            
+                
+        # Time draw (1 Hz)
+        if cfg.enable_rtc_time and \
+            time.ticks_diff(now, time_counter_previous) > 1000:
+            time_counter_previous = now
+            try:
+                dt = vars.rtc.date_time()
+                hour, minute = dt[3], dt[4]
+                vars.time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
+            except Exception as ex:
+                vars.time_string = ''
+                print(ex)
+
         # Shutdown
         if vars.shutdown_request:
             vars.turn_off_relay = True
@@ -299,9 +323,10 @@ async def motor_tx_task(vars):
         await asyncio.sleep(0.150)
 
 async def lights_task(vars):
+    global screen_manager
+    
     while True:
-        
-        if not vars.screen_boot_waiting:
+        if screen_manager.current_is(ScreenID.MAIN):
             # Brake light (on brake OR strong regen current)
             if vars.brakes_are_active or vars.regen_braking_is_active:
                 vars.rear_lights_board_pins_state |= REAR_STOP_BIT

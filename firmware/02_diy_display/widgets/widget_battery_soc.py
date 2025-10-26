@@ -206,6 +206,24 @@ class BatterySOCWidget:
         # Also reset "had active bar" tracker
         self._had_active_bar = False
 
+    # ---------- helper: deterministic redraw of current state ----------
+    def _redraw_current_state(self):
+        """Clears bbox, draws outline ON, then draws bars/tick according to _last_slots."""
+        if not self.visible:
+            return
+        # Full clear
+        self.fb.fill_rect(self.x, self.y, self.total_width, self.total_height, self.bg)
+        # Fresh contour
+        self.draw_contour()
+        # Repaint bars and tick as per logical state
+        for i in range(5):
+            if self._last_slots[i]:
+                x, y, w, h = self._bars[i]
+                self.fb.fill_rect(x, y, w, h, self.fg)
+        if self._last_slots[5]:
+            xt, yt, wt, ht = self._bar5_tick
+            self.fb.fill_rect(xt, yt, wt, ht, self.fg)
+
     # ---------- main logic ----------
     def update(self, soc: int):
         """Update bars/tick with hysteresis and run blinking logic."""
@@ -270,7 +288,13 @@ class BatterySOCWidget:
         else:
             # NON-EMPTY
             if not self._had_active_bar:
+                # ***** KEY FIX: FULL REDRAW on empty→non-empty transition *****
+                # Garante que não ficam segmentos do contorno apagados por causa do blink.
+                self._redraw_current_state()
+            else:
+                # As we remain non-empty, just ensure outline is ON if it was off.
                 self._restore_outline()
+
             self._had_active_bar = True
 
             if self._charging_enabled:

@@ -1,3 +1,3 @@
 How to convert fonts:
 
-font_to_py /usr/share/fonts/truetype/freefont/FreeSans.ttf 10 freesans10.py -x
+font_to_py /usr/share/fonts/truetype/roboto/unhinted/RobotoTTF/Roboto-Medium.ttf 14 robotomedium14.py
