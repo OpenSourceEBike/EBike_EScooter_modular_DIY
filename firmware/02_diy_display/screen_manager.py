@@ -37,7 +37,6 @@ class ScreenManager:
         self._button_power_long_click_previous = False
         self._button_power_click_previous = False
         self._charging_state_previous = False
-        self._screen_previous = ScreenID.BOOT
 
     # ---- Convenience getters ----
     def get_current_id(self):
@@ -74,6 +73,8 @@ class ScreenManager:
         button_power_click = bool(vars.buttons_state & 0x0100)
         button_power_long_click = bool(vars.buttons_state & 0x0200)
         is_charging = vars.battery_is_charging
+        wheel_stopped = (vars.wheel_speed_x10 == 0)
+        brakes_on = bool(vars.brakes_are_active)
 
         # If Charging state changed
         if is_charging != self._charging_state_previous:
@@ -83,35 +84,32 @@ class ScreenManager:
             if is_charging and \
                 not self.current_is(ScreenID.CHARGING):
                 vars.motor_enable_state = False
-                self._screen_previous = self.get_current_id()
                 self.force(ScreenID.CHARGING)
                 return
             
-            # If is now not Charging and in Charging screen, go to Charging screen
-            if not is_charging and \
-                self.current_is(ScreenID.CHARGING):
-                
-                screen_previous = self._screen_previous
-                self._screen_previous = self.get_current_id()
-                
-                # Needs to go to Main, so enable the motor
-                if screen_previous == ScreenID.MAIN:
-                    vars.motor_enable_state = True
-                # Not Main screen, so disable the motor
-                else:
-                    vars.motor_enable_state = False
-                    
-                self.force(screen_previous)
-                return
-            
-        # Short click: Boot -> Main
+        # Click: Boot -> Main
         if self._button_power_click_previous != button_power_click:
             self._button_power_click_previous = button_power_click
 
             # We are in Boot scren, so go to Main screen
             if self.current_is(ScreenID.BOOT):
                 vars.motor_enable_state = True
-                self._screen_previous = self.get_current_id()
+                self.force(ScreenID.MAIN)
+                return
+            
+            # Go to Charging
+            if (self.current_is(ScreenID.BOOT) or \
+                self.current_is(ScreenID.MAIN)) and \
+                wheel_stopped and \
+                brakes_on:
+                vars.motor_enable_state = False
+                self.force(ScreenID.CHARGING)
+                return
+
+            # We are in Charging and but not charging, go to Main
+            if self.current_is(ScreenID.CHARGING) and \
+               not is_charging:
+                vars.motor_enable_state = True
                 self.force(ScreenID.MAIN)
                 return
                 
@@ -120,35 +118,14 @@ class ScreenManager:
                 import machine
                 machine.reset()
                 return
-            
-        wheel_stopped = (vars.wheel_speed_x10 == 0)
-        brakes_on = bool(vars.brakes_are_active)
 
         # Long click transitions
         if self._button_power_long_click_previous != button_power_long_click:
             self._button_power_long_click_previous = button_power_long_click
 
-            # Go to Charging
-            if (self.current_is(ScreenID.BOOT) or \
-                self.current_is(ScreenID.MAIN)) and \
-                wheel_stopped and \
-                brakes_on:
-                vars.motor_enable_state = False
-                self._screen_previous = self.get_current_id()
-                self.force(ScreenID.CHARGING)
-                return
-
-            # Go to Main
-            if self.current_is(ScreenID.CHARGING):
-                vars.motor_enable_state = True
-                self._screen_previous = self.get_current_id()
-                self.force(ScreenID.MAIN)
-                return
-
             # Go to Power off
             if self.current_is(ScreenID.MAIN) and wheel_stopped:
                 vars.motor_enable_state = False
                 vars.shutdown_request = True
-                self._screen_previous = self.get_current_id()
                 self.force(ScreenID.POWEROFF)
                 return
