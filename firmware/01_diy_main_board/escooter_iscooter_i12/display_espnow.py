@@ -38,7 +38,7 @@ class Display:
         
         try:
             # define local MAC
-            import configurations_escooter_fiido_q1_s as conf
+            import configurations_escooter_iscooter_i12 as conf
             my_mac = bytes(conf.cfg.my_mac_address)
             self._sta.config(mac=my_mac)
         except Exception as e:
@@ -69,10 +69,6 @@ class Display:
         self._rx_task = None
         self._tx_task = None
         self._stopping = False
-
-        # Debug banner (ASCII only)
-        mac_self = ":".join(f"{x:02X}" for x in self._sta.config("mac"))
-        peer_str = ":".join(f"{x:02X}" for x in self._peer_mac)
 
     # ---------- lifecycle ----------
 
@@ -117,6 +113,8 @@ class Display:
         if (len(parts) == 3) and (int(parts[0]) == int(BoardsIds.MAIN_BOARD)):
             self._vars.motors_enable_state = (parts[1] != 0)
             self._vars.buttons_state = parts[2]
+            
+            print(self._vars.motors_enable_state, self._vars.buttons_state)
 
     def send_data(self):
         """
