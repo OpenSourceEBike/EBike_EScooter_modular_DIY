@@ -1,128 +1,159 @@
-import supervisor
-supervisor.runtime.autoreload = False
+# main.py - MicroPython version for ESP32-C3 (with hardware watchdog)
 
-import board
-import digitalio
 import time
 import gc
-import espnow_comms
+from machine import Pin, WDT
 
-FRONT_VERSION, REAR_VERSION = range(2)
+from constants import FRONT_VERSION, REAR_VERSION
+from espnow_comms import ESPNowComms
 
 ################################################################
 # CONFIGURATIONS
 
-lights_board = FRONT_VERSION
-disable_tail_brake_while_blink_on = True
+# Select which board this firmware is running on
+lights_board = FRONT_VERSION  # or REAR_VERSION
 
-if lights_board is FRONT_VERSION:
-  # front lights board ESPNow MAC Address
-  my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf5]
-
-elif lights_board is REAR_VERSION:
-  # rear lights board ESPNow MAC Address
-  my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf4]
+# MAC address for this lights board (local MAC)
+# NOTE: On the ESP32-C3 the Wi-Fi STA has its own MAC. Here we intentionally
+# force a fixed MAC. Make sure this makes sense for your ESP-NOW network.
+if lights_board == FRONT_VERSION:
+    # Front lights board ESP-NOW MAC address
+    my_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF5]
+elif lights_board == REAR_VERSION:
+    # Rear lights board ESP-NOW MAC address
+    my_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF4]
+else:
+    raise ValueError("Invalid lights_board selection")
 
 ################################################################
+# PRINT BOARD VERSION
 
-# print versions
-if lights_board is FRONT_VERSION:
-  print("Starting the DIY Lights board - front version")
-elif lights_board is REAR_VERSION:
-  print("Starting the DIY Lights board - rear version")
+if lights_board == FRONT_VERSION:
+    print("Starting the DIY Lights board - FRONT version")
+else:
+    print("Starting the DIY Lights board - REAR version")
 
-# enable the IO pins
-switch_pins_numbers = [board.IO33, board.IO35, board.IO37, board.IO39]
+################################################################
+# IO PINS
+#
+# NOTE: On the ESP32-C3 the usable pins are typically within 0..21,
+# so adjust these according to your hardware setup.
+################################################################
+
+switch_pins_numbers = [0, 1, 2, 3]
 number_of_pins = len(switch_pins_numbers)
-switch_pins = [0] * number_of_pins
+switch_pins = [None] * number_of_pins
 
-# configure the pins as outputs and disable
-for index in range (number_of_pins):
-  switch_pins[index] = digitalio.DigitalInOut(switch_pins_numbers[index])
-  switch_pins[index].direction = digitalio.Direction.OUTPUT
-  switch_pins[index].value = False
+# Configure pins as outputs (initially off)
+for index, pin_num in enumerate(switch_pins_numbers):
+    switch_pins[index] = Pin(pin_num, Pin.OUT, value=0)
 
-espnow_comms = espnow_comms.ESPNowComms(my_mac_address)
+# ESP-NOW communication interface
+espnow_comms = ESPNowComms(my_mac_address, lights_board)
 
+# Hardware watchdog: reset the board if not fed within 5 seconds
+wdt = WDT(timeout=5000)  # timeout in milliseconds
+
+# Target state for IO pins (bitmask)
 io_pins_target = 0
 io_pins_target_previous = 0
 cycles_with_no_received_display_message_counter = 0
 
-# variables only used on REAR_VERSION
-if lights_board is REAR_VERSION:
-  turn_lights_blink_counter = 0
-  turn_lights_blink_state = False
+# Variables only used when running REAR_VERSION
+turn_lights_blink_counter = 0
+turn_lights_blink_state = False
 
-def set_io_pins(io_pins_target):
-  # loop over all the pins and set their target values
-  for index in range(number_of_pins):
-    switch_pins[index].value = True if io_pins_target & (1 << index) else False
+
+def set_io_pins(target: int):
+    """
+    Set the pins according to the bitmask 'target':
+    bit0 -> switch_pins[0]
+    bit1 -> switch_pins[1]
+    bit2 -> switch_pins[2]
+    bit3 -> switch_pins[3]
+    """
+    for index in range(number_of_pins):
+        bit = (1 << index)
+        switch_pins[index].value(1 if (target & bit) else 0)
+
 
 pins_data_previous = 0
+
+################################################################
+# MAIN LOOP
+################################################################
+
+LOOP_INTERVAL_MS = 25  # target loop time in milliseconds
+
 while True:
-  loop_code_time_begin = time.monotonic()
+    loop_start_ms = time.ticks_ms()
 
-  # check if we received the data
-  pins_data = espnow_comms.get_data()
-  if pins_data is not None:
-    pins_data_previous = pins_data
-    io_pins_target = pins_data
-    # reset this counter
-    cycles_with_no_received_display_message_counter = 0
-  else:
-    # use the previous value if there is no new received value
-    io_pins_target = pins_data_previous
-    cycles_with_no_received_display_message_counter += 1
-    # after about 2 seconds (80 * 25ms = 2000ms), reset 
-    if cycles_with_no_received_display_message_counter % 80 is 0:
-      io_pins_target_previous = 0
-      # disable all pins
-      set_io_pins(0)
+    # Feed the hardware watchdog at the beginning of each loop
+    wdt.feed()
 
-  # force disable tail light if brake light is active
-  if io_pins_target & 0b0010:
-    io_pins_target &= 0b1110
+    # Check if new ESP-NOW data was received
+    pins_data = espnow_comms.get_data()
+    if pins_data is not None:
+        pins_data_previous = pins_data
+        io_pins_target = pins_data
+        # Reset timeout counter
+        cycles_with_no_received_display_message_counter = 0
+    else:
+        # Reuse previous value if nothing new was received
+        io_pins_target = pins_data_previous
+        cycles_with_no_received_display_message_counter += 1
 
-  # if lights_board is REAR_VERSION:
-  #   # disable turn lights if blink state is False
-  #   if turn_lights_blink_state is False:
-  #     io_pins_target &= 0b0011
-  #   else:
-  #     if disable_tail_brake_while_blink_on is True:
-  #       if io_pins_target & 0b1100:
-  #         # disable tail or brake lights while 
-  #         io_pins_target &= 0b1100
+        # After ~2 seconds (80 * 25ms = 2000ms), reset pins
+        if (cycles_with_no_received_display_message_counter % 80) == 0:
+            io_pins_target_previous = 0
+            # Disable all pins
+            set_io_pins(0)
 
-  if lights_board is REAR_VERSION:
-    # disable tail and brake lights if turn lights are active
-    if io_pins_target & 0b1100:
-      io_pins_target &= 0b1100
+    # Force tail-light off if brake-light is active
+    # Assuming:
+    #   bit0 -> tail
+    #   bit1 -> brake
+    if io_pins_target & 0b0010:
+        # Clear tail (bit0) when brake (bit1) is on
+        io_pins_target &= 0b1110
 
-    # disable turn lights if blink state is False
-    if turn_lights_blink_state is False:
-      io_pins_target &= 0b0011
+    if lights_board == REAR_VERSION:
+        # Disable tail and brake lights when turn lights are active
+        # Assuming:
+        #   bit2 -> left turn
+        #   bit3 -> right turn
+        if io_pins_target & 0b1100:
+            io_pins_target &= 0b1100
 
-  # will only change the pins if pins target value changed
-  if io_pins_target is not io_pins_target_previous:
-    io_pins_target_previous = io_pins_target
-    set_io_pins(io_pins_target)
+        # Disable turn signal outputs if blink state is OFF
+        if not turn_lights_blink_state:
+            io_pins_target &= 0b0011
 
-  if lights_board is REAR_VERSION:
-    # let's blink turn_lights_blink_state
-    # SAE J1690 and associated standards FMVSS 108 and IEC 60809 specify 60 - 120 flashes per minute for turn signals, with 90 per minute as a target.
-    # assuming loop of 25ms, 25 * 25ms = 625ms which is about 90 times per minute
-    turn_lights_blink_counter += 1
-    if turn_lights_blink_counter % 15 is 0:
-      turn_lights_blink_state = not turn_lights_blink_state
+    # Update the output pins only if target value changed
+    if io_pins_target != io_pins_target_previous:
+        io_pins_target_previous = io_pins_target
+        set_io_pins(io_pins_target)
 
-  # do memory clean
-  gc.collect()
+    if lights_board == REAR_VERSION:
+        # Blink turn_lights_blink_state
+        #
+        # 60–120 flashes per minute are acceptable; we target ~80 flashes/min.
+        # With a 25 ms loop:
+        #   25 ms * 15 ≈ 375 ms per half-period
+        #   -> 750 ms per full on/off cycle ≈ 80 cycles/min
+        turn_lights_blink_counter += 1
+        if (turn_lights_blink_counter % 15) == 0:
+            turn_lights_blink_state = not turn_lights_blink_state
 
-  # try to get 25ms loop time
-  loop_code_total_time = time.monotonic() - loop_code_time_begin
-  next_sleep_time = 0.025 - loop_code_total_time
-  # avoid to small or even negative values
-  if next_sleep_time < 0.001:
-    next_sleep_time = 0.001
+    # Force garbage collection
+    gc.collect()
 
-  time.sleep(next_sleep_time)
+    # Try to maintain a 25 ms loop time
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), loop_start_ms)
+    next_sleep_ms = LOOP_INTERVAL_MS - elapsed_ms
+
+    # Avoid extremely small or negative delays
+    if next_sleep_ms < 1:
+        next_sleep_ms = 1
+
+    time.sleep_ms(next_sleep_ms)

@@ -1,7 +1,7 @@
 import time
 import network
 import uasyncio as asyncio
-import aioespnow
+import espnow
 import machine
 
 from lcd.lcd_st7565 import LCD
@@ -45,18 +45,19 @@ try:
 except Exception:
     pass
 
-# ESP-NOW
-espnow = aioespnow.AIOESPNow()
-espnow.active(True)
+# ESP-NOW (síncrono)
+esp = espnow.ESPNow()
+esp.active(True)
 
 vars = Vars.Vars()
 
-radio_lock = asyncio.Lock()
+# radio_lock = asyncio.Lock()  # já não é necessário nas novas classes
 
-motor = MotorBoard(espnow, cfg.mac_address_motor_board, radio_lock, vars)
-power_switch = PowerSwitch(espnow, cfg.mac_address_power_switch, radio_lock, vars)
-front_lights = FrontLights(espnow, cfg.mac_address_front_lights, radio_lock, vars)
-rear_lights  = RearLights(espnow, cfg.mac_address_rear_lights, radio_lock, vars)
+# Novas assinaturas: (espnow_inst, peer_mac, vars/system_data)
+motor = MotorBoard(esp, cfg.mac_address_motor_board, vars)
+power_switch = PowerSwitch(esp, cfg.mac_address_power_switch, vars)
+front_lights = FrontLights(esp, cfg.mac_address_front_lights, vars)
+rear_lights  = RearLights(esp, cfg.mac_address_rear_lights, vars)
 
 lcd = LCD(
     spi_clk_pin=cfg.pin_spi_clk,
@@ -224,8 +225,8 @@ async def power_off_forever():
 
         try:
             # Ensure desired OFF states are in vars before calling this
-            await motor.send_data_async()
-            await power_switch.send_data_async()
+            motor.send_data()
+            power_switch.send_data()
             front_lights.send_data()
             rear_lights.send_data()
         except Exception as ex:
@@ -319,7 +320,7 @@ async def motor_rx_task(vars):
 
 async def motor_tx_task(vars):
     while True:
-        await motor.send_data_async()
+        motor.send_data()
         await asyncio.sleep(0.150)
 
 async def lights_task(vars):
@@ -351,8 +352,8 @@ async def lights_task(vars):
 
 # Entry
 async def main():
-    
-    await motor.start()
+    # Versão não-async do MotorBoard já não precisa de start()
+    # await motor.start()
     
     try:
         tasks = [
