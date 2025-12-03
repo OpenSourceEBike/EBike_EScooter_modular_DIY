@@ -39,7 +39,7 @@ rear_motor.data.motor_target_current_limit_min = rear_motor.data.cfg.motor_max_c
 rear_motor.data.battery_target_current_limit_max = rear_motor.data.cfg.battery_max_current_limit_max
 rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_max_current_limit_min
 
-# ESP-NOW display link
+# ESP-NOW display link (nova versão síncrona)
 display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -155,10 +155,6 @@ async def task_control_motor(wdt):
         throttle_2_value = throttle_2.value
         throttle_value = max(throttle_1_value, throttle_2_value)
         
-        # print(throttle_1.adc_value, throttle_1.value)
-        # print(throttle_2.adc_value, throttle_2.value)
-        # print()
-
         # Over-max safety (ADC glitch protection)
         if (throttle_1_value > cfg.throttle_1_adc_over_max_error) or \
            (throttle_2_value > cfg.throttle_2_adc_over_max_error):
@@ -229,11 +225,8 @@ async def task_control_motor(wdt):
                 front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
 
-        # if vars.bms_battery_current_x100 is not None:
-           # print('bms_current', vars.bms_battery_current_x100 / 100)
-
-        # Feed watchdog
-        # wdt.feed()
+        # Feed watchdog, if enabled
+        # if wdt: wdt.feed()
 
         gc.collect()
         await asyncio.sleep(0.02)
@@ -343,12 +336,12 @@ async def task_various():
         await asyncio.sleep(0.1)
 
 async def main():
-    # Watchdog (min 1s on ESP32). task_control_motor() feeds it continuously.
+    # Watchdog (min 1s on ESP32). task_control_motor() could feed it continuously.
     # wdt = WDT(timeout=1000)
     wdt = None
 
-    # Start ESP-NOW display first (brings Wi-Fi/ESP-NOW up)
-    await display.start()
+    # NOVO: a Display síncrona não precisa de start()
+    # (Wi-Fi + ESP-NOW são inicializados no __init__ da classe Display)
 
     # Build the task list
     tasks = [

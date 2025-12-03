@@ -1,51 +1,120 @@
-import wifi
+# espnow_comms.py - MicroPython ESP-NOW helper for lights board (ESP32-C3)
+
+import network
 import espnow
-from .main import lights_board, FRONT_VERSION, REAR_VERSION
 
+from constants import FRONT_VERSION, REAR_VERSION
+
+# These IDs must match the ones used by the transmitter.
 try:
-    from firmware_common.boards_ids import BoardsIds
+    from common.boards_ids import BoardsIds
 except ImportError:
-    raise Exception('error importing file: firmware_common/boards_ids.py\nPlace the folder: firmware_common on the root path')
+    raise Exception(
+        "error importing file: firmware_common/boards_ids.py\n"
+        "Place the folder 'firmware_common' on the root path"
+    )
 
-class ESPNowComms(object):
-    def __init__(self, mac_address):
-        
-        wifi.radio.enabled = True
-        wifi.radio.mac_address = bytearray(mac_address)
-        self._espnow = espnow.ESPNow()
-        self._board_id = 0
 
-        if lights_board == FRONT_VERSION:
-            self._board_id = BoardsIds.FRONT_LIGHTS
-        elif lights_board == REAR_VERSION:
-            self._board_id = BoardsIds.REAR_LIGHTS
-        
-        
-    def get_data(self):    
-        received_data = None
-        data = None
+class ESPNowComms:
+    def __init__(self, mac_address, lights_board, channel: int = 1):
+        """
+        MicroPython ESP-NOW helper for the DIY lights board.
+
+        Args:
+            mac_address: Iterable with 6 bytes for the local Wi-Fi MAC address.
+            lights_board: FRONT_VERSION or REAR_VERSION (see constants.py).
+            channel: Wi-Fi channel to use for ESP-NOW (default: 1).
+        """
+        # Wi-Fi station interface
+        sta = network.WLAN(network.STA_IF)
+        self._sta = sta
+
+        if not sta.active():
+            sta.active(True)
+
+        # Ensure disconnected from any AP
         try:
-            # read a package and discard others available
-            while self._espnow is not None:
-                rx_data = self._espnow.read()
-                if rx_data is None:
+            sta.disconnect()
+        except Exception:
+            # Already disconnected or not associated
+            pass
+
+        # Configure Wi-Fi channel
+        try:
+            sta.config(channel=channel)
+        except Exception as e:
+            print("Warning: couldn't set Wi-Fi channel:", e)
+
+        # Set local MAC address
+        try:
+            my_mac = bytes(mac_address)
+            if len(my_mac) != 6:
+                raise ValueError("mac_address must be 6 bytes long")
+            sta.config(mac=my_mac)
+        except Exception as e:
+            print("Warning: couldn't set local MAC:", e)
+
+        # Initialize ESP-NOW
+        self._esp = espnow.ESPNow()
+        self._esp.active(True)
+
+        # Identify this board using predefined board IDs
+        if lights_board == FRONT_VERSION:
+            self._board_id = int(BoardsIds.FRONT_LIGHTS)
+        elif lights_board == REAR_VERSION:
+            self._board_id = int(BoardsIds.REAR_LIGHTS)
+        else:
+            raise ValueError("Invalid lights_board in ESPNowComms")
+
+    def get_data(self):
+        """
+        Read ESP-NOW packets (non-blocking) and return the last valid message
+        addressed to this board_id.
+
+        Expected message format (ASCII):
+            "<board_id> <value>"
+        Example:
+            "3 5"
+
+        Returns:
+            The integer <value> for this board, or None if no valid message.
+        """
+        received_value = None
+        last_msg = None
+
+        try:
+            # Read all queued packets; keep only the last one
+            while True:
+                host, msg = self._esp.recv(0)  # timeout=0 -> non-blocking
+                if msg is None:
                     break
-                else:
-                    data = rx_data
-
-            # process the package, if available
-            if data is not None:
-                data_list = [int(n) for n in data.msg.split()]
-
-                # only process packages for us                
-                # must have 2 elements: message_id + 1 variables
-                if data_list[0] == int(self._board_id) and len(data_list) == 2:
-                    received_data = data[1]
-
+                last_msg = msg
+        except OSError:
+            # No messages or minor recv error
+            pass
         except Exception as ex:
-            print(ex)
-        
-        return received_data
+            print("ESP-NOW recv error:", ex)
+            return None
 
-    def send_data(self):
+        if last_msg is None:
+            return None
+
+        try:
+            # Parse ASCII message "<id> <value>"
+            parts = [int(n) for n in last_msg.split()]
+        except Exception as ex:
+            print("ESP-NOW parse error:", ex)
+            return None
+
+        # Must contain exactly 2 integers and be addressed to this board
+        if (len(parts) == 2) and (parts[0] == self._board_id):
+            received_value = parts[1]
+
+        return received_value
+
+    def send_data(self, *args, **kwargs):
+        """
+        Placeholder method (same as original CircuitPython version).
+        Implement this if you need the lights board to transmit ESP-NOW data.
+        """
         pass
