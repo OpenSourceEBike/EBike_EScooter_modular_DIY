@@ -3,18 +3,18 @@ from micropython import const
 # ESPNow wireless communications uses this MAC address
 
 # Fiido Q1S
-# my_mac_address             = b"\x68\xb6\xb3\x01\xf7\xf3"  # display
-# mac_address_power_switch   = b"\x68\xb6\xb3\x01\xf7\xf1"
-# mac_address_motor_board    = b"\x68\xb6\xb3\x01\xf7\xf2"
-# mac_address_rear_lights    = b"\x68\xb6\xb3\x01\xf7\xf4"
-# mac_address_front_lights   = b"\x68\xb6\xb3\x01\xf7\xf5"
+my_mac_address             = b"\x68\xb6\xb3\x01\xf7\xf3"  # display
+mac_address_power_switch   = b"\x68\xb6\xb3\x01\xf7\xf1"
+mac_address_motor_board    = b"\x68\xb6\xb3\x01\xf7\xf2"
+mac_address_rear_lights    = b"\x68\xb6\xb3\x01\xf7\xf4"
+mac_address_front_lights   = b"\x68\xb6\xb3\x01\xf7\xf5"
 
 #i iScooter i12
-my_mac_address             = b"\x68\xb6\xb3\x01\xf7\xe3"  # display
-mac_address_power_switch   = b"\x68\xb6\xb3\x01\xf7\xe1"
-mac_address_motor_board    = b"\x68\xb6\xb3\x01\xf7\xe2"
-mac_address_rear_lights    = b"\x68\xb6\xb3\x01\xf7\xe4"
-mac_address_front_lights   = b"\x68\xb6\xb3\x01\xf7\xe5"
+# my_mac_address             = b"\x68\xb6\xb3\x01\xf7\xe3"  # display
+# mac_address_power_switch   = b"\x68\xb6\xb3\x01\xf7\xe1"
+# mac_address_motor_board    = b"\x68\xb6\xb3\x01\xf7\xe2"
+# mac_address_rear_lights    = b"\x68\xb6\xb3\x01\xf7\xe4"
+# mac_address_front_lights   = b"\x68\xb6\xb3\x01\xf7\xe5"
 
 # LCD ST7565 pins
 pin_spi_mosi                = const(43)
@@ -37,10 +37,6 @@ lights_button_pin = const(5)
 # Long-press
 power_btn_long_ms = const(700)
 debounce_ms       = const(30)
-
-# Charging detection
-charge_current_threshold_a_x10 = const(20)
-charge_detect_hold_ms      = const(2000)
 
 # UI
 ui_hz = const(10)
