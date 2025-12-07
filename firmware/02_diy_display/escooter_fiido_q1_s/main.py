@@ -276,7 +276,6 @@ async def main_task(vars):
             first_transition_to_main_screen = True
             time_rtc_try_update_once = now
         
-        
         # Try NTP once after ~2s
         if not update_date_time_once and \
             cfg.enable_rtc_time and \
