@@ -51,8 +51,6 @@ esp.active(True)
 
 vars = Vars.Vars()
 
-# radio_lock = asyncio.Lock()  # já não é necessário nas novas classes
-
 # Novas assinaturas: (espnow_inst, peer_mac, vars/system_data)
 motor = MotorBoard(esp, cfg.mac_address_motor_board, vars)
 power_switch = PowerSwitch(esp, cfg.mac_address_power_switch, vars)

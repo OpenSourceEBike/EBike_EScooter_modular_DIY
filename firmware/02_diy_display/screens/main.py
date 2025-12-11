@@ -78,19 +78,11 @@ class MainScreen(BaseScreen):
             self._wheel_speed_widget.update(wheel_speed_x10 // 10)
 
         # Lights and brakes
-        if vars.brakes_are_active and vars.lights_state:
-            warning_text = 'B L'
-            
-        elif vars.brakes_are_active:
-            warning_text = 'B'
+        brk = 'B' if vars.brakes_are_active else ' '
+        lgt = 'L' if vars.lights_state else ' '
 
-        elif vars.lights_state:
-            warning_text = '  L'
+        warning_text = f"{brk} {lgt}"
 
-        else:
-            # Neither active: ''
-            warning_text = ''
-            
         if warning_text != self._warning_text_previous:
             self._warning_text_previous = warning_text
             self._warning_widget.update(warning_text)
