@@ -15,6 +15,8 @@ class MainScreen(BaseScreen):
         self._motor_power_previous = 0
         self._wheel_speed_x10_previous = 0
         self._time_timer_previous = 0
+        self._brakes_text_previous = ''
+        self._lights_text_previous = ''
         self._warning_text_previous = ''
 
     def on_enter(self):
@@ -43,13 +45,30 @@ class MainScreen(BaseScreen):
         self._wheel_speed_widget.set_box(x1=self.fb.width - 55, y1=0, x2=self.fb.width - 1, y2=36)
         self._wheel_speed_widget.update(0)
 
-        # Warning
-        self._warning_widget = WidgetTextBox(
+        # Brakes
+        self._brakes_widget = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
             font=font_small,
             align_inside="left"
         )
-        self._warning_widget.set_box(x1=0, y1=37, x2=63, y2=37 + 9)
+        self._brakes_widget.set_box(x1=1, y1=37, x2=7, y2=37 + 9)
+        self._brakes_widget.update('')
+        
+        # Lights
+        self._lights_widget = WidgetTextBox(
+            self.fb, self.fb.width, self.fb.width,
+            font=font_small,
+            align_inside="left"
+        )
+        self._lights_widget.set_box(x1=12, y1=37, x2=19, y2=37 + 9)
+        self._lights_widget.update('')
+        
+        self._warning_widget = WidgetTextBox(
+            self.fb, self.fb.width, self.fb.width,
+            font=font_small,
+            align_inside="right"
+        )
+        self._warning_widget.set_box(x1=64, y1=37, x2=127, y2=37 + 9)
         self._warning_widget.update('')
 
         # Clock
@@ -77,16 +96,18 @@ class MainScreen(BaseScreen):
             self._wheel_speed_x10_previous = wheel_speed_x10
             self._wheel_speed_widget.update(wheel_speed_x10 // 10)
 
-        # Lights and brakes
-        brk = 'B' if vars.brakes_are_active else ' '
-        lgt = 'L' if vars.lights_state else ' '
+        # Brakes
+        brakes = 'B' if vars.brakes_are_active else ''
+        if brakes != self._brakes_text_previous:
+            self._brakes_text_previous = brakes
+            self._brakes_widget.update(brakes)
 
-        warning_text = f"{brk} {lgt}"
-
-        if warning_text != self._warning_text_previous:
-            self._warning_text_previous = warning_text
-            self._warning_widget.update(warning_text)
-
+        # Lights
+        lights = 'L' if vars.lights_state else ''
+        if lights != self._lights_text_previous:
+            self._lights_text_previous = lights
+            self._lights_widget.update(lights)
+            
         # Time
         if cfg.enable_rtc_time:
             now = time.ticks_ms()
