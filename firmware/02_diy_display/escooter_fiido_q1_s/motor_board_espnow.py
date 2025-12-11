@@ -30,60 +30,44 @@ class MotorBoard:
         except OSError:
             pass
 
-        # RX latest message buffer (bytes)
-        self._rx_latest = None
-
-    # ---------- RX path ----------
-    def poll_rx(self):
+    # ---------- public API ----------
+    def receive_process_data(self):
         """
-        Non-blocking poll of ESP-NOW RX queue.
-        Reads all pending packets (timeout=0) and keeps only the last one.
+        Non-blocking: read any pending ESP-NOW packets and apply
+        the most recent control packet if one arrived.
+
+        Call this frequently from your main loop.
         """
         last_msg = None
         try:
             while True:
-                host, msg = self._esp.recv(0)  # non-blocking
+                host, msg = self._esp.recv(0)  # timeout=0 -> non-blocking
                 if not msg:
                     break
                 last_msg = msg
-                # Keep dynamic peer (harmless if already added)
+
+                # keep dynamic peer (harmless if already added)
                 try:
                     self._esp.add_peer(host)
                 except OSError:
                     pass
         except OSError:
-            # No messages or minor recv error
+            # no messages or minor recv error
             pass
         except Exception as e:
-            print("MotorBoard rx poll error:", e)
-
-        if last_msg is not None:
-            self._rx_latest = last_msg
-
-    def receive_process_data(self):
-        """
-        Decode & apply the most recent DISPLAY frame, if any.
-        Call this after poll_rx().
-        """
-        msg = self._rx_latest
-        if not msg:
+            print("MotorBoard rx error:", e)
             return
 
-        # consume it
-        self._rx_latest = None
+        if not last_msg:
+            return
 
         try:
-            parts = [int(s) for s in msg.decode("ascii").split()]
+            parts = [int(s) for s in last_msg.decode("ascii").split()]
         except Exception as ex:
             print(ex)
             return
 
-        if len(parts) != 9:
-            return
-        if parts[0] != int(BoardsIds.DISPLAY):
-            return
-
-        try:
+        if (len(parts) == 9) and (int(parts[0]) == int(BoardsIds.DISPLAY)):
             self._vars.battery_voltage_x10   = parts[1]
             self._vars.battery_current_x10   = parts[2]
             self._vars.battery_soc_x1000     = parts[3]
@@ -97,9 +81,6 @@ class MotorBoard:
 
             self._vars.vesc_temperature_x10  = parts[7]
             self._vars.motor_temperature_x10 = parts[8]
-
-        except Exception as e:
-            print("rx apply error:", e)
 
     # ---------- TX path ----------
     def _build_tx_payload(self) -> bytes:
