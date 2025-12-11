@@ -7,7 +7,7 @@ import machine
 from machine import WDT
 from vars import Vars
 from motor import MotorData, Motor
-from configurations_escooter_iscooter_i12 import cfg, front_motor_cfg, rear_motor_cfg
+from configurations_escooter_iscooter_i12 import cfg, rear_motor_cfg
 from brake import Brake
 from throttle import Throttle
 from common.utils import map_range
@@ -28,23 +28,16 @@ while brake_sensor.value:
 
 # Motors: data + driver objects
 rear_motor_data  = MotorData(rear_motor_cfg)
-front_motor_data = MotorData(front_motor_cfg)
 rear_motor  = Motor(rear_motor_data)
-front_motor = Motor(front_motor_data)
 
 # Init targets from configuration
-front_motor.data.motor_target_current_limit_max = front_motor.data.cfg.motor_max_current_limit_max
-front_motor.data.motor_target_current_limit_min = front_motor.data.cfg.motor_max_current_limit_min
-front_motor.data.battery_target_current_limit_max = front_motor.data.cfg.battery_max_current_limit_max
-front_motor.data.battery_target_current_limit_min = front_motor.data.cfg.battery_max_current_limit_min
-
 rear_motor.data.motor_target_current_limit_max = rear_motor.data.cfg.motor_max_current_limit_max
 rear_motor.data.motor_target_current_limit_min = rear_motor.data.cfg.motor_max_current_limit_min
 rear_motor.data.battery_target_current_limit_max = rear_motor.data.cfg.battery_max_current_limit_max
 rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_max_current_limit_min
 
 # ESP-NOW display link
-display = DisplayESPnow.Display(vars, front_motor.data, rear_motor.data, cfg.display_mac_address)
+display = DisplayESPnow.Display(vars, rear_motor.data, cfg.display_mac_address)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Optional BMS support (BLE) — BLE activation is deferred to bms.start()
@@ -97,7 +90,7 @@ throttle_1 = Throttle(
 async def task_motors_refresh_data():
     # Refresh latest VESC data (call once; it fills both via CAN)
     while True:
-        rear_motor.update_motor_data(rear_motor, front_motor)
+        rear_motor.update_motor_data(rear_motor, None)
         gc.collect()
         await asyncio.sleep(0.05)
 
@@ -159,7 +152,6 @@ async def task_control_motor(wdt):
         if (throttle_1_value > cfg.throttle_1_adc_over_max_error):
             # Send zero current a few times to be safe
             for _ in range(3):
-                front_motor.set_motor_current_amps(0)
                 rear_motor.set_motor_current_amps(0)
 
             if throttle_1_value > cfg.throttle_1_adc_over_max_error:
@@ -169,36 +161,23 @@ async def task_control_motor(wdt):
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
 
         # Target speed (map 0..1000 → 0..ERPM limit)
-        front_motor.data.motor_target_speed = map_range(
-            throttle_value, 0.0, 1000.0, 0.0, front_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
-        )
         rear_motor.data.motor_target_speed = map_range(
             throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
         )
 
         # Small dead-zone
-        if front_motor.data.motor_target_speed < 500.0:
-            front_motor.data.motor_target_speed = 0.0
         if rear_motor.data.motor_target_speed < 500.0:
             rear_motor.data.motor_target_speed = 0.0
 
         # Enforce max
-        if front_motor.data.motor_target_speed > front_motor.data.cfg.motor_erpm_max_speed_limit:
-            front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
         if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit:
             rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
 
         # Set motor/battery current limits
-        front_motor.set_motor_current_limits(
-            front_motor.data.motor_target_current_limit_min,
-            front_motor.data.motor_target_current_limit_max)
         rear_motor.set_motor_current_limits(
             rear_motor.data.motor_target_current_limit_min,
             rear_motor.data.motor_target_current_limit_max)
 
-        front_motor.set_battery_current_limits(
-            front_motor.data.battery_target_current_limit_min,
-            front_motor.data.battery_target_current_limit_max)
         rear_motor.set_battery_current_limits(
             rear_motor.data.battery_target_current_limit_min,
             rear_motor.data.battery_target_current_limit_max)
@@ -208,14 +187,11 @@ async def task_control_motor(wdt):
 
         # Command motor(s)        
         if vars.motors_enable_state is False:
-            front_motor.set_motor_current_amps(0)
             rear_motor.set_motor_current_amps(0)
         else:
             if vars.brakes_are_active:
-                front_motor.set_motor_speed_rpm(0)
                 rear_motor.set_motor_speed_rpm(0)
             else:
-                front_motor.set_motor_speed_rpm(front_motor.data.motor_target_speed)
                 rear_motor.set_motor_speed_rpm(rear_motor.data.motor_target_speed)
 
         # Feed watchdog
@@ -226,16 +202,9 @@ async def task_control_motor(wdt):
 
 async def task_control_motor_limit_current():
     while True:
-        # Always use rear wheel speed (front may skid)
+        # Always use rear wheel speed
         wheel_speed = rear_motor.data.wheel_speed
 
-        front_motor.data.motor_target_current_limit_max = map_range(
-            wheel_speed,
-            5.0,
-            front_motor.data.cfg.motor_current_limit_max_min_speed,
-            front_motor.data.cfg.motor_current_limit_max_max,
-            front_motor.data.cfg.motor_current_limit_max_min,
-            clamp=True)
         rear_motor.data.motor_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
@@ -244,13 +213,6 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.motor_current_limit_max_min,
             clamp=True)
 
-        front_motor.data.motor_target_current_limit_min = map_range(
-            wheel_speed,
-            5.0,
-            front_motor.data.cfg.motor_current_limit_min_max_speed,
-            front_motor.data.cfg.motor_current_limit_min_max,
-            front_motor.data.cfg.motor_current_limit_min_min,
-            clamp=True)
         rear_motor.data.motor_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
@@ -259,13 +221,6 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.motor_current_limit_min_min,
             clamp=True)
 
-        front_motor.data.battery_target_current_limit_max = map_range(
-            wheel_speed,
-            5.0,
-            front_motor.data.cfg.battery_current_limit_max_min_speed,
-            front_motor.data.cfg.battery_current_limit_max_max,
-            front_motor.data.cfg.battery_current_limit_max_min,
-            clamp=True)
         rear_motor.data.battery_target_current_limit_max = map_range(
             wheel_speed,
             5.0,
@@ -274,13 +229,6 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.battery_current_limit_max_min,
             clamp=True)
 
-        front_motor.data.battery_target_current_limit_min = map_range(
-            wheel_speed,
-            5.0,
-            front_motor.data.cfg.battery_current_limit_min_max_speed,
-            front_motor.data.cfg.battery_current_limit_min_max,
-            front_motor.data.cfg.battery_current_limit_min_min,
-            clamp=True)
         rear_motor.data.battery_target_current_limit_min = map_range(
             wheel_speed,
             5.0,
@@ -352,4 +300,3 @@ async def main():
     await asyncio.gather(*tasks)
 
 asyncio.run(main())
-

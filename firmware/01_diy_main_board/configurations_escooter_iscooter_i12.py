@@ -5,7 +5,6 @@ cfg = Cfg()
 # Rear motor is the master on CAN, so has ID = 0
 # Front motor is the first slave in CAN, so has ID = 1
 rear_motor_cfg = MotorCfg(can_id=0)
-front_motor_cfg = MotorCfg(can_id=1)
 
 # Define the CAN TX and RX pins for communications with VESC
 # (VESC is a singleton in your codebase; setting on rear is enough)
@@ -43,7 +42,6 @@ cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
 #### Motors configurations ####
 
 # iScooter i12 motor 12" has 20 pole pairs
-front_motor_cfg.poles_pair = 40
 rear_motor_cfg.poles_pair = 40
 
 # TODO: verify
@@ -51,66 +49,40 @@ rear_motor_cfg.wheel_radius = 0.160
 
 # Max wheel speed in ERPM
 # 23200 --> ~35 km/h
-front_motor_cfg.motor_erpm_max_speed_limit = 23200
 rear_motor_cfg.motor_erpm_max_speed_limit = 23200
 
 # Max motor phase current limits (be careful with heating)
-front_motor_cfg.motor_max_current_limit_max = 50.0
-rear_motor_cfg.motor_max_current_limit_max = 50.0
+rear_motor_cfg.motor_max_current_limit_max = 45.0
 
 # Minimum current to start rotation (too low → vibration/stall)
-front_motor_cfg.motor_min_current_start = 1.0
 rear_motor_cfg.motor_min_current_start = 1.0
 
 # Max regen phase current (negative = regen)
-front_motor_cfg.motor_max_current_limit_min = 0.0
 rear_motor_cfg.motor_max_current_limit_min = 0.0
 
 # Approx 1000 W @ 72 V
-front_motor_cfg.battery_max_current_limit_max = 25.0
 rear_motor_cfg.battery_max_current_limit_max = 25.0
 
 # Approx 500 W @ 72 V (regen)
-front_motor_cfg.battery_max_current_limit_min = 0.0
 rear_motor_cfg.battery_max_current_limit_min = 0.0
 
 
 # Speed-dependent current limiting (reduce current as speed rises)
-# Front motor starts softer to avoid skidding
-front_motor_cfg.motor_current_limit_max_max = 50.0
-front_motor_cfg.motor_current_limit_max_min = 30.0
-front_motor_cfg.motor_current_limit_max_min_speed = 15.0  # km/h (your logic unit)
-
-rear_motor_cfg.motor_current_limit_max_max = 50.0
-rear_motor_cfg.motor_current_limit_max_min = 30.0
+rear_motor_cfg.motor_current_limit_max_max = 45.0
+rear_motor_cfg.motor_current_limit_max_min = 25.0
 rear_motor_cfg.motor_current_limit_max_min_speed = 15.0
 
 # Regen current vs speed
-front_motor_cfg.motor_current_limit_min_min = 0.0
-front_motor_cfg.motor_current_limit_min_max = 0.0
-front_motor_cfg.motor_current_limit_min_max_speed = 15.0
-
 rear_motor_cfg.motor_current_limit_min_min = 0.0
 rear_motor_cfg.motor_current_limit_min_max = 0.0
 rear_motor_cfg.motor_current_limit_min_max_speed = 15.0
 
-## Battery currents (totals target around 30 A → ~2000 W)
-
-# Shift more power to rear at launch, then balance with speed
-front_motor_cfg.battery_current_limit_max_max = 25.0   # ~700 W @ 72 V
-front_motor_cfg.battery_current_limit_max_min = 20.0   # ~900 W @ 72 V
-front_motor_cfg.battery_current_limit_max_min_speed = 15.0
-
-rear_motor_cfg.battery_current_limit_max_max = 25.0    # ~1400 W @ 72 V
-rear_motor_cfg.battery_current_limit_max_min = 20.0    # ~1100 W @ 72 V
+## Battery currents
+rear_motor_cfg.battery_current_limit_max_max = 25.0
+rear_motor_cfg.battery_current_limit_max_min = 20.0
 rear_motor_cfg.battery_current_limit_max_min_speed = 15.0
 
 # Regen battery current limits
-# Max regen total ~14 A (~1000 W); min regen total ~10.5 A (~800 W)
-front_motor_cfg.battery_current_limit_min_min = 0.0
-front_motor_cfg.battery_current_limit_min_max = 0.0
-front_motor_cfg.battery_current_limit_min_max_speed = 15.0
-
 rear_motor_cfg.battery_current_limit_min_min = 0.0
 rear_motor_cfg.battery_current_limit_min_max = 0.0
 rear_motor_cfg.battery_current_limit_min_max_speed = 15.0
