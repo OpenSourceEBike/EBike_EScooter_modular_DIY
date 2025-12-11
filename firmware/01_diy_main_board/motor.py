@@ -262,7 +262,7 @@ class MotorData:
 
         # Live telemetry (decoded from VESC CAN packets)
         self.speed_erpm = 0
-        self.wheel_speed = 0.0
+        self.wheel_speed = 0
         self.vesc_temperature_x10 = 0
         self.motor_temperature_x10 = 0
         self.motor_current_x10 = 0

@@ -34,7 +34,7 @@ cfg.display_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE3]
 #######################################################################
 # If you are using a Jiabaida BMS (https://jiabaida-bms.com/) on you battery
 # Keep this disabled/False as default
-cfg.has_jbd_bms = True
+cfg.has_jbd_bms = False
 
 cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
 #######################################################################
@@ -55,8 +55,8 @@ front_motor_cfg.motor_erpm_max_speed_limit = 23200
 rear_motor_cfg.motor_erpm_max_speed_limit = 23200
 
 # Max motor phase current limits (be careful with heating)
-front_motor_cfg.motor_max_current_limit_max = 60.0
-rear_motor_cfg.motor_max_current_limit_max = 60.0
+front_motor_cfg.motor_max_current_limit_max = 50.0
+rear_motor_cfg.motor_max_current_limit_max = 50.0
 
 # Minimum current to start rotation (too low → vibration/stall)
 front_motor_cfg.motor_min_current_start = 1.0
@@ -77,12 +77,12 @@ rear_motor_cfg.battery_max_current_limit_min = 0.0
 
 # Speed-dependent current limiting (reduce current as speed rises)
 # Front motor starts softer to avoid skidding
-front_motor_cfg.motor_current_limit_max_max = 55.0
-front_motor_cfg.motor_current_limit_max_min = 35.0
+front_motor_cfg.motor_current_limit_max_max = 50.0
+front_motor_cfg.motor_current_limit_max_min = 30.0
 front_motor_cfg.motor_current_limit_max_min_speed = 15.0  # km/h (your logic unit)
 
-rear_motor_cfg.motor_current_limit_max_max = 55.0
-rear_motor_cfg.motor_current_limit_max_min = 35.0
+rear_motor_cfg.motor_current_limit_max_max = 50.0
+rear_motor_cfg.motor_current_limit_max_min = 30.0
 rear_motor_cfg.motor_current_limit_max_min_speed = 15.0
 
 # Regen current vs speed
