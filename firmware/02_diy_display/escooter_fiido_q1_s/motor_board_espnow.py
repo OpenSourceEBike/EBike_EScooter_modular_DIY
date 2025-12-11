@@ -89,8 +89,9 @@ class MotorBoard:
 
     def send_data(self):
         """
-        Synchronous send to motor board.
-        Call from o teu loop principal sempre que quiseres enviar comando.
+        Non-blocking.
+        
+        Call this frequently from your main loop.
         """
         payload = self._build_tx_payload()
         try:

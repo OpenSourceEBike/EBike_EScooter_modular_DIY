@@ -14,7 +14,9 @@ from common.thisbutton import thisButton
 from common.utils import map_range
 from screen_manager import ScreenManager, ScreenID
 import vars as Vars
-import configurations as cfg
+
+import configurations_escooter_fiido_q1_s as cfg
+# import configurations_escooter_iscooter_i12 as cfg
 
 # ----- Rear/front light bit masks
 REAR_TAIL_BIT       = 1
