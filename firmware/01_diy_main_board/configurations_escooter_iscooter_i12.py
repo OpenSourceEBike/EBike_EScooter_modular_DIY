@@ -1,6 +1,6 @@
 from vars import Cfg, MotorCfg
 
-cfg = Cfg()
+model = 'escooter_iscooter_i12'
 
 # Rear motor is the master on CAN, so has ID = 0
 # Front motor is the first slave in CAN, so has ID = 1
@@ -14,6 +14,8 @@ rear_motor_cfg.can_tx_pin = 5
 rear_motor_cfg.can_baudrate = 125000
 # 0 is normal mode
 rear_motor_cfg.can_mode = 0
+
+cfg = Cfg()
 
 # Brake pin for brake sensor
 cfg.brake_pin = 4

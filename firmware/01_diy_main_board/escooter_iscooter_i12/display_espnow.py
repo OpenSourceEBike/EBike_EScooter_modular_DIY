@@ -77,8 +77,7 @@ class Display:
                 last_msg = msg
 
                 # keep dynamic peer (harmless if already added)
-                try:            # Debug (optional):
-            # print(self._vars.motors_enable_state, self._vars.buttons_state)
+                try:
                     self._esp.add_peer(host)
                 except OSError:
                     pass
@@ -127,10 +126,6 @@ class Display:
             vesc_temperature_x10 = _i(self._rear.vesc_temperature_x10)
             motor_temperature_x10 = _i(self._rear.motor_temperature_x10)
 
-            # Bit flags (same layout as reference):
-            # bit0: brakes_are_active
-            # bit1: regen_braking_is_active
-            # bit2: battery_is_charging
             flags = ((brakes_are_active & 1) << 0) | \
                     ((regen_braking_is_active & 1) << 1) | \
                     ((battery_is_charging & 1) << 2)
@@ -168,3 +163,4 @@ class Display:
 
         except Exception as e:
             print("Display tx build error:", e)
+            

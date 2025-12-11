@@ -1,6 +1,6 @@
 from vars import Cfg, MotorCfg
 
-cfg = Cfg()
+model = 'escooter_xiaomi_m365'
 
 assist_level_factor_table = [
     0,
@@ -32,6 +32,8 @@ front_motor_cfg = MotorCfg(can_id=0)
 # CAN pins for VESC comms
 front_motor_cfg.can_rx_pin = 4
 front_motor_cfg.can_tx_pin = 5
+
+cfg = Cfg()
 
 # Brake (analog) pin + thresholds
 cfg.brake_pin = 11  # ADC input pin

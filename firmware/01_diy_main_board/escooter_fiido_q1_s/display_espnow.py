@@ -59,11 +59,8 @@ class Display:
         except OSError:
             pass  # already there
 
-        # Latest RX message (optional – we can also process directly)
-        self._rx_latest = None
 
     # ---------- public API ----------
-
     def receive_process_data(self):
         """
         Non-blocking: read any pending ESP-NOW packets and apply
@@ -76,6 +73,7 @@ class Display:
                 if not msg:
                     break
                 last_msg = msg
+                
                 # keep dynamic peer (harmless if already added)
                 try:
                     self._esp.add_peer(host)
@@ -91,9 +89,6 @@ class Display:
         if not last_msg:
             return
 
-        # Optionally store it
-        self._rx_latest = last_msg
-
         try:
             parts = [int(n) for n in last_msg.split()]
         except Exception as ex:
@@ -106,7 +101,7 @@ class Display:
 
     def send_data(self):
         """
-        Build and send one status frame (synchronous).
+        Build and send one status frame.
         Call this periodically from your loop or task.
         """
         try:
@@ -177,3 +172,4 @@ class Display:
 
         except Exception as e:
             print("Display tx build error:", e)
+            
