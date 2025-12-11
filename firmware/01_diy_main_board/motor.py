@@ -108,7 +108,6 @@ class Motor(object):
             return None
 
     # ------------------ PUBLIC: RX drain & VESC decode ------------------
-
     def update_motor_data(self, motor_1, motor_2=None, budget_ms=10):
         """
         Drain frames for ~budget_ms without blocking.

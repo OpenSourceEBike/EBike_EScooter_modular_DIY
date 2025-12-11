@@ -12,11 +12,10 @@ class Display:
 
     battery_current_x10 = 0
 
-    def __init__(self, vars, front_motor_data, rear_motor_data,
+    def __init__(self, vars, rear_motor_data,
                  mac_address: bytes, channel: int = 1):
         # Providers (may be partially uninitialized at boot)
         self._vars  = vars
-        self._front = front_motor_data
         self._rear  = rear_motor_data
 
         # Wi-Fi STA on desired channel; AP off
@@ -123,21 +122,10 @@ class Display:
                 except Exception:
                     return 0
 
-            battery_current_x10 = _i(self._front.battery_current_x10) + \
-                                  _i(self._rear.battery_current_x10)
-
-            motor_current_x10 = _i(self._front.motor_current_x10) + \
-                                _i(self._rear.motor_current_x10)
-
-            vesc_temperature_x10 = max(
-                _i(self._front.vesc_temperature_x10),
-                _i(self._rear.vesc_temperature_x10),
-            )
-
-            motor_temperature_x10 = max(
-                _i(self._front.motor_temperature_x10),
-                _i(self._rear.motor_temperature_x10),
-            )
+            battery_current_x10 = _i(self._rear.battery_current_x10)
+            motor_current_x10 = _i(self._rear.motor_current_x10)
+            vesc_temperature_x10 = _i(self._rear.vesc_temperature_x10)
+            motor_temperature_x10 = _i(self._rear.motor_temperature_x10)
 
             # Bit flags (same layout as reference):
             # bit0: brakes_are_active
