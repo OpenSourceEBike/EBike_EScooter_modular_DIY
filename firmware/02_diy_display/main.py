@@ -1,9 +1,7 @@
 #############################################
 #
-# Choose here which EBike/EScooter model firmware to run:
-from configurations_escooter_fiido_q1_s import model
-# from configurations_escooter_iscooter_i12 import model
-# from configurations_escooter_xiaomi_m365 import model
+# Choose the EBike/EScooter model on configurations.py:
+from configurations import model
 
 print('EBike/EScooter model:')
 print(model)
