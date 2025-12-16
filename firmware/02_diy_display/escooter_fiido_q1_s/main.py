@@ -26,24 +26,25 @@ print("Starting Display")
 # WiFi STA
 sta = network.WLAN(network.STA_IF)
 sta.active(True)
-try:
-    sta.config(mac=cfg.my_mac_address)
-except Exception:
-    pass
+try:    
+    my_mac = bytes(cfg.my_mac_address)
+    sta.config(mac=my_mac)
+except Exception as ex:
+    print('sta.config', ex)
 try:
     try:
         sta.disconnect()
-    except Exception:
-        pass
+    except Exception as ex:
+        print('sta.disconnect', ex)
     sta.config(channel=1)
-except Exception:
-    pass
+except Exception as ex:
+    print(ex)
 try:
     ap = network.WLAN(network.AP_IF)
     if ap.active():
         ap.active(False)
-except Exception:
-    pass
+except Exception as ex:
+    print(ex)
 
 # ESP-NOW (síncrono)
 esp = espnow.ESPNow()

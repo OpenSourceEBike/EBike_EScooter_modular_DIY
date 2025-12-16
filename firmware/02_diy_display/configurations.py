@@ -1,6 +1,7 @@
 from micropython import const
 
-model = 'escooter_iscooter_i12'
+model = 'escooter_fiido_q1_s'
+# model = 'escooter_iscooter_i12'
 
 # ESPNow wireless communications uses this MAC address
 if model == 'escooter_fiido_q1_s':
