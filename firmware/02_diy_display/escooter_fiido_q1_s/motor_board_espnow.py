@@ -78,6 +78,7 @@ class MotorBoard:
             self._vars.brakes_are_active       = bool(flags & (1 << 0))
             self._vars.regen_braking_is_active = bool(flags & (1 << 1))
             self._vars.battery_is_charging     = bool(flags & (1 << 2))
+            self._vars.mode = (flags >> 3) & 0x07
 
             self._vars.vesc_temperature_x10  = parts[7]
             self._vars.motor_temperature_x10 = parts[8]

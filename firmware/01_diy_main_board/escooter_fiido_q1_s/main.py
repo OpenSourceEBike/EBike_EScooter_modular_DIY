@@ -156,17 +156,17 @@ async def task_control_motor(wdt):
         throttle_value = max(throttle_1_value, throttle_2_value)
         
         # Over-max safety (ADC glitch protection)
-        if (throttle_1_value > cfg.throttle_1_adc_over_max_error) or \
-           (throttle_2_value > cfg.throttle_2_adc_over_max_error):
+        if (throttle_1.adc_value > cfg.throttle_1_adc_over_max_error) or \
+           (throttle_2.adc_value > cfg.throttle_2_adc_over_max_error):
             # Send zero current a few times to be safe
             for _ in range(3):
                 front_motor.set_motor_current_amps(0)
                 rear_motor.set_motor_current_amps(0)
 
-            if throttle_1_value > cfg.throttle_1_adc_over_max_error:
-                raise Exception(f'throttle 1 value: {throttle_1_value} -- is over max, this can be dangerous!')
+            if throttle_1.adc_value > cfg.throttle_1_adc_over_max_error:
+                raise Exception(f'throttle 1 value: {throttle_1.adc_value} -- is over max, this can be dangerous!')
             else:
-                raise Exception(f'throttle 2 value: {throttle_2_value} -- is over max, this can be dangerous!')
+                raise Exception(f'throttle 2 value: {throttle_2.adc_value} -- is over max, this can be dangerous!')
 
         # Cruise control
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)

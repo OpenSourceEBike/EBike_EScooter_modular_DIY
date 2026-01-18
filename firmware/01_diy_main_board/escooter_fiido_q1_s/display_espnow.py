@@ -137,7 +137,8 @@ class Display:
 
             flags = ((brakes_are_active & 1) << 0) | \
                     ((regen_braking_is_active & 1) << 1) | \
-                    ((battery_is_charging & 1) << 2)
+                    ((battery_is_charging & 1) << 2) | \
+                    ((self._vars.mode & 7) << 3)
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "

@@ -1,20 +1,23 @@
-# boot.py — enter safe mode automatically after crash/fault reset
+# boot.py — ESP32 MicroPython
+# Hold BOOT (GPIO0) within 1s after reset to enter safe mode
+
 import machine
-import sys
+import time
 
-# Reset cause constants:
-# machine.PWRON_RESET      1   # Power-on
-# machine.HARD_RESET       2   # machine.reset()
-# machine.WDT_RESET        3   # Hardware watchdog
-# machine.DEEPSLEEP_RESET  4   # Deep sleep wakeup
-# machine.SOFT_RESET       5   # Ctrl-D soft reset from REPL
+BOOT_PIN = 0          # ESP32 BOOT button is GPIO0
+CHECK_TIME_MS = 1000  # 1 second window
 
-cause = machine.reset_cause()
-print("Reset cause:", cause)
+btn = machine.Pin(BOOT_PIN, machine.Pin.IN, machine.Pin.PULL_UP)
 
-# Define what counts as "faulty" reset
-FAULT_CAUSES = (machine.HARD_RESET,)
+start = time.ticks_ms()
+safe = False
 
-if cause in FAULT_CAUSES:
-    print("Entering safe mode...")
-    sys.exit()
+while time.ticks_diff(time.ticks_ms(), start) < CHECK_TIME_MS:
+    if btn.value() == 0:   # BOOT pressed (active low)
+        safe = True
+        break
+    time.sleep_ms(10)
+
+if safe:
+    print("SAFE MODE: BOOT button pressed")
+    raise SystemExit   # skips main.py, REPL stays active

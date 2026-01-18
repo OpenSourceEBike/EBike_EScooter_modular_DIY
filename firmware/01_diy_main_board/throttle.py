@@ -15,12 +15,6 @@ class Throttle:
         self._adc_previous_value = 0
 
     @property
-    def adc_value(self):
-        """Raw ADC value [0–65535]"""
-        return self._adc.read_u16()
-
-    @property
     def value(self):
-        """Scaled throttle [0–1000]"""
         raw = self._adc.read_u16()
-        return int(map_range(raw, self._min, self._max, 0, 1000, clamp=True))
+        return raw, int(map_range(raw, self._min, self._max, 0, 1000, clamp=True))
