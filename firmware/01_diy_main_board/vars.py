@@ -12,6 +12,7 @@ class Cfg(object):
         self.jbd_bms_bluetooth_name = ''
         self.charge_current_threshold_a_x100 = 0
         self.charge_detect_hold_ms = 0
+        self.save_mode_to_nvs = False
 
 class MotorCfg(object):
     def __init__(self, can_id):
@@ -65,7 +66,5 @@ class Vars(object):
         self.cruise_control = CruiseControl()
         self.bms_battery_current_x100 = None
         self.battery_is_charging = False
+        self.mode = 0
         
-        
-
-

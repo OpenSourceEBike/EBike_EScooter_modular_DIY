@@ -12,6 +12,7 @@ from brake import Brake
 from throttle import Throttle
 from common.utils import map_range
 import escooter_iscooter_i12.display_espnow as DisplayESPnow
+from mode import Mode
 
 led = neopixel.NeoPixel(machine.Pin(21, machine.Pin.OUT), 1)
 
@@ -38,6 +39,15 @@ rear_motor.data.battery_target_current_limit_min = rear_motor.data.cfg.battery_m
 
 # ESP-NOW display link
 display = DisplayESPnow.Display(vars, rear_motor.data, cfg.display_mac_address)
+
+# Throttles
+throttle_1 = Throttle(
+    cfg.throttle_1_pin,
+    min_val=cfg.throttle_1_adc_min,   # min ADC (with margin)
+    max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
+)
+
+mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Optional BMS support (BLE) — BLE activation is deferred to bms.start()
@@ -80,13 +90,6 @@ if cfg.has_jbd_bms:
                 vars.bms_battery_current_x100 = bms.get_current_a_x100()
             await asyncio.sleep_ms(1000)  # read cadence
 
-# Throttles
-throttle_1 = Throttle(
-    cfg.throttle_1_pin,
-    min_val=cfg.throttle_1_adc_min,   # min ADC (with margin)
-    max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
-)
-
 async def task_motors_refresh_data():
     # Refresh latest VESC data (call once; it fills both via CAN)
     while True:
@@ -104,7 +107,7 @@ async def task_display_receive_process_data():
     while True:
         display.receive_process_data()
         gc.collect()
-        await asyncio.sleep(0.1)
+        await asyncio.sleep(0.1)        
 
 def cruise_control(vars, wheel_speed, throttle_value):
     button_long_press_state = vars.buttons_state & 0x0200
@@ -141,28 +144,32 @@ def cruise_control(vars, wheel_speed, throttle_value):
 
 async def task_control_motor(wdt):
     while True:
+        motor_erpm_max_speed_limit = rear_motor.data.cfg.motor_erpm_max_speed_limit[vars.mode]
+        
         # Throttle: take max of the two
-        throttle_1_value = throttle_1.value
+        throttle_1_adc_value, throttle_1_value = throttle_1.value
         throttle_value = throttle_1_value
         
-        # print(throttle_1.adc_value, throttle_1.value)
+        # print(throttle_1_adc_value, throttle_1_value)
         # print()
         
         # Over-max safety (ADC glitch protection)
-        if (throttle_1_value > cfg.throttle_1_adc_over_max_error):
+        if (throttle_1_adc_value > cfg.throttle_1_adc_over_max_error):
             # Send zero current a few times to be safe
             for _ in range(3):
                 rear_motor.set_motor_current_amps(0)
 
-            if throttle_1_value > cfg.throttle_1_adc_over_max_error:
-                raise Exception(f'throttle 1 value: {throttle_1_value} -- is over max, this can be dangerous!')
+            if throttle_1_adc_value > cfg.throttle_1_adc_over_max_error:
+                raise Exception(
+                    f'throttle 1 adc: {throttle_1_adc_value} -- is over max, this can be dangerous!'
+                )
 
         # Cruise control
         throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
 
         # Target speed (map 0..1000 → 0..ERPM limit)
         rear_motor.data.motor_target_speed = map_range(
-            throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
+            throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit, clamp=True
         )
 
         # Small dead-zone
@@ -170,8 +177,8 @@ async def task_control_motor(wdt):
             rear_motor.data.motor_target_speed = 0.0
 
         # Enforce max
-        if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit:
-            rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
+        if rear_motor.data.motor_target_speed > motor_erpm_max_speed_limit:
+            rear_motor.data.motor_target_speed = motor_erpm_max_speed_limit
 
         # Set motor/battery current limits
         rear_motor.set_motor_current_limits(
@@ -236,8 +243,6 @@ async def task_control_motor_limit_current():
             rear_motor.data.cfg.battery_current_limit_min_max,
             rear_motor.data.cfg.battery_current_limit_min_min,
             clamp=True)
-        
-        led_blink()
 
         gc.collect()
         await asyncio.sleep(0.025)
@@ -248,7 +253,7 @@ led_state = False
 def led_blink():
     global led_state
     
-    led_state = ~led_state
+    led_state = not led_state
     if led_state:
         led[0] = (0, 4, 0)
     else:
@@ -258,6 +263,8 @@ def led_blink():
 
 async def task_various():
     global wheel_speed_previous_motor_speed_erpm
+    global mode
+    
     while True:
         # Calculate rear motor wheel speed
         if rear_motor.data.speed_erpm != wheel_speed_previous_motor_speed_erpm:
@@ -271,6 +278,11 @@ async def task_various():
             # Small floor near zero
             if abs(rear_motor.data.wheel_speed) < 2.0:
                 rear_motor.data.wheel_speed = 0.0
+                
+        # Run Mode tick
+        mode.tick()
+        
+        led_blink()
 
         gc.collect()
         await asyncio.sleep(0.1)

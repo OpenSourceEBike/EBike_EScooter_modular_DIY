@@ -120,6 +120,11 @@ class Display:
                     return int(v)
                 except Exception:
                     return 0
+            def _f(v):
+                try:
+                    return float(v)
+                except Exception:
+                    return 0.0
 
             battery_current_x10 = _i(self._rear.battery_current_x10)
             motor_current_x10 = _i(self._rear.motor_current_x10)
@@ -128,7 +133,8 @@ class Display:
 
             flags = ((brakes_are_active & 1) << 0) | \
                     ((regen_braking_is_active & 1) << 1) | \
-                    ((battery_is_charging & 1) << 2)
+                    ((battery_is_charging & 1) << 2) | \
+                    ((self._vars.mode & 7) << 3) # reserve 3 bits for Mode
 
             payload = (
                 f"{int(BoardsIds.DISPLAY)} "
@@ -136,7 +142,7 @@ class Display:
                 f"{battery_current_x10} "
                 f"{_i(self._rear.battery_soc_x1000)} "
                 f"{motor_current_x10} "
-                f"{int(_i(self._rear.wheel_speed) * 10)} "
+                f"{int(_f(self._rear.wheel_speed) * 10)} "
                 f"{flags} "
                 f"{vesc_temperature_x10} "
                 f"{motor_temperature_x10}"

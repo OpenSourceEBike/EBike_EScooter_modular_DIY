@@ -24,6 +24,7 @@ class Vars:
         self.regen_braking_is_active = False
         self.torque_weight = 0
         self.cadence = 0
+        self.mode = 0
         self.ramp_last_time = _ticks_ns()
         self.motor_current_target = 0
         self.assist_level = 0

@@ -17,10 +17,22 @@ class MainScreen(BaseScreen):
         self._time_timer_previous = 0
         self._brakes_text_previous = ''
         self._lights_text_previous = ''
+        self._warning_queue = []
+        self._warning_current = None
+        self._warning_start_ms = 0
         self._warning_text_previous = ''
+        self._mode_last_seen = None
+        self._mode_enqueued_once = False
+        self._show_mode_once = False
+        self._mode_show_started = False
+        self._mode_show_start_ms = 0
 
     def on_enter(self):
         self.clear()
+        self._warning_queue = []
+        self._warning_current = None
+        self._warning_start_ms = 0
+        self._warning_text_previous = ''
 
         # Motor power widget
         self._motor_power_widget = MotorPowerWidget(self.fb, self.fb.width, self.fb.width)
@@ -45,24 +57,25 @@ class MainScreen(BaseScreen):
         self._wheel_speed_widget.set_box(x1=self.fb.width - 55, y1=0, x2=self.fb.width - 1, y2=36)
         self._wheel_speed_widget.update(0)
 
-        # Brakes
-        self._brakes_widget = WidgetTextBox(
-            self.fb, self.fb.width, self.fb.width,
-            font=font_small,
-            align_inside="left"
-        )
-        self._brakes_widget.set_box(x1=1, y1=37, x2=7, y2=37 + 9)
-        self._brakes_widget.update('')
-        
         # Lights
         self._lights_widget = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
             font=font_small,
             align_inside="left"
         )
-        self._lights_widget.set_box(x1=12, y1=37, x2=19, y2=37 + 9)
+        self._lights_widget.set_box(x1=1, y1=37, x2=7, y2=37 + 9)
         self._lights_widget.update('')
+
+        # Brakes
+        self._brakes_widget = WidgetTextBox(
+            self.fb, self.fb.width, self.fb.width,
+            font=font_small,
+            align_inside="left"
+        )
+        self._brakes_widget.set_box(x1=12, y1=37, x2=19, y2=37 + 9)
+        self._brakes_widget.update('')
         
+        # Warning
         self._warning_widget = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
             font=font_small,
@@ -70,6 +83,16 @@ class MainScreen(BaseScreen):
         )
         self._warning_widget.set_box(x1=64, y1=37, x2=127, y2=37 + 9)
         self._warning_widget.update('')
+        if not self._mode_enqueued_once:
+            self._enqueue_warning(self._mode_text_from_vars())
+            self._mode_enqueued_once = True
+            self._show_mode_once = True
+            self._mode_show_started = True
+            self._mode_show_start_ms = time.ticks_ms()
+        else:
+            self._show_mode_once = False
+            self._mode_show_started = False
+        self._mode_last_seen = None
 
         # Clock
         if cfg.enable_rtc_time:
@@ -107,6 +130,20 @@ class MainScreen(BaseScreen):
         if lights != self._lights_text_previous:
             self._lights_text_previous = lights
             self._lights_widget.update(lights)
+
+        # Mode (show once for 5s after first entry to main screen, and if mode is diferent from 0)
+        if vars.mode != 0 and self._show_mode_once and self._mode_show_started:
+            now = time.ticks_ms()
+            if time.ticks_diff(now, self._mode_show_start_ms) <= 5000:
+                mode_text = f"mode {int(vars.mode)}" if vars.mode is not None else ''
+                if mode_text != self._warning_text_previous:
+                    self._warning_text_previous = mode_text
+                    self._warning_widget.update(mode_text)
+            else:
+                if self._warning_text_previous != '':
+                    self._warning_text_previous = ''
+                    self._warning_widget.update('')
+                self._show_mode_once = False
             
         # Time
         if cfg.enable_rtc_time:
@@ -115,3 +152,38 @@ class MainScreen(BaseScreen):
                 self._time_timer_previous = now
                 self._clock_widget.update(vars.time_string)
 
+        # Track mode value (enqueue on change)
+        if self._mode_last_seen is None:
+            self._mode_last_seen = vars.mode
+        elif vars.mode != self._mode_last_seen:
+            self._mode_last_seen = vars.mode
+            self._enqueue_warning(self._mode_text_from_vars())
+
+        # Warning queue display (5s each)
+        self._tick_warning_queue()
+
+    def _mode_text_from_vars(self):
+        if self._mode_last_seen is None:
+            return ''
+        return f"mode {int(self._mode_last_seen)}"
+
+    def _enqueue_warning(self, text):
+        if text is None or text == '':
+            return
+        self._warning_queue.append(text)
+
+    def _tick_warning_queue(self):
+        now = time.ticks_ms()
+        if self._warning_current is None:
+            if self._warning_queue:
+                self._warning_current = self._warning_queue.pop(0)
+                self._warning_start_ms = now
+                if self._warning_current != self._warning_text_previous:
+                    self._warning_text_previous = self._warning_current
+                    self._warning_widget.update(self._warning_current)
+        else:
+            if time.ticks_diff(now, self._warning_start_ms) > 5000:
+                self._warning_current = None
+                if self._warning_text_previous != '':
+                    self._warning_text_previous = ''
+                    self._warning_widget.update('')
