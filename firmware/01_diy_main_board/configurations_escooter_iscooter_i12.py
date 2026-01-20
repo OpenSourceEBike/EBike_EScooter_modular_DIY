@@ -72,7 +72,7 @@ rear_motor_cfg.motor_max_current_limit_min = -80.0
 rear_motor_cfg.battery_max_current_limit_max = 25.0
 
 # Approx 500 W @ 72 V (regen)
-rear_motor_cfg.battery_max_current_limit_min = -7.0
+rear_motor_cfg.battery_max_current_limit_min = -8.0
 
 
 # Speed-dependent current limiting (reduce current as speed rises)
@@ -91,6 +91,6 @@ rear_motor_cfg.battery_current_limit_max_min = 20.0
 rear_motor_cfg.battery_current_limit_max_min_speed = 20.0
 
 # Regen battery current limits
-rear_motor_cfg.battery_current_limit_min_min = -7.0
-rear_motor_cfg.battery_current_limit_min_max = -5.25
+rear_motor_cfg.battery_current_limit_min_min = -10.0
+rear_motor_cfg.battery_current_limit_min_max = -8.0
 rear_motor_cfg.battery_current_limit_min_max_speed = 20.0

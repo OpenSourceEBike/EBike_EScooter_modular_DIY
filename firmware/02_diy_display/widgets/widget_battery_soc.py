@@ -5,8 +5,8 @@
 
 import framebuf, time
 
-BLACK = 0x0000
-WHITE = 0xFFFF
+BLACK = 1
+WHITE = 0
 
 # Hysteresis thresholds (percent) for 4 tall bars + cap (index 4)
 _BAR_ON  = [20, 40, 60, 80, 90]
@@ -21,7 +21,7 @@ class BatterySOCWidget:
 
     def __init__(self, fb: framebuf.FrameBuffer,
                  x: int = 0, y: int = 0, scale: int = 1,
-                 fg=WHITE, bg=BLACK):
+                 fg=BLACK, bg=WHITE):
         if scale not in (1, 2):
             raise ValueError("scale must be 1 or 2")
         self.fb, self.fg, self.bg = fb, fg, bg

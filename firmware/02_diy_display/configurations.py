@@ -1,7 +1,7 @@
 from micropython import const
 
-# model = 'escooter_fiido_q1_s'
-model = 'escooter_iscooter_i12'
+model = 'escooter_fiido_q1_s'
+# model = 'escooter_iscooter_i12'
 
 # ESPNow wireless communications uses this MAC address
 if model == 'escooter_fiido_q1_s':
@@ -51,3 +51,12 @@ debounce_ms       = const(30)
 # UI
 ui_hz = const(10)
 poweroff_countdown_s = const(3)
+
+# Motor power scaling (W)
+if model == 'escooter_fiido_q1_s':
+    motor_power_max_w = 1975
+    motor_regen_power_max_w = 750
+    
+elif model == 'escooter_iscooter_i12':
+    motor_power_max_w = 1440
+    motor_regen_power_max_w = 575

@@ -8,8 +8,13 @@
 
 import math
 
-BLACK = 0
-WHITE = 1
+BLACK = 1
+WHITE = 0
+
+# Mesh size in pixels for negative (regen) fill. Min 1, max 10.
+MESH_SIZE = 2
+# Regen thickness scale for both arc and bar.
+REGEN_THICKNESS_SCALE = 0.6
 
 def map_value(x, in_min, in_max, out_min, out_max):
     if in_max == in_min:
@@ -55,6 +60,7 @@ class MotorPowerWidget:
         self.dh = display_height
         self._prev_rect_w = -1
         self._prev_A_end  = None
+        self._prev_negative = None
         self._has_hline = hasattr(self.fb, "hline")
         self._has_vline = hasattr(self.fb, "vline")
         self._first_frame_cleared = False
@@ -85,11 +91,25 @@ class MotorPowerWidget:
         else:
             self.fb.rect(int(x), int(y), int(w), int(h), c)
 
+    def _mesh_step(self, step):
+        if step is None:
+            step = MESH_SIZE
+        step = int(step)
+        if step < 1:
+            step = 1
+        elif step > 10:
+            step = 10
+        return step
+
+    def _mesh_on(self, x, y, step):
+        period = step * 2
+        return ((x + y) % period) < step or ((x - y) % period) < step
+
     # ---- areas to clear / force black underneath ----
     def _clear_bucket(self):
         self._rect(motor_power_x + motor_power_width + 9,
                    motor_power_y, motor_power_width, motor_power_height + 1,
-                   BLACK, fill=True)
+                   WHITE, fill=True)
 
     def _clear_wedge_bbox(self):
         cx = ARC_CX + ARC_X_OFFSET
@@ -98,7 +118,7 @@ class MotorPowerWidget:
         y0 = int(cy - ARC_R_OUT)
         w  = int(ARC_R_OUT) + 1
         h  = int(ARC_R_OUT) + 1
-        self._rect(x0, y0, w, h, BLACK, fill=True)
+        self._rect(x0, y0, w, h, WHITE, fill=True)
 
     def _hard_clear_internals(self):
         self._clear_wedge_bbox()
@@ -116,10 +136,10 @@ class MotorPowerWidget:
         yB  = s_y + 18
 
         # top and bottom
-        self._hline(xL, yB, (xR - xL + 1), WHITE)
-        self._hline(xL, yT, (xR - xL + 1), WHITE)
+        self._hline(xL, yB, (xR - xL + 1), BLACK)
+        self._hline(xL, yT, (xR - xL + 1), BLACK)
         # sides (closed bucket)
-        self._vline(xR, yT, (yB - yT + 1), WHITE)
+        self._vline(xR, yT, (yB - yT + 1), BLACK)
 
     def _draw_arc_outlines(self):
         cx = ARC_CX + ARC_X_OFFSET
@@ -133,7 +153,7 @@ class MotorPowerWidget:
                 x = int(cx + r * math.cos(rad))
                 y = int(cy + r * math.sin(rad))  # Y-down
                 if prev:
-                    self._line(prev[0], prev[1], x, y, WHITE)
+                    self._line(prev[0], prev[1], x, y, BLACK)
                 prev = (x, y)
 
         # Inner and outer arcs
@@ -143,10 +163,10 @@ class MotorPowerWidget:
         # Close the sector base with a horizontal line (y = cy)
         x_outer = int(cx - ARC_R_OUT)
         x_inner = int(cx - ARC_R_IN)
-        self._hline(x_outer, cy, (x_inner - x_outer + 1), WHITE)
+        self._hline(x_outer, cy, (x_inner - x_outer + 1), BLACK)
 
         # Ensure the outermost base pixel (rounding safety)
-        self.fb.pixel(x_outer, cy, WHITE)
+        self.fb.pixel(x_outer, cy, BLACK)
 
     # -------- ring fill via scanlines --------
     def _fill_wedge_scanlines(self, A_end_deg, color):
@@ -197,6 +217,78 @@ class MotorPowerWidget:
             if x_right >= x_left:
                 self._hline(x_left, y, x_right - x_left + 1, color)
 
+    def _fill_wedge_scanlines_dither(self, A_end_deg, color, step=None, thickness_scale=1.0):
+        cx = ARC_CX + ARC_X_OFFSET
+        cy = ARC_CY + ARC_Y_OFFSET
+        step = self._mesh_step(step)
+
+        A = float(A_end_deg)
+        if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
+        if A > ARC_UP_DEG:    A = ARC_UP_DEG
+        Arad = math.radians(A)
+
+        thickness_scale = float(thickness_scale)
+        if thickness_scale < 0.1:
+            thickness_scale = 0.1
+        if thickness_scale > 1.0:
+            thickness_scale = 1.0
+
+        r_mid = 0.5 * (ARC_R_IN + ARC_R_OUT)
+        half_th = 0.5 * (ARC_R_OUT - ARC_R_IN) * thickness_scale
+        r_out = r_mid + half_th
+        r_in = max(0.0, r_mid - half_th)
+        r_out2 = r_out * r_out
+        r_in2  = r_in  * r_in
+
+        tanA = math.tan(Arad)
+        tiny = 1e-6
+
+        y_min = cy - ARC_R_OUT
+        y_max = cy
+
+        for y in range(y_min, y_max + 1):
+            dy = y - cy
+            dy2 = dy * dy
+            if dy2 > r_out2:
+                continue
+
+            # outer circle intersection (left)
+            x_out = math.sqrt(r_out2 - dy2)
+            x_left = int(math.floor(cx - x_out))
+
+            # inner circle intersection (left), when it exists
+            if dy2 <= r_in2:
+                x_in = math.sqrt(r_in2 - dy2)
+                x_inner_edge = cx - x_in
+            else:
+                x_inner_edge = float('inf')  # no inner limit on this row
+
+            # angle boundary
+            if abs(tanA) > tiny:
+                dx_ang = dy / tanA      # dx negative for this sector
+                x_angle_edge = cx + dx_ang
+            else:
+                x_angle_edge = -1e9     # A ~ 180 deg, include full left annulus
+
+            x_right_f = min(x_inner_edge, x_angle_edge)
+            x_right = int(math.floor(x_right_f))
+
+            if x_right >= x_left:
+                for x in range(x_left, x_right + 1):
+                    if self._mesh_on(x, y, step):
+                        self.fb.pixel(x, y, color)
+
+    def _rect_dither(self, x, y, w, h, c=WHITE, step=None):
+        if w <= 0 or h <= 0:
+            return
+        x0 = int(x)
+        y0 = int(y)
+        step = self._mesh_step(step)
+        for yy in range(y0, y0 + int(h)):
+            for xx in range(x0, x0 + int(w)):
+                if self._mesh_on(xx, yy, step):
+                    self.fb.pixel(xx, yy, c)
+
     # ---- public API ----
     def draw_contour(self):
         # Ensure a clean background underneath on first call
@@ -209,13 +301,23 @@ class MotorPowerWidget:
         self._prev_rect_w = -9999
 
     def update(self, motor_power_percent):
-        # Clamp 0..100
-        p = int(max(0, min(100, motor_power_percent)))
+        negative = motor_power_percent < 0
+        # Clamp 0..100 on magnitude
+        p = int(max(0, min(100, abs(motor_power_percent))))
 
         # first-frame safety
         if not self._first_frame_cleared:
             self._hard_clear_internals()
             self._first_frame_cleared = True
+            self._prev_negative = negative
+        elif self._prev_negative is None:
+            self._prev_negative = negative
+        elif self._prev_negative != negative:
+            # mode switch (solid <-> dither), force a clean redraw
+            self._hard_clear_internals()
+            self._prev_A_end = None
+            self._prev_rect_w = -9999
+            self._prev_negative = negative
 
         # ----- proportional mapping between arc and bar -----
         P_BREAK = _progress_break_percent()  # typically ~62% with current geometry
@@ -225,15 +327,18 @@ class MotorPowerWidget:
             if p == 0:
                 # clear any previous wedge
                 if self._prev_A_end is not None and self._prev_A_end != ARC_LEFT_DEG:
-                    self._fill_wedge_scanlines(self._prev_A_end, BLACK)
+                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
                 self._prev_A_end = ARC_LEFT_DEG
                 self._draw_arc_outlines()
             else:
                 t = p / P_BREAK if P_BREAK > 0 else 0.0
                 A_end = ARC_LEFT_DEG + 90.0 * t  # 180 → 270
                 if self._prev_A_end is not None and A_end != self._prev_A_end:
-                    self._fill_wedge_scanlines(self._prev_A_end, BLACK)
-                self._fill_wedge_scanlines(A_end, WHITE)
+                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
+                if negative:
+                    self._fill_wedge_scanlines_dither(A_end, BLACK, thickness_scale=REGEN_THICKNESS_SCALE)
+                else:
+                    self._fill_wedge_scanlines(A_end, BLACK)
                 self._draw_arc_outlines()
                 self._prev_A_end = A_end
             rect_w = 0  # bar stays empty up to break
@@ -243,8 +348,11 @@ class MotorPowerWidget:
             # ensure arc is fully filled
             if self._prev_A_end is None or self._prev_A_end != ARC_UP_DEG:
                 if self._prev_A_end is not None:
-                    self._fill_wedge_scanlines(self._prev_A_end, BLACK)
-                self._fill_wedge_scanlines(ARC_UP_DEG, WHITE)
+                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
+                if negative:
+                    self._fill_wedge_scanlines_dither(ARC_UP_DEG, BLACK, thickness_scale=REGEN_THICKNESS_SCALE)
+                else:
+                    self._fill_wedge_scanlines(ARC_UP_DEG, BLACK)
                 self._draw_arc_outlines()
                 self._prev_A_end = ARC_UP_DEG
 
@@ -259,9 +367,16 @@ class MotorPowerWidget:
         if rect_w != self._prev_rect_w:
             self._clear_bucket()
             if rect_w > 0:
-                self._rect(motor_power_x + motor_power_width + 9,
-                           motor_power_y, rect_w, motor_power_height + 1,
-                           WHITE, fill=True)
+                if negative:
+                    regen_h = max(1, int(round((motor_power_height + 1) * REGEN_THICKNESS_SCALE)))
+                    regen_y = motor_power_y + ((motor_power_height + 1 - regen_h) // 2)
+                    self._rect_dither(motor_power_x + motor_power_width + 9,
+                                      regen_y, rect_w, regen_h,
+                                      BLACK)
+                else:
+                    self._rect(motor_power_x + motor_power_width + 9,
+                               motor_power_y, rect_w, motor_power_height + 1,
+                               BLACK, fill=True)
             self._draw_bucket_outline()
             self._prev_rect_w = rect_w
 

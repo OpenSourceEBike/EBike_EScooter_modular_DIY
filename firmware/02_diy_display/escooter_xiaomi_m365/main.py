@@ -318,12 +318,12 @@ while True:
             battery_soc_widget.update(int(vars.battery_soc_x1000 / 10))
 
         # Motor power
-        vars.motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
-        if motor_power_previous != vars.motor_power:
-            motor_power_previous = vars.motor_power
-            motor_power = filter_motor_power(vars.motor_power)
-            motor_power_percent = int((motor_power * 100) / 2000.0)
-            motor_power_widget.update(motor_power_percent)
+        motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
+        if motor_power_previous != motor_power:
+            motor_power_previous = motor_power
+            motor_power = filter_motor_power(motor_power)
+            vars.motor_power_percent = int((motor_power * 100) / 2000.0)
+            motor_power_widget.update(vars.motor_power_percent)
             
         # Wheel speed
         if wheel_speed_x10_previous != vars.wheel_speed_x10:
@@ -378,4 +378,3 @@ while True:
 
     # Sleep some time to save energy and avoid ESP32 to overheat
     time.sleep(0.01)
-

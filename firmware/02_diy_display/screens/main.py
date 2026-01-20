@@ -106,9 +106,9 @@ class MainScreen(BaseScreen):
 
     def render(self, vars):
         # Motor power
-        if self._motor_power_previous != vars.motor_power:
-            self._motor_power_previous = vars.motor_power
-            self._motor_power_widget.update(vars.motor_power)
+        if self._motor_power_previous != vars.motor_power_percent:
+            self._motor_power_previous = vars.motor_power_percent
+            self._motor_power_widget.update(vars.motor_power_percent)
 
         # Battery SOC - only draws if number of bars change
         self._battery_soc_widget.update(vars.battery_soc_x1000 // 10)
