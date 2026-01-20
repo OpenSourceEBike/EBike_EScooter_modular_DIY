@@ -263,7 +263,14 @@ async def main_task(vars):
         if motor_power_previous != motor_power:
             motor_power_previous = motor_power
             motor_power = filter_motor_power(motor_power)
-            vars.motor_power = map_range(motor_power, 0, 1800, 0, 100, clamp=True)
+            if motor_power >= 0:
+                vars.motor_power_percent = map_range(
+                    motor_power, 0, cfg.motor_power_max_w, 0, 100, clamp=True
+                )
+            else:
+                vars.motor_power_percent = map_range(
+                    motor_power, 0, -cfg.motor_regen_power_max_w, 0, -100, clamp=True
+                )
 
         # Buttons
         for i in range(len(vars.buttons)):

@@ -17,7 +17,7 @@ class Vars:
         self.bms_battery_current_x10 = 0
         self.battery_soc_x1000 = -1 # -1 means value is invalid
         self.battery_is_charging = False
-        self.motor_power = 0
+        self.motor_power_percent = 0
         self.motor_current_x10 = 0
         self.wheel_speed_x10 = 0
         self.brakes_are_active = False
