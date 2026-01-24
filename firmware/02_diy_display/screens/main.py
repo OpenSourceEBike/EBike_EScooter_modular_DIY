@@ -97,7 +97,7 @@ class MainScreen(BaseScreen):
         self._mode_last_seen = None
 
         # Clock
-        if getattr(cfg, "enable_rtc_time", False):
+        if cfg.enable_rtc_time:
             self._clock_widget = WidgetTextBox(
                 self.fb, self.fb.width, self.fb.width,
                 font=font,
@@ -142,7 +142,7 @@ class MainScreen(BaseScreen):
                 self._wheel_speed_widget.update(wheel_speed_x10 // 10)
 
             # Time
-            if getattr(cfg, "enable_rtc_time", False):
+            if cfg.enable_rtc_time:
                 if self._time_string_previous != vars.time_string:
                     self._time_string_previous = vars.time_string
                     self._clock_widget.update(vars.time_string)
