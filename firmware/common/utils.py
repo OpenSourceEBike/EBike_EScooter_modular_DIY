@@ -2,7 +2,7 @@
 
 def map_range(x, in_min, in_max, out_min, out_max, clamp=False):
     """Map x from one range to another.
-    
+
     Args:
         x: input value
         in_min, in_max: input range

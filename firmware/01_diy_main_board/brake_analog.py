@@ -1,5 +1,5 @@
 from machine import ADC, Pin
-import utils
+from common.utils import map_range
 
 class BrakeAnalog:
     """Brake input via ADC"""
@@ -23,4 +23,4 @@ class BrakeAnalog:
     def value(self):
         """Scaled brake value [0–1000]"""
         raw = self._adc.read_u16()
-        return utils.map_range(raw, self._min, self._max, 0, 1000, clamp=True)
+        return map_range(raw, self._min, self._max, 0, 1000, clamp=True)

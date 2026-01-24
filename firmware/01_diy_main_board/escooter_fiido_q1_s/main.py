@@ -5,7 +5,7 @@ import uasyncio as asyncio
 from machine import WDT
 from vars import Vars
 from motor import MotorData, Motor
-from configurations_escooter_fiido_q1_s import cfg, front_motor_cfg, rear_motor_cfg
+from common.config_runtime import cfg, front_motor_cfg, rear_motor_cfg
 from brake import Brake
 from throttle import Throttle
 from common.utils import map_range

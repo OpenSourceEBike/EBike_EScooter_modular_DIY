@@ -1,4 +1,3 @@
-import simpleio
 import adafruit_thermistor
 
 class MotorTemperatureSensor(object):

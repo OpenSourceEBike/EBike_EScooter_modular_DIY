@@ -13,14 +13,6 @@ WHITE = 0
 
 # Mesh size in pixels for negative (regen) fill. Min 1, max 10.
 MESH_SIZE = 2
-# Regen thickness scale for both arc and bar.
-REGEN_THICKNESS_SCALE = 0.6
-
-def map_value(x, in_min, in_max, out_min, out_max):
-    if in_max == in_min:
-        return out_min
-    x = max(min(x, in_max), in_min)
-    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min
 
 # -------- Layout --------
 motor_power_width  = 26
@@ -217,7 +209,7 @@ class MotorPowerWidget:
             if x_right >= x_left:
                 self._hline(x_left, y, x_right - x_left + 1, color)
 
-    def _fill_wedge_scanlines_dither(self, A_end_deg, color, step=None, thickness_scale=1.0):
+    def _fill_wedge_scanlines_dither(self, A_end_deg, color, step=None):
         cx = ARC_CX + ARC_X_OFFSET
         cy = ARC_CY + ARC_Y_OFFSET
         step = self._mesh_step(step)
@@ -227,18 +219,8 @@ class MotorPowerWidget:
         if A > ARC_UP_DEG:    A = ARC_UP_DEG
         Arad = math.radians(A)
 
-        thickness_scale = float(thickness_scale)
-        if thickness_scale < 0.1:
-            thickness_scale = 0.1
-        if thickness_scale > 1.0:
-            thickness_scale = 1.0
-
-        r_mid = 0.5 * (ARC_R_IN + ARC_R_OUT)
-        half_th = 0.5 * (ARC_R_OUT - ARC_R_IN) * thickness_scale
-        r_out = r_mid + half_th
-        r_in = max(0.0, r_mid - half_th)
-        r_out2 = r_out * r_out
-        r_in2  = r_in  * r_in
+        r_out2 = ARC_R_OUT * ARC_R_OUT
+        r_in2  = ARC_R_IN  * ARC_R_IN
 
         tanA = math.tan(Arad)
         tiny = 1e-6
@@ -336,7 +318,7 @@ class MotorPowerWidget:
                 if self._prev_A_end is not None and A_end != self._prev_A_end:
                     self._fill_wedge_scanlines(self._prev_A_end, WHITE)
                 if negative:
-                    self._fill_wedge_scanlines_dither(A_end, BLACK, thickness_scale=REGEN_THICKNESS_SCALE)
+                    self._fill_wedge_scanlines_dither(A_end, BLACK)
                 else:
                     self._fill_wedge_scanlines(A_end, BLACK)
                 self._draw_arc_outlines()
@@ -350,7 +332,7 @@ class MotorPowerWidget:
                 if self._prev_A_end is not None:
                     self._fill_wedge_scanlines(self._prev_A_end, WHITE)
                 if negative:
-                    self._fill_wedge_scanlines_dither(ARC_UP_DEG, BLACK, thickness_scale=REGEN_THICKNESS_SCALE)
+                    self._fill_wedge_scanlines_dither(ARC_UP_DEG, BLACK)
                 else:
                     self._fill_wedge_scanlines(ARC_UP_DEG, BLACK)
                 self._draw_arc_outlines()
@@ -368,10 +350,8 @@ class MotorPowerWidget:
             self._clear_bucket()
             if rect_w > 0:
                 if negative:
-                    regen_h = max(1, int(round((motor_power_height + 1) * REGEN_THICKNESS_SCALE)))
-                    regen_y = motor_power_y + ((motor_power_height + 1 - regen_h) // 2)
                     self._rect_dither(motor_power_x + motor_power_width + 9,
-                                      regen_y, rect_w, regen_h,
+                                      motor_power_y, rect_w, motor_power_height + 1,
                                       BLACK)
                 else:
                     self._rect(motor_power_x + motor_power_width + 9,

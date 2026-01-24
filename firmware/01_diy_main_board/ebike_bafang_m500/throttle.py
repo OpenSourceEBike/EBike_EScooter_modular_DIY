@@ -1,5 +1,5 @@
 import analogio
-import simpleio
+from common.utils import map_range
 
 class Throttle(object):
     """Throttle"""
@@ -26,5 +26,5 @@ class Throttle(object):
         return: throttle [0 - 1000]
         """
         # map throttle to 0 --> 1000
-        throttle = simpleio.map_range(self._adc_throttle.value, self._min, self._max, 0, 1000)
+        throttle = map_range(self._adc_throttle.value, self._min, self._max, 0, 1000)
         return throttle

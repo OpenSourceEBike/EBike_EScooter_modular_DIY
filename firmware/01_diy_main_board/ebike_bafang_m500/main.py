@@ -2,7 +2,7 @@ import board
 import time
 import supervisor
 import array
-import simpleio
+from common.utils import map_range
 import asyncio
 import ebike_data
 import throttle
@@ -266,7 +266,7 @@ def motor_control():
         # ebike.human_pedal_power = calculate_human_pedal_power(ebike.torque_weight_x10, ebike.cadence, cranck_lenght_mm)
         
         # map torque value to motor current
-        motor_current_target__torque_sensor = simpleio.map_range(
+        motor_current_target__torque_sensor = map_range(
             torque_weight_x10,
             torque_sensor_weight_min_to_start_x10, # min input
             torque_sensor_weight_max_x10, # max input
@@ -285,7 +285,7 @@ def motor_control():
     motor_current_target__throttle = 0
     if throttle_enable == True:
         # map torque value to motor current
-        motor_current_target__throttle = simpleio.map_range(
+        motor_current_target__throttle = map_range(
             throttle.value,
             0, # min input
             1000, # max input

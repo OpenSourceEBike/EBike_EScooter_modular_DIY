@@ -227,7 +227,6 @@ class BatterySOCWidget:
     # ---------- main logic ----------
     def update(self, soc: int):
         """Update bars/tick with hysteresis and run blinking logic."""
-        soc = max(0, min(100, int(soc)))
         self._current_soc = soc
         if not self.visible:
             return
