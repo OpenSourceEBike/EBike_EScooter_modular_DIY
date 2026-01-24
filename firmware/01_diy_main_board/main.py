@@ -1,21 +1,16 @@
 #############################################
 #
 # Choose here which EBike/EScooter model firmware to run:
-# from configurations_escooter_fiido_q1_s import model
-from configurations_escooter_iscooter_i12 import model
-# from configurations_escooter_xiaomi_m365 import model
+from common.config_runtime import model, model_name, MODEL_FIIDO_Q1_S, MODEL_ESCOOTER_I12, MODEL_BAFANG_M500
 
-print('EBike/EScooter model:')
-print(model)
+print('EBike/EScooter model: ' + model_name)
 print()
 
-if model == 'escooter_fiido_q1_s':
+if model == MODEL_FIIDO_Q1_S:
     import escooter_fiido_q1_s.main
-elif model == 'escooter_iscooter_i12':
+elif model == MODEL_ESCOOTER_I12:
     import escooter_iscooter_i12.main
-elif model == 'ebike_bafang_m500':
-    import ebike_bafang_m500.main
-elif model == 'escooter_xiaomi_m365':
+elif model == MODEL_BAFANG_M500:
     import ebike_bafang_m500.main
 else:
     raise 'You need to select a valid EBike/EScooter model'

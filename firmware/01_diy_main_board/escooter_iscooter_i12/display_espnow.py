@@ -2,7 +2,7 @@ import time
 import network
 import espnow
 from common.boards_ids import BoardsIds
-from configurations_escooter_iscooter_i12 import cfg
+from common.config_runtime import cfg
 
 
 class Display:
@@ -40,8 +40,7 @@ class Display:
 
         try:
             # define local MAC
-            import configurations_escooter_iscooter_i12 as conf
-            my_mac = bytes(conf.cfg.my_mac_address)
+            my_mac = bytes(cfg.my_mac_address)
             self._sta.config(mac=my_mac)
         except Exception as e:
             print("Warning: couldn't fix local MAC:", e)

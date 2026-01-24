@@ -24,6 +24,7 @@ import wifi
 import espnow
 import espnow_comms as _ESPNowComms
 import system_data as _SystemData
+import common.config_runtime as cfg
 
 ################################################################
 # CONFIGURATIONS
@@ -32,7 +33,7 @@ timeout_no_motion_minutes_to_disable_relay = 5 # 5 minutes seems a good value
 
 seconds_to_wait_before_movement_detection = 20 # 20 seconds seems a good value
 
-my_mac_address = [0x68, 0xb6, 0xb3, 0x01, 0xf7, 0xf1]
+my_mac_address = cfg.mac_address_power_switch
 
 debug_enable = True
 
@@ -138,4 +139,3 @@ if debug_enable:
 
 alarm.exit_and_deep_sleep_until_alarms(pin_alarm_motion_detection, preserve_dios = switch_pins)
 # Does not return. Exits, and restarts after the deep sleep time.
-

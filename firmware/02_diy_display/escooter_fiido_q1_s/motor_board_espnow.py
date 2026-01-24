@@ -73,6 +73,9 @@ class MotorBoard:
             self._vars.battery_soc_x1000     = parts[3]
             self._vars.motor_current_x10     = parts[4]
             self._vars.wheel_speed_x10       = parts[5]
+            # avoid negative values
+            if self._vars.wheel_speed_x10 < 0:
+                self._vars.wheel_speed_x10 = 0
 
             flags = parts[6]
             self._vars.brakes_are_active       = bool(flags & (1 << 0))

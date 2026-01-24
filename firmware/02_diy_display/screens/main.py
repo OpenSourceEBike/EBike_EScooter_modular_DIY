@@ -1,6 +1,6 @@
 # screens/main.py
 import time
-import configurations as cfg
+import common.config_runtime as cfg
 from .base import BaseScreen
 from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
@@ -12,15 +12,17 @@ class MainScreen(BaseScreen):
 
     def __init__(self, fb):
         super().__init__(fb)
+        self._time_string_previous = ''
         self._motor_power_previous = 0
         self._wheel_speed_x10_previous = 0
-        self._time_timer_previous = 0
-        self._brakes_text_previous = ''
-        self._lights_text_previous = ''
+        self._one_second = 0
+        self._brakes_are_active_previous = ''
+        self._lights_state_previous = ''
         self._warning_queue = []
         self._warning_current = None
         self._warning_start_ms = 0
         self._warning_text_previous = ''
+        self._one_second = time.ticks_add(time.ticks_ms(), 1000)
         self._mode_last_seen = None
         self._mode_enqueued_once = False
         self._show_mode_once = False
@@ -95,7 +97,7 @@ class MainScreen(BaseScreen):
         self._mode_last_seen = None
 
         # Clock
-        if cfg.enable_rtc_time:
+        if getattr(cfg, "enable_rtc_time", False):
             self._clock_widget = WidgetTextBox(
                 self.fb, self.fb.width, self.fb.width,
                 font=font,
@@ -105,35 +107,48 @@ class MainScreen(BaseScreen):
             self._clock_widget.update('')
 
     def render(self, vars):
+        now = time.ticks_ms()
         # Motor power
         if self._motor_power_previous != vars.motor_power_percent:
             self._motor_power_previous = vars.motor_power_percent
             self._motor_power_widget.update(vars.motor_power_percent)
 
-        # Battery SOC - only draws if number of bars change
-        self._battery_soc_widget.update(vars.battery_soc_x1000 // 10)
-
-        # Wheel speed
-        wheel_speed_x10 = max(vars.wheel_speed_x10, 0)
-        if self._wheel_speed_x10_previous != wheel_speed_x10:
-            self._wheel_speed_x10_previous = wheel_speed_x10
-            self._wheel_speed_widget.update(wheel_speed_x10 // 10)
-
         # Brakes
-        brakes = 'B' if vars.brakes_are_active else ''
-        if brakes != self._brakes_text_previous:
-            self._brakes_text_previous = brakes
+        if vars.brakes_are_active != self._brakes_are_active_previous:
+            self._brakes_are_active_previous = vars.brakes_are_active
+            brakes = 'B' if vars.brakes_are_active else ''
             self._brakes_widget.update(brakes)
 
         # Lights
-        lights = 'L' if vars.lights_state else ''
-        if lights != self._lights_text_previous:
-            self._lights_text_previous = lights
+        if vars.lights_state != self._lights_state_previous:
+            self._lights_state_previous = vars.lights_state
+            lights = 'L' if vars.lights_state else ''
             self._lights_widget.update(lights)
+            
+        # Slow tick (about 1 Hz)
+        if time.ticks_diff(now, self._one_second) >= 0:
+            self._one_second = time.ticks_add(self._one_second, 1000)
 
-        # Mode (show once for 5s after first entry to main screen, and if mode is diferent from 0)
+            # Battery SOC - only draws if number of bars change
+            self._battery_soc_widget.update(vars.battery_soc_x1000 // 10)
+
+            # Wheel speed
+            wheel_speed_x10 = vars.wheel_speed_x10
+            if wheel_speed_x10 > 99:
+                wheel_speed_x10 = 99
+
+            if self._wheel_speed_x10_previous != wheel_speed_x10:
+                self._wheel_speed_x10_previous = wheel_speed_x10
+                self._wheel_speed_widget.update(wheel_speed_x10 // 10)
+
+            # Time
+            if getattr(cfg, "enable_rtc_time", False):
+                if self._time_string_previous != vars.time_string:
+                    self._time_string_previous = vars.time_string
+                    self._clock_widget.update(vars.time_string)
+
+       # Mode (show once for 5s after first entry to main screen, and if mode is diferent from 0)
         if vars.mode != 0 and self._show_mode_once and self._mode_show_started:
-            now = time.ticks_ms()
             if time.ticks_diff(now, self._mode_show_start_ms) <= 5000:
                 mode_text = f"mode {int(vars.mode)}" if vars.mode is not None else ''
                 if mode_text != self._warning_text_previous:
@@ -144,13 +159,6 @@ class MainScreen(BaseScreen):
                     self._warning_text_previous = ''
                     self._warning_widget.update('')
                 self._show_mode_once = False
-            
-        # Time
-        if cfg.enable_rtc_time:
-            now = time.ticks_ms()
-            if time.ticks_diff(now, self._time_timer_previous) > 1000:
-                self._time_timer_previous = now
-                self._clock_widget.update(vars.time_string)
 
         # Track mode value (enqueue on change)
         if self._mode_last_seen is None:
@@ -158,9 +166,11 @@ class MainScreen(BaseScreen):
         elif vars.mode != self._mode_last_seen:
             self._mode_last_seen = vars.mode
             self._enqueue_warning(self._mode_text_from_vars())
-
+            
         # Warning queue display (5s each)
         self._tick_warning_queue()
+        
+
 
     def _mode_text_from_vars(self):
         if self._mode_last_seen is None:

@@ -14,7 +14,7 @@ from common.thisbutton import thisButton
 from common.utils import map_range
 from screen_manager import ScreenManager, ScreenID
 import vars as Vars
-import configurations as cfg
+import common.config_runtime as cfg
 
 # ----- Rear/front light bit masks
 REAR_TAIL_BIT       = 1
@@ -27,7 +27,7 @@ print("Starting Display")
 sta = network.WLAN(network.STA_IF)
 sta.active(True)
 try:    
-    my_mac = bytes(cfg.my_mac_address)
+    my_mac = bytes(cfg.mac_address_display)
     sta.config(mac=my_mac)
 except Exception as ex:
     print('sta.config', ex)
@@ -52,7 +52,6 @@ esp.active(True)
 
 vars = Vars.Vars()
 
-# Novas assinaturas: (espnow_inst, peer_mac, vars/system_data)
 motor = MotorBoard(esp, cfg.mac_address_motor_board, vars)
 power_switch = PowerSwitch(esp, cfg.mac_address_power_switch, vars)
 front_lights = FrontLights(esp, cfg.mac_address_front_lights, vars)
@@ -236,24 +235,33 @@ async def power_off_forever():
 async def ui_task(fb, lcd, vars):
     global screen_manager
     
-    hz = int(cfg.ui_hz) if isinstance(cfg.ui_hz, (int, float)) else 10
-    tick = 1 / max(1, hz)
+    # Main screen takes about 80ms to update
+    period_ms = 100
+    next_wake = time.ticks_ms()
     
     while True:
         screen_manager.update(vars)
         screen_manager.render(vars)
         lcd.show()
     
-        await asyncio.sleep(tick)
+        # Control loop time
+        next_wake = time.ticks_add(next_wake, period_ms)
+        remaining = time.ticks_diff(next_wake, time.ticks_ms())
+        if remaining > 0:
+            await asyncio.sleep_ms(remaining)
+        else:
+            await asyncio.sleep_ms(0)
 
 async def main_task(vars):
     global screen_manager
     
     motor_power_previous = 0
-    time_counter_previous = 0
+    time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
     update_date_time_once = False
-    time_rtc_try_update_once = time.ticks_ms()
+    time_rtc_try_update_at = None
     first_transition_to_main_screen = False
+    period_ms = 50
+    next_wake = time.ticks_ms()
 
     while True:
         now = time.ticks_ms()
@@ -280,13 +288,14 @@ async def main_task(vars):
         if not first_transition_to_main_screen and \
             screen_manager.current_is(ScreenID.MAIN):
             first_transition_to_main_screen = True
-            time_rtc_try_update_once = now
+            time_rtc_try_update_at = time.ticks_add(now, 5000)
         
-        # Try NTP once after ~2s
+        # Try NTP once after ~5s
         if not update_date_time_once and \
             cfg.enable_rtc_time and \
             screen_manager.current_is(ScreenID.MAIN) and \
-            time.ticks_diff(now, time_rtc_try_update_once) > 2000:
+            time_rtc_try_update_at is not None and \
+            time.ticks_diff(now, time_rtc_try_update_at) >= 0:
             update_date_time_once = True
             try:
                 vars.rtc.update_date_time_from_wifi_ntp()
@@ -297,9 +306,8 @@ async def main_task(vars):
                 enter_espnow_low_power(sta, ap, espnow_channel=1, txpower_dbm=2)
                 
         # Time draw (1 Hz)
-        if cfg.enable_rtc_time and \
-            time.ticks_diff(now, time_counter_previous) > 1000:
-            time_counter_previous = now
+        if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
+            time_counter_next = time.ticks_add(time_counter_next, 1000)
             try:
                 dt = vars.rtc.date_time()
                 hour, minute = dt[3], dt[4]
@@ -315,21 +323,47 @@ async def main_task(vars):
             vars.front_lights_board_pins_state = 0
             vars.rear_lights_board_pins_state = 0
             await power_off_forever()  # never returns
-
-        await asyncio.sleep(0.05)
+        
+        # Control loop time
+        next_wake = time.ticks_add(next_wake, period_ms)
+        remaining = time.ticks_diff(next_wake, time.ticks_ms())
+        if remaining > 0:
+            await asyncio.sleep_ms(remaining)
+        else:
+            await asyncio.sleep_ms(0)
 
 async def motor_rx_task(vars):
+    period_ms = 50
+    next_wake = time.ticks_ms()
+    
     while True:
         motor.receive_process_data()
-        await asyncio.sleep(0.100)
+        
+        next_wake = time.ticks_add(next_wake, period_ms)
+        remaining = time.ticks_diff(next_wake, time.ticks_ms())
+        if remaining > 0:
+            await asyncio.sleep_ms(remaining)
+        else:
+            await asyncio.sleep_ms(0)
 
 async def motor_tx_task(vars):
+    period_ms = 100
+    next_wake = time.ticks_ms()
     while True:
         motor.send_data()
-        await asyncio.sleep(0.150)
+        
+        # Control loop time
+        next_wake = time.ticks_add(next_wake, period_ms)
+        remaining = time.ticks_diff(next_wake, time.ticks_ms())
+        if remaining > 0:
+            await asyncio.sleep_ms(remaining)
+        else:
+            await asyncio.sleep_ms(0)
 
 async def lights_task(vars):
     global screen_manager
+    period_ms = 50
+    next_wake = time.ticks_ms()
     
     while True:
         if screen_manager.current_is(ScreenID.MAIN):
@@ -353,13 +387,16 @@ async def lights_task(vars):
         front_lights.send_data()
         rear_lights.send_data()
 
-        await asyncio.sleep(0.05)
+        # Control loop time
+        next_wake = time.ticks_add(next_wake, period_ms)
+        remaining = time.ticks_diff(next_wake, time.ticks_ms())
+        if remaining > 0:
+            await asyncio.sleep_ms(remaining)
+        else:
+            await asyncio.sleep_ms(0)
 
 # Entry
-async def main():
-    # Versão não-async do MotorBoard já não precisa de start()
-    # await motor.start()
-    
+async def main():    
     try:
         tasks = [
             asyncio.create_task(ui_task(fb, lcd, vars)),

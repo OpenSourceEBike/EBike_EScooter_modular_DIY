@@ -5,6 +5,7 @@ import gc
 from machine import Pin, WDT
 
 from constants import FRONT_VERSION, REAR_VERSION
+import common.config_runtime as cfg
 from espnow_comms import ESPNowComms
 
 ################################################################
@@ -18,10 +19,10 @@ lights_board = FRONT_VERSION  # or REAR_VERSION
 # force a fixed MAC. Make sure this makes sense for your ESP-NOW network.
 if lights_board == FRONT_VERSION:
     # Front lights board ESP-NOW MAC address
-    my_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF5]
+    my_mac_address = cfg.mac_address_front_lights
 elif lights_board == REAR_VERSION:
     # Rear lights board ESP-NOW MAC address
-    my_mac_address = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF4]
+    my_mac_address = cfg.mac_address_rear_lights
 else:
     raise ValueError("Invalid lights_board selection")
 
