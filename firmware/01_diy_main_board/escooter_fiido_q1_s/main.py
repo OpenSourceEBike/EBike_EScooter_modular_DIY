@@ -150,6 +150,9 @@ def cruise_control(vars, wheel_speed, throttle_value):
 
 async def task_control_motor(wdt):
     while True:
+        front_motor_erpm_max_speed_limit = front_motor.data.cfg.motor_erpm_max_speed_limit[vars.mode]
+        rear_motor_erpm_max_speed_limit = rear_motor.data.cfg.motor_erpm_max_speed_limit[vars.mode]
+        
         # Throttle: take max of the two
         throttle_1_value = throttle_1.value
         throttle_2_value = throttle_2.value
@@ -173,10 +176,10 @@ async def task_control_motor(wdt):
 
         # Target speed (map 0..1000 → 0..ERPM limit)
         front_motor.data.motor_target_speed = map_range(
-            throttle_value, 0.0, 1000.0, 0.0, front_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
+            throttle_value, 0.0, 1000.0, 0.0, front_motor_erpm_max_speed_limit, clamp=True
         )
         rear_motor.data.motor_target_speed = map_range(
-            throttle_value, 0.0, 1000.0, 0.0, rear_motor.data.cfg.motor_erpm_max_speed_limit, clamp=True
+            throttle_value, 0.0, 1000.0, 0.0, rear_motor_erpm_max_speed_limit, clamp=True
         )
 
         # Small dead-zone
@@ -186,10 +189,10 @@ async def task_control_motor(wdt):
             rear_motor.data.motor_target_speed = 0.0
 
         # Enforce max
-        if front_motor.data.motor_target_speed > front_motor.data.cfg.motor_erpm_max_speed_limit:
-            front_motor.data.motor_target_speed = front_motor.data.cfg.motor_erpm_max_speed_limit
-        if rear_motor.data.motor_target_speed > rear_motor.data.cfg.motor_erpm_max_speed_limit:
-            rear_motor.data.motor_target_speed = rear_motor.data.cfg.motor_erpm_max_speed_limit
+        if front_motor.data.motor_target_speed > front_motor_erpm_max_speed_limit:
+            front_motor.data.motor_target_speed = front_motor_erpm_max_speed_limit
+        if rear_motor.data.motor_target_speed > rear_motor_erpm_max_speed_limit:
+            rear_motor.data.motor_target_speed = rear_motor_erpm_max_speed_limit
 
         # Set motor/battery current limits
         front_motor.set_motor_current_limits(

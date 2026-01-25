@@ -157,8 +157,8 @@ class MainScreen(BaseScreen):
 
             # Wheel speed
             wheel_speed_x10 = vars.wheel_speed_x10
-            if wheel_speed_x10 > 99:
-                wheel_speed_x10 = 99
+            if wheel_speed_x10 > 999:
+                wheel_speed_x10 = 999
 
             if self._wheel_speed_x10_previous != wheel_speed_x10:
                 self._wheel_speed_x10_previous = wheel_speed_x10

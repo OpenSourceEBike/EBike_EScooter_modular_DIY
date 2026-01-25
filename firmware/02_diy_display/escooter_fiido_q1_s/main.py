@@ -277,7 +277,7 @@ async def main_task(vars):
                 )
             else:
                 vars.motor_power_percent = map_range(
-                    motor_power, 0, -cfg.motor_regen_power_max_w, 0, -100, clamp=True
+                    motor_power, 0, cfg.motor_regen_power_max_w, 0, -100, clamp=True
                 )
 
         # Buttons
