@@ -30,7 +30,7 @@ class ScreenManager:
         }
 
         # Start in BOOT
-        self._current_id = ScreenID.BOOT
+        self._current_id = ScreenID.MAIN
         self._current = self._screens[self._current_id]
         self._current.on_enter()
 

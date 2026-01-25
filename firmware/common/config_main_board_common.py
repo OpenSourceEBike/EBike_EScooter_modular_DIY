@@ -42,3 +42,7 @@ class MotorCfg(object):
         self.motor_max_current_limit_min = 0
         self.battery_max_current_limit_max = 0
         self.battery_max_current_limit_min = 0
+        self.vesc_min_temperature_x10 = 0
+        self.vesc_max_temperature_x10 = 0
+        self.min_temperature_x10 = 0
+        self.max_temperature_x10 = 0
