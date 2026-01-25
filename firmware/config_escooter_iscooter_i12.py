@@ -50,6 +50,11 @@ rear_motor_cfg.motor_erpm_max_speed_limit = [
     10130   # ≈40 km/h
 ]
 
+rear_motor_cfg.vesc_min_temperature_x10 = 400
+rear_motor_cfg.vesc_max_temperature_x10 = 1000
+rear_motor_cfg.min_temperature_x10 = 400
+rear_motor_cfg.max_temperature_x10 = 1000
+
 rear_motor_cfg.motor_max_current_limit_max = 100.0
 rear_motor_cfg.motor_min_current_start = 1.5
 rear_motor_cfg.motor_max_current_limit_min = -80.0

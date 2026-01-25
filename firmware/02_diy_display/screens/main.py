@@ -4,6 +4,7 @@ import common.config_runtime as cfg
 from .base import BaseScreen
 from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
+from widgets.widget_progress_bar import ProgressBarWidget
 from widgets.widget_text_box import WidgetTextBox
 from fonts import robotobold12 as font_small, robotobold18 as font, robotobold50 as font_big
 
@@ -22,6 +23,10 @@ class MainScreen(BaseScreen):
         self._warning_current = None
         self._warning_start_ms = 0
         self._warning_text_previous = ''
+        self._warning_showing_progress_bar = False
+        self._warning_bar_kind = None
+        self._vesc_temp_percent = 0
+        self._motor_temp_percent = 0
         self._one_second = time.ticks_add(time.ticks_ms(), 1000)
         self._mode_last_seen = None
         self._mode_enqueued_once = False
@@ -77,14 +82,32 @@ class MainScreen(BaseScreen):
         self._brakes_widget.set_box(x1=12, y1=37, x2=19, y2=37 + 9)
         self._brakes_widget.update('')
         
-        # Warning
+        # Warning / progress area
         self._warning_widget = WidgetTextBox(
             self.fb, self.fb.width, self.fb.width,
             font=font_small,
             align_inside="right"
         )
-        self._warning_widget.set_box(x1=64, y1=37, x2=127, y2=37 + 9)
+        self._warning_widget.set_box(
+            x1=self.fb.width - 40, y1=38,
+            x2=self.fb.width - 1, y2=38 + 8
+        )
         self._warning_widget.update('')
+
+        # Progress bar
+        self._progress_bar_widget = ProgressBarWidget(
+            self.fb,
+            x=self.fb.width - 40, y=38,
+            width=40, height=8,
+            label_text="mo",
+            label_font=font_small,
+            label_gap=2,
+            label_dy=-2,
+        )
+        self._progress_bar_widget.draw_contour()
+        self._progress_bar_widget.update(0)
+        self._progress_bar_widget.set_visible(False, clear=True)
+        
         if not self._mode_enqueued_once:
             self._enqueue_warning(self._mode_text_from_vars())
             self._mode_enqueued_once = True
@@ -147,16 +170,33 @@ class MainScreen(BaseScreen):
                     self._time_string_previous = vars.time_string
                     self._clock_widget.update(vars.time_string)
 
+        # Progress bar (temperature percent)
+        self._update_temp_percents(vars)
+        if self._warning_showing_progress_bar:
+            percent = self._bar_percent(self._warning_bar_kind)
+            if percent <= 0:
+                self._warning_current = None
+                self._warning_showing_progress_bar = False
+                self._warning_bar_kind = None
+                self._progress_bar_widget.set_visible(False, clear=True)
+            else:
+                self._progress_bar_widget.update(percent)
+
        # Mode (show once for 5s after first entry to main screen, and if mode is diferent from 0)
         if vars.mode != 0 and self._show_mode_once and self._mode_show_started:
             if time.ticks_diff(now, self._mode_show_start_ms) <= 5000:
                 mode_text = f"mode {int(vars.mode)}" if vars.mode is not None else ''
                 if mode_text != self._warning_text_previous:
                     self._warning_text_previous = mode_text
+                    self._progress_bar_widget.set_visible(False, clear=True)
+                    self._warning_widget.set_visible(True, clear=True)
+                    self._warning_showing_progress_bar = False
                     self._warning_widget.update(mode_text)
             else:
                 if self._warning_text_previous != '':
                     self._warning_text_previous = ''
+                    self._warning_widget.set_visible(True, clear=True)
+                    self._warning_showing_progress_bar = False
                     self._warning_widget.update('')
                 self._show_mode_once = False
 
@@ -180,19 +220,134 @@ class MainScreen(BaseScreen):
     def _enqueue_warning(self, text):
         if text is None or text == '':
             return
-        self._warning_queue.append(text)
+        if not self._queue_has("text", text):
+            self._warning_queue.append(("text", text))
+
+    def _enqueue_progress_bar(self, kind):
+        self._warning_queue.append(("bar", kind))
+
+    def _enqueue_temp_bars(self):
+        if self._vesc_temp_percent > 0:
+            self._enqueue_progress_bar_unique("v")
+        if self._motor_temp_percent > 0:
+            self._enqueue_progress_bar_unique("m")
+
+    def _queue_has(self, kind, payload):
+        for item in self._warning_queue:
+            if item[0] == kind and item[1] == payload:
+                return True
+        if self._warning_current is not None:
+            return self._warning_current[0] == kind and self._warning_current[1] == payload
+        return False
+
+    def _enqueue_progress_bar_unique(self, kind):
+        if not self._queue_has("bar", kind):
+            self._enqueue_progress_bar(kind)
+
+    def _remove_queue_items(self, kind, payload):
+        if not self._warning_queue:
+            return
+        self._warning_queue = [
+            item for item in self._warning_queue
+            if not (item[0] == kind and item[1] == payload)
+        ]
+
+    def _bar_percent(self, kind):
+        if kind == "v":
+            return self._vesc_temp_percent
+        if kind == "m":
+            return self._motor_temp_percent
+        return 0
+
+    def _bar_label(self, kind):
+        if kind == "v":
+            return "ve"
+        if kind == "m":
+            return "mo"
+        return ""
+
+    def _temp_percent(self, temp_x10, min_x10, max_x10):
+        if max_x10 <= min_x10:
+            return 0
+        if temp_x10 <= min_x10:
+            return 0
+        if temp_x10 >= max_x10:
+            return 100
+        return int((temp_x10 - min_x10) * 100 / (max_x10 - min_x10))
+
+    def _update_temp_percents(self, vars):
+        self._vesc_temp_percent = self._temp_percent(
+            vars.vesc_temperature_x10,
+            cfg.rear_motor_cfg.vesc_min_temperature_x10,
+            cfg.rear_motor_cfg.vesc_max_temperature_x10,
+        )
+        self._motor_temp_percent = self._temp_percent(
+            vars.motor_temperature_x10,
+            cfg.rear_motor_cfg.min_temperature_x10,
+            cfg.rear_motor_cfg.max_temperature_x10,
+        )
+        if self._vesc_temp_percent <= 0:
+            self._remove_queue_items("bar", "v")
+        if self._motor_temp_percent <= 0:
+            self._remove_queue_items("bar", "m")
+        if self._warning_bar_kind == "v" and self._vesc_temp_percent <= 0:
+            self._warning_current = None
+            self._warning_showing_progress_bar = False
+            self._warning_bar_kind = None
+            self._progress_bar_widget.set_visible(False, clear=True)
+        if self._warning_bar_kind == "m" and self._motor_temp_percent <= 0:
+            self._warning_current = None
+            self._warning_showing_progress_bar = False
+            self._warning_bar_kind = None
+            self._progress_bar_widget.set_visible(False, clear=True)
 
     def _tick_warning_queue(self):
         now = time.ticks_ms()
         if self._warning_current is None:
-            if self._warning_queue:
-                self._warning_current = self._warning_queue.pop(0)
-                self._warning_start_ms = now
-                if self._warning_current != self._warning_text_previous:
-                    self._warning_text_previous = self._warning_current
-                    self._warning_widget.update(self._warning_current)
+            if not self._warning_queue:
+                self._enqueue_temp_bars()
+            while self._warning_queue:
+                kind, payload = self._warning_queue.pop(0)
+                if kind == "bar":
+                    percent = self._bar_percent(payload)
+                    if percent <= 0:
+                        continue
+                    self._warning_current = ("bar", payload)
+                    self._warning_start_ms = now
+                    self._warning_showing_progress_bar = True
+                    self._warning_bar_kind = payload
+                    self._warning_widget.set_visible(False, clear=True)
+                    self._progress_bar_widget.set_visible(True, clear=True)
+                    self._progress_bar_widget.set_label_text(self._bar_label(payload))
+                    self._progress_bar_widget.draw_contour()
+                    self._progress_bar_widget.update(percent)
+                    break
+                else:
+                    self._warning_current = ("text", payload)
+                    self._warning_start_ms = now
+                    if payload != self._warning_text_previous:
+                        self._warning_text_previous = payload
+                    self._warning_showing_progress_bar = False
+                    self._warning_bar_kind = None
+                    self._progress_bar_widget.set_visible(False, clear=True)
+                    self._warning_widget.set_visible(True, clear=True)
+                    self._warning_widget.update(payload)
+                    break
         else:
             if time.ticks_diff(now, self._warning_start_ms) > 5000:
+                kind, payload = self._warning_current
+                if kind == "bar":
+                    if self._bar_percent(payload) > 0:
+                        if self._warning_queue:
+                            self._enqueue_progress_bar(payload)
+                        else:
+                            # Keep showing if nothing else is queued
+                            self._warning_start_ms = now
+                            return
+                    else:
+                        self._progress_bar_widget.set_visible(False, clear=True)
+                        self._warning_showing_progress_bar = False
+                        self._warning_bar_kind = None
                 self._warning_current = None
                 if self._warning_text_previous != '':
                     self._warning_text_previous = ''
