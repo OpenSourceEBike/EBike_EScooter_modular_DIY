@@ -1,6 +1,9 @@
 # iScooter i12 config (display + main board + lights + APC)
 
+from common.model_constants import MODEL_ESCOOTER_SINGLE_MOTOR
 from common.config_main_board_common import Cfg, MotorCfg
+
+model = MODEL_ESCOOTER_SINGLE_MOTOR
 
 # ===================================================================
 # MAC ADDRESSES (all boards)

@@ -1,6 +1,6 @@
 #############################################
 #
-# Choose the EBike/EScooter model on config.py:
+# Choose the EBike/EScooter model on common/espnow_commands.py:
 from common.config_runtime import (
   model,
   model_name,

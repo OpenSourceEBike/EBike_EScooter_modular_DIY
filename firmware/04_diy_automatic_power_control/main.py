@@ -20,6 +20,15 @@ debug_enable = True
 
 if debug_enable:
   print("Starting the DIY Automatic Anti Spark Switch")
+  print("EBike/EScooter model: " + cfg.model_name)
+  print()
+
+if cfg.model not in (
+  cfg.MODEL_ESCOOTER_DUAL_MOTOR,
+  cfg.MODEL_ESCOOTER_SINGLE_MOTOR,
+  cfg.MODEL_EBIKE,
+):
+  raise ValueError("You need to select a valid EBike/EScooter model")
 
 # Relay control pins (C3)
 SWITCH_PINS_NUMBERS = (0, 1, 2, 3, 4)
@@ -44,7 +53,7 @@ espnow_comms = ESPNowComms(esp, decoder=decode_power_switch_message)
 # ADXL345 pins (adjust if needed)
 ADXL_SCL_PIN = 20
 ADXL_SDA_PIN = 21
-ADXL_INT_PIN = 8
+ADXL_INT_PIN = 10
 
 i2c = I2C(0, scl=Pin(ADXL_SCL_PIN), sda=Pin(ADXL_SDA_PIN), freq=400_000)
 accelerometer = ADXL345(i2c, ADXL_INT_PIN)
