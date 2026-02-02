@@ -13,11 +13,11 @@ start = time.ticks_ms()
 safe = False
 
 while time.ticks_diff(time.ticks_ms(), start) < CHECK_TIME_MS:
-    if btn.value() == 0:   # BOOT pressed (active low)
-        safe = True
-        break
-    time.sleep_ms(10)
+  if btn.value() == 0:   # BOOT pressed (active low)
+    safe = True
+    break
+  time.sleep_ms(10)
 
 if safe:
-    print("SAFE MODE: BOOT button pressed")
-    raise SystemExit   # skips main.py, REPL stays active
+  print("SAFE MODE: BOOT button pressed")
+  raise SystemExit   # skips main.py, REPL stays active

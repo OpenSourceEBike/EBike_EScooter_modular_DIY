@@ -8,8 +8,7 @@ from common.config_main_board_common import Cfg, MotorCfg
 mac_address_display       = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE3]
 mac_address_power_switch  = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE1]
 mac_address_motor_board   = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE2]
-mac_address_rear_lights   = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE4]
-mac_address_front_lights  = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE5]
+mac_address_lights        = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xE4]
 
 # ===================================================================
 # MAIN BOARD CONFIGS
@@ -33,10 +32,6 @@ cfg.throttle_1_adc_min = 15250
 cfg.throttle_1_adc_max = 46900
 cfg.throttle_1_adc_over_max_error = 54500
 
-# Main board and display MACs
-cfg.my_mac_address = mac_address_motor_board
-cfg.display_mac_address = mac_address_display
-
 # JBD BMS
 cfg.has_jbd_bms = False
 cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
@@ -46,8 +41,8 @@ rear_motor_cfg.poles_pair = 15
 rear_motor_cfg.wheel_radius = 0.160
 
 rear_motor_cfg.motor_erpm_max_speed_limit = [
-    6330,   # ≈25 km/h
-    10130   # ≈40 km/h
+  6330,   # ≈25 km/h
+  10130   # ≈40 km/h
 ]
 
 rear_motor_cfg.vesc_min_temperature_x10 = 750

@@ -36,329 +36,329 @@ ARC_UP_DEG   = 270.0
 
 # --- Proportional mapping helpers (arc vs bar) ---
 def _arc_midline_length():
-    # Use the arc midline length as a proxy for perceptual path length
-    r_avg = 0.5 * (ARC_R_IN + ARC_R_OUT)
-    return r_avg * (math.pi * 0.5)  # 90 degrees = π/2
+  # Use the arc midline length as a proxy for perceptual path length
+  r_avg = 0.5 * (ARC_R_IN + ARC_R_OUT)
+  return r_avg * (math.pi * 0.5)  # 90 degrees = π/2
 
 def _progress_break_percent():
-    L_arc = _arc_midline_length()
-    L_bar = motor_power_width
-    return 100.0 * L_arc / (L_arc + L_bar)
+  L_arc = _arc_midline_length()
+  L_bar = motor_power_width
+  return 100.0 * L_arc / (L_arc + L_bar)
 
 class MotorPowerWidget:
-    def __init__(self, fb, display_width, display_height):
-        self.fb = fb
-        self.dw = display_width
-        self.dh = display_height
-        self._prev_rect_w = -1
-        self._prev_A_end  = None
-        self._prev_negative = None
-        self._has_hline = hasattr(self.fb, "hline")
-        self._has_vline = hasattr(self.fb, "vline")
-        self._first_frame_cleared = False
+  def __init__(self, fb, display_width, display_height):
+    self.fb = fb
+    self.dw = display_width
+    self.dh = display_height
+    self._prev_rect_w = -1
+    self._prev_A_end  = None
+    self._prev_negative = None
+    self._has_hline = hasattr(self.fb, "hline")
+    self._has_vline = hasattr(self.fb, "vline")
+    self._first_frame_cleared = False
 
-    # ---- tiny gfx helpers ----
-    def _line(self, x0, y0, x1, y1, c=WHITE):
-        self.fb.line(int(x0), int(y0), int(x1), int(y1), c)
+  # ---- tiny gfx helpers ----
+  def _line(self, x0, y0, x1, y1, c=WHITE):
+    self.fb.line(int(x0), int(y0), int(x1), int(y1), c)
 
-    def _hline(self, x, y, w, c=WHITE):
-        if w <= 0:
-            return
-        if self._has_hline:
-            self.fb.hline(int(x), int(y), int(w), c)
-        else:
-            self._line(int(x), int(y), int(x + w - 1), int(y), c)
+  def _hline(self, x, y, w, c=WHITE):
+    if w <= 0:
+      return
+    if self._has_hline:
+      self.fb.hline(int(x), int(y), int(w), c)
+    else:
+      self._line(int(x), int(y), int(x + w - 1), int(y), c)
 
-    def _vline(self, x, y, h, c=WHITE):
-        if h <= 0:
-            return
-        if self._has_vline:
-            self.fb.vline(int(x), int(y), int(h), c)
-        else:
-            self._line(int(x), int(y), int(x), int(y + h - 1), c)
+  def _vline(self, x, y, h, c=WHITE):
+    if h <= 0:
+      return
+    if self._has_vline:
+      self.fb.vline(int(x), int(y), int(h), c)
+    else:
+      self._line(int(x), int(y), int(x), int(y + h - 1), c)
 
-    def _rect(self, x, y, w, h, c=WHITE, fill=False):
-        if fill:
-            self.fb.fill_rect(int(x), int(y), int(w), int(h), c)
-        else:
-            self.fb.rect(int(x), int(y), int(w), int(h), c)
+  def _rect(self, x, y, w, h, c=WHITE, fill=False):
+    if fill:
+      self.fb.fill_rect(int(x), int(y), int(w), int(h), c)
+    else:
+      self.fb.rect(int(x), int(y), int(w), int(h), c)
 
-    def _mesh_step(self, step):
-        if step is None:
-            step = MESH_SIZE
-        step = int(step)
-        if step < 1:
-            step = 1
-        elif step > 10:
-            step = 10
-        return step
+  def _mesh_step(self, step):
+    if step is None:
+      step = MESH_SIZE
+    step = int(step)
+    if step < 1:
+      step = 1
+    elif step > 10:
+      step = 10
+    return step
 
-    def _mesh_on(self, x, y, step):
-        period = step * 2
-        return ((x + y) % period) < step or ((x - y) % period) < step
+  def _mesh_on(self, x, y, step):
+    period = step * 2
+    return ((x + y) % period) < step or ((x - y) % period) < step
 
-    # ---- areas to clear / force black underneath ----
-    def _clear_bucket(self):
-        self._rect(motor_power_x + motor_power_width + 9,
-                   motor_power_y, motor_power_width, motor_power_height + 1,
-                   WHITE, fill=True)
+  # ---- areas to clear / force black underneath ----
+  def _clear_bucket(self):
+    self._rect(motor_power_x + motor_power_width + 9,
+                  motor_power_y, motor_power_width, motor_power_height + 1,
+                  WHITE, fill=True)
 
-    def _clear_wedge_bbox(self):
-        cx = ARC_CX + ARC_X_OFFSET
-        cy = ARC_CY + ARC_Y_OFFSET
-        x0 = int(cx - ARC_R_OUT)
-        y0 = int(cy - ARC_R_OUT)
-        w  = int(ARC_R_OUT) + 1
-        h  = int(ARC_R_OUT) + 1
-        self._rect(x0, y0, w, h, WHITE, fill=True)
+  def _clear_wedge_bbox(self):
+    cx = ARC_CX + ARC_X_OFFSET
+    cy = ARC_CY + ARC_Y_OFFSET
+    x0 = int(cx - ARC_R_OUT)
+    y0 = int(cy - ARC_R_OUT)
+    w  = int(ARC_R_OUT) + 1
+    h  = int(ARC_R_OUT) + 1
+    self._rect(x0, y0, w, h, WHITE, fill=True)
 
-    def _hard_clear_internals(self):
-        self._clear_wedge_bbox()
-        self._clear_bucket()
+  def _hard_clear_internals(self):
+    self._clear_wedge_bbox()
+    self._clear_bucket()
 
-    # ---- outlines ----
-    def _draw_bucket_outline(self):
-        # Rectangular outline for the top bar
-        s_y = 0
-        w   = 62
-        w2  = w // 2
-        xL  = w2 + 5
-        xR  = w
-        yT  = s_y + 0
-        yB  = s_y + 18
+  # ---- outlines ----
+  def _draw_bucket_outline(self):
+    # Rectangular outline for the top bar
+    s_y = 0
+    w   = 62
+    w2  = w // 2
+    xL  = w2 + 5
+    xR  = w
+    yT  = s_y + 0
+    yB  = s_y + 18
 
-        # top and bottom
-        self._hline(xL, yB, (xR - xL + 1), BLACK)
-        self._hline(xL, yT, (xR - xL + 1), BLACK)
-        # sides (closed bucket)
-        self._vline(xR, yT, (yB - yT + 1), BLACK)
+    # top and bottom
+    self._hline(xL, yB, (xR - xL + 1), BLACK)
+    self._hline(xL, yT, (xR - xL + 1), BLACK)
+    # sides (closed bucket)
+    self._vline(xR, yT, (yB - yT + 1), BLACK)
 
-    def _draw_arc_outlines(self):
-        cx = ARC_CX + ARC_X_OFFSET
-        cy = ARC_CY + ARC_Y_OFFSET
+  def _draw_arc_outlines(self):
+    cx = ARC_CX + ARC_X_OFFSET
+    cy = ARC_CY + ARC_Y_OFFSET
 
-        def poly_arc(r):
-            prev = None
-            # degree-by-degree polyline for crisp outline
-            for a in range(int(ARC_LEFT_DEG), int(ARC_UP_DEG) + 1):
-                rad = math.radians(a)
-                x = int(cx + r * math.cos(rad))
-                y = int(cy + r * math.sin(rad))  # Y-down
-                if prev:
-                    self._line(prev[0], prev[1], x, y, BLACK)
-                prev = (x, y)
+    def poly_arc(r):
+      prev = None
+      # degree-by-degree polyline for crisp outline
+      for a in range(int(ARC_LEFT_DEG), int(ARC_UP_DEG) + 1):
+        rad = math.radians(a)
+        x = int(cx + r * math.cos(rad))
+        y = int(cy + r * math.sin(rad))  # Y-down
+        if prev:
+          self._line(prev[0], prev[1], x, y, BLACK)
+        prev = (x, y)
 
-        # Inner and outer arcs
-        poly_arc(ARC_R_IN)
-        poly_arc(ARC_R_OUT)
+    # Inner and outer arcs
+    poly_arc(ARC_R_IN)
+    poly_arc(ARC_R_OUT)
 
-        # Close the sector base with a horizontal line (y = cy)
-        x_outer = int(cx - ARC_R_OUT)
-        x_inner = int(cx - ARC_R_IN)
-        self._hline(x_outer, cy, (x_inner - x_outer + 1), BLACK)
+    # Close the sector base with a horizontal line (y = cy)
+    x_outer = int(cx - ARC_R_OUT)
+    x_inner = int(cx - ARC_R_IN)
+    self._hline(x_outer, cy, (x_inner - x_outer + 1), BLACK)
 
-        # Ensure the outermost base pixel (rounding safety)
-        self.fb.pixel(x_outer, cy, BLACK)
+    # Ensure the outermost base pixel (rounding safety)
+    self.fb.pixel(x_outer, cy, BLACK)
 
-    # -------- ring fill via scanlines --------
-    def _fill_wedge_scanlines(self, A_end_deg, color):
-        cx = ARC_CX + ARC_X_OFFSET
-        cy = ARC_CY + ARC_Y_OFFSET
+  # -------- ring fill via scanlines --------
+  def _fill_wedge_scanlines(self, A_end_deg, color):
+    cx = ARC_CX + ARC_X_OFFSET
+    cy = ARC_CY + ARC_Y_OFFSET
 
-        A = float(A_end_deg)
-        if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
-        if A > ARC_UP_DEG:    A = ARC_UP_DEG
-        Arad = math.radians(A)
+    A = float(A_end_deg)
+    if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
+    if A > ARC_UP_DEG:    A = ARC_UP_DEG
+    Arad = math.radians(A)
 
-        r_out2 = ARC_R_OUT * ARC_R_OUT
-        r_in2  = ARC_R_IN  * ARC_R_IN
+    r_out2 = ARC_R_OUT * ARC_R_OUT
+    r_in2  = ARC_R_IN  * ARC_R_IN
 
-        tanA = math.tan(Arad)
-        tiny = 1e-6
+    tanA = math.tan(Arad)
+    tiny = 1e-6
 
-        y_min = cy - ARC_R_OUT
-        y_max = cy
+    y_min = cy - ARC_R_OUT
+    y_max = cy
 
-        for y in range(y_min, y_max + 1):
-            dy = y - cy
-            dy2 = dy * dy
-            if dy2 > r_out2:
-                continue
+    for y in range(y_min, y_max + 1):
+      dy = y - cy
+      dy2 = dy * dy
+      if dy2 > r_out2:
+        continue
 
-            # outer circle intersection (left)
-            x_out = math.sqrt(r_out2 - dy2)
-            x_left = int(math.floor(cx - x_out))
+      # outer circle intersection (left)
+      x_out = math.sqrt(r_out2 - dy2)
+      x_left = int(math.floor(cx - x_out))
 
-            # inner circle intersection (left), when it exists
-            if dy2 <= r_in2:
-                x_in = math.sqrt(r_in2 - dy2)
-                x_inner_edge = cx - x_in
-            else:
-                x_inner_edge = float('inf')  # no inner limit on this row
+      # inner circle intersection (left), when it exists
+      if dy2 <= r_in2:
+        x_in = math.sqrt(r_in2 - dy2)
+        x_inner_edge = cx - x_in
+      else:
+        x_inner_edge = float('inf')  # no inner limit on this row
 
-            # angle boundary
-            if abs(tanA) > tiny:
-                dx_ang = dy / tanA      # dx negative for this sector
-                x_angle_edge = cx + dx_ang
-            else:
-                x_angle_edge = -1e9     # A ≈ 180°, include full left annulus
+      # angle boundary
+      if abs(tanA) > tiny:
+        dx_ang = dy / tanA      # dx negative for this sector
+        x_angle_edge = cx + dx_ang
+      else:
+        x_angle_edge = -1e9     # A ≈ 180°, include full left annulus
 
-            x_right_f = min(x_inner_edge, x_angle_edge)
-            x_right = int(math.floor(x_right_f))
+      x_right_f = min(x_inner_edge, x_angle_edge)
+      x_right = int(math.floor(x_right_f))
 
-            if x_right >= x_left:
-                self._hline(x_left, y, x_right - x_left + 1, color)
+      if x_right >= x_left:
+        self._hline(x_left, y, x_right - x_left + 1, color)
 
-    def _fill_wedge_scanlines_dither(self, A_end_deg, color, step=None):
-        cx = ARC_CX + ARC_X_OFFSET
-        cy = ARC_CY + ARC_Y_OFFSET
-        step = self._mesh_step(step)
+  def _fill_wedge_scanlines_dither(self, A_end_deg, color, step=None):
+    cx = ARC_CX + ARC_X_OFFSET
+    cy = ARC_CY + ARC_Y_OFFSET
+    step = self._mesh_step(step)
 
-        A = float(A_end_deg)
-        if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
-        if A > ARC_UP_DEG:    A = ARC_UP_DEG
-        Arad = math.radians(A)
+    A = float(A_end_deg)
+    if A < ARC_LEFT_DEG:  A = ARC_LEFT_DEG
+    if A > ARC_UP_DEG:    A = ARC_UP_DEG
+    Arad = math.radians(A)
 
-        r_out2 = ARC_R_OUT * ARC_R_OUT
-        r_in2  = ARC_R_IN  * ARC_R_IN
+    r_out2 = ARC_R_OUT * ARC_R_OUT
+    r_in2  = ARC_R_IN  * ARC_R_IN
 
-        tanA = math.tan(Arad)
-        tiny = 1e-6
+    tanA = math.tan(Arad)
+    tiny = 1e-6
 
-        y_min = cy - ARC_R_OUT
-        y_max = cy
+    y_min = cy - ARC_R_OUT
+    y_max = cy
 
-        for y in range(y_min, y_max + 1):
-            dy = y - cy
-            dy2 = dy * dy
-            if dy2 > r_out2:
-                continue
+    for y in range(y_min, y_max + 1):
+      dy = y - cy
+      dy2 = dy * dy
+      if dy2 > r_out2:
+        continue
 
-            # outer circle intersection (left)
-            x_out = math.sqrt(r_out2 - dy2)
-            x_left = int(math.floor(cx - x_out))
+      # outer circle intersection (left)
+      x_out = math.sqrt(r_out2 - dy2)
+      x_left = int(math.floor(cx - x_out))
 
-            # inner circle intersection (left), when it exists
-            if dy2 <= r_in2:
-                x_in = math.sqrt(r_in2 - dy2)
-                x_inner_edge = cx - x_in
-            else:
-                x_inner_edge = float('inf')  # no inner limit on this row
+      # inner circle intersection (left), when it exists
+      if dy2 <= r_in2:
+        x_in = math.sqrt(r_in2 - dy2)
+        x_inner_edge = cx - x_in
+      else:
+        x_inner_edge = float('inf')  # no inner limit on this row
 
-            # angle boundary
-            if abs(tanA) > tiny:
-                dx_ang = dy / tanA      # dx negative for this sector
-                x_angle_edge = cx + dx_ang
-            else:
-                x_angle_edge = -1e9     # A ~ 180 deg, include full left annulus
+      # angle boundary
+      if abs(tanA) > tiny:
+        dx_ang = dy / tanA      # dx negative for this sector
+        x_angle_edge = cx + dx_ang
+      else:
+        x_angle_edge = -1e9     # A ~ 180 deg, include full left annulus
 
-            x_right_f = min(x_inner_edge, x_angle_edge)
-            x_right = int(math.floor(x_right_f))
+      x_right_f = min(x_inner_edge, x_angle_edge)
+      x_right = int(math.floor(x_right_f))
 
-            if x_right >= x_left:
-                for x in range(x_left, x_right + 1):
-                    if self._mesh_on(x, y, step):
-                        self.fb.pixel(x, y, color)
+      if x_right >= x_left:
+        for x in range(x_left, x_right + 1):
+          if self._mesh_on(x, y, step):
+            self.fb.pixel(x, y, color)
 
-    def _rect_dither(self, x, y, w, h, c=WHITE, step=None):
-        if w <= 0 or h <= 0:
-            return
-        x0 = int(x)
-        y0 = int(y)
-        step = self._mesh_step(step)
-        for yy in range(y0, y0 + int(h)):
-            for xx in range(x0, x0 + int(w)):
-                if self._mesh_on(xx, yy, step):
-                    self.fb.pixel(xx, yy, c)
+  def _rect_dither(self, x, y, w, h, c=WHITE, step=None):
+    if w <= 0 or h <= 0:
+      return
+    x0 = int(x)
+    y0 = int(y)
+    step = self._mesh_step(step)
+    for yy in range(y0, y0 + int(h)):
+      for xx in range(x0, x0 + int(w)):
+        if self._mesh_on(xx, yy, step):
+          self.fb.pixel(xx, yy, c)
 
-    # ---- public API ----
-    def draw_contour(self):
-        # Ensure a clean background underneath on first call
-        if not self._first_frame_cleared:
-            self._hard_clear_internals()
-            self._first_frame_cleared = True
-        self._draw_bucket_outline()
+  # ---- public API ----
+  def draw_contour(self):
+    # Ensure a clean background underneath on first call
+    if not self._first_frame_cleared:
+      self._hard_clear_internals()
+      self._first_frame_cleared = True
+    self._draw_bucket_outline()
+    self._draw_arc_outlines()
+    self._prev_A_end  = ARC_LEFT_DEG
+    self._prev_rect_w = -9999
+
+  def update(self, motor_power_percent):
+    negative = motor_power_percent < 0
+    # Clamp 0..100 on magnitude
+    p = int(max(0, min(100, abs(motor_power_percent))))
+
+    # first-frame safety
+    if not self._first_frame_cleared:
+      self._hard_clear_internals()
+      self._first_frame_cleared = True
+      self._prev_negative = negative
+    elif self._prev_negative is None:
+      self._prev_negative = negative
+    elif self._prev_negative != negative:
+      # mode switch (solid <-> dither), force a clean redraw
+      self._hard_clear_internals()
+      self._prev_A_end = None
+      self._prev_rect_w = -9999
+      self._prev_negative = negative
+
+    # ----- proportional mapping between arc and bar -----
+    P_BREAK = _progress_break_percent()  # typically ~62% with current geometry
+
+    # --- ARC segment (0 .. P_BREAK %) ---
+    if p <= P_BREAK:
+      if p == 0:
+        # clear any previous wedge
+        if self._prev_A_end is not None and self._prev_A_end != ARC_LEFT_DEG:
+          self._fill_wedge_scanlines(self._prev_A_end, WHITE)
+        self._prev_A_end = ARC_LEFT_DEG
         self._draw_arc_outlines()
-        self._prev_A_end  = ARC_LEFT_DEG
-        self._prev_rect_w = -9999
-
-    def update(self, motor_power_percent):
-        negative = motor_power_percent < 0
-        # Clamp 0..100 on magnitude
-        p = int(max(0, min(100, abs(motor_power_percent))))
-
-        # first-frame safety
-        if not self._first_frame_cleared:
-            self._hard_clear_internals()
-            self._first_frame_cleared = True
-            self._prev_negative = negative
-        elif self._prev_negative is None:
-            self._prev_negative = negative
-        elif self._prev_negative != negative:
-            # mode switch (solid <-> dither), force a clean redraw
-            self._hard_clear_internals()
-            self._prev_A_end = None
-            self._prev_rect_w = -9999
-            self._prev_negative = negative
-
-        # ----- proportional mapping between arc and bar -----
-        P_BREAK = _progress_break_percent()  # typically ~62% with current geometry
-
-        # --- ARC segment (0 .. P_BREAK %) ---
-        if p <= P_BREAK:
-            if p == 0:
-                # clear any previous wedge
-                if self._prev_A_end is not None and self._prev_A_end != ARC_LEFT_DEG:
-                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
-                self._prev_A_end = ARC_LEFT_DEG
-                self._draw_arc_outlines()
-            else:
-                t = p / P_BREAK if P_BREAK > 0 else 0.0
-                A_end = ARC_LEFT_DEG + 90.0 * t  # 180 → 270
-                if self._prev_A_end is not None and A_end != self._prev_A_end:
-                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
-                if negative:
-                    self._fill_wedge_scanlines_dither(A_end, BLACK)
-                else:
-                    self._fill_wedge_scanlines(A_end, BLACK)
-                self._draw_arc_outlines()
-                self._prev_A_end = A_end
-            rect_w = 0  # bar stays empty up to break
-
-        # --- BAR segment (P_BREAK .. 100 %) ---
+      else:
+        t = p / P_BREAK if P_BREAK > 0 else 0.0
+        A_end = ARC_LEFT_DEG + 90.0 * t  # 180 → 270
+        if self._prev_A_end is not None and A_end != self._prev_A_end:
+          self._fill_wedge_scanlines(self._prev_A_end, WHITE)
+        if negative:
+          self._fill_wedge_scanlines_dither(A_end, BLACK)
         else:
-            # ensure arc is fully filled
-            if self._prev_A_end is None or self._prev_A_end != ARC_UP_DEG:
-                if self._prev_A_end is not None:
-                    self._fill_wedge_scanlines(self._prev_A_end, WHITE)
-                if negative:
-                    self._fill_wedge_scanlines_dither(ARC_UP_DEG, BLACK)
-                else:
-                    self._fill_wedge_scanlines(ARC_UP_DEG, BLACK)
-                self._draw_arc_outlines()
-                self._prev_A_end = ARC_UP_DEG
+          self._fill_wedge_scanlines(A_end, BLACK)
+        self._draw_arc_outlines()
+        self._prev_A_end = A_end
+      rect_w = 0  # bar stays empty up to break
 
-            # map remaining progress to bar width
-            if P_BREAK < 100.0:
-                t_bar = (p - P_BREAK) / (100.0 - P_BREAK)
-            else:
-                t_bar = 0.0
-            rect_w = int(round(t_bar * motor_power_width))
+    # --- BAR segment (P_BREAK .. 100 %) ---
+    else:
+      # ensure arc is fully filled
+      if self._prev_A_end is None or self._prev_A_end != ARC_UP_DEG:
+        if self._prev_A_end is not None:
+          self._fill_wedge_scanlines(self._prev_A_end, WHITE)
+        if negative:
+          self._fill_wedge_scanlines_dither(ARC_UP_DEG, BLACK)
+        else:
+          self._fill_wedge_scanlines(ARC_UP_DEG, BLACK)
+        self._draw_arc_outlines()
+        self._prev_A_end = ARC_UP_DEG
 
-        # ---- draw/clear the top bar interior ----
-        if rect_w != self._prev_rect_w:
-            self._clear_bucket()
-            if rect_w > 0:
-                if negative:
-                    self._rect_dither(motor_power_x + motor_power_width + 9,
+      # map remaining progress to bar width
+      if P_BREAK < 100.0:
+        t_bar = (p - P_BREAK) / (100.0 - P_BREAK)
+      else:
+        t_bar = 0.0
+      rect_w = int(round(t_bar * motor_power_width))
+
+    # ---- draw/clear the top bar interior ----
+    if rect_w != self._prev_rect_w:
+      self._clear_bucket()
+      if rect_w > 0:
+        if negative:
+          self._rect_dither(motor_power_x + motor_power_width + 9,
                                       motor_power_y, rect_w, motor_power_height + 1,
                                       BLACK)
-                else:
-                    self._rect(motor_power_x + motor_power_width + 9,
-                               motor_power_y, rect_w, motor_power_height + 1,
-                               BLACK, fill=True)
-            self._draw_bucket_outline()
-            self._prev_rect_w = rect_w
+        else:
+          self._rect(motor_power_x + motor_power_width + 9,
+                              motor_power_y, rect_w, motor_power_height + 1,
+                              BLACK, fill=True)
+      self._draw_bucket_outline()
+      self._prev_rect_w = rect_w
 
-        # keep bucket outline crisp
-        self._draw_bucket_outline()
+    # keep bucket outline crisp
+    self._draw_bucket_outline()
