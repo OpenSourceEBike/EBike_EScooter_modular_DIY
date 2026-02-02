@@ -1,5 +1,9 @@
 # Bafang M500 config (display + main board + lights + APC)
 
+from common.model_constants import MODEL_EBIKE
+
+model = MODEL_EBIKE
+
 # ===================================================================
 # MAC ADDRESSES (all boards)
 # ===================================================================

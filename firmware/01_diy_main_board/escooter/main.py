@@ -2,11 +2,7 @@ import time
 import gc
 import uasyncio as asyncio
 
-from common.config_runtime import (
-  cfg,
-  front_motor_cfg,
-  rear_motor_cfg,
-)
+import common.config_runtime as cfg
 
 from machine import WDT
 from vars import Vars
@@ -27,16 +23,16 @@ _led = neopixel.NeoPixel(machine.Pin(21, machine.Pin.OUT), 1)
 vars = Vars()
 
 # Brake sensor
-brake_sensor = Brake(cfg.brake_pin)
+brake_sensor = Brake(cfg.cfg.brake_pin)
 
 # If brakes are active at startup, block here (development safety)
 while brake_sensor.value:
   print('brake at start')
   time.sleep(1)
 
-motor_cfgs = [rear_motor_cfg]
-if front_motor_cfg is not None:
-  motor_cfgs.append(front_motor_cfg)
+motor_cfgs = [cfg.rear_motor_cfg]
+if cfg.front_motor_cfg is not None:
+  motor_cfgs.append(cfg.front_motor_cfg)
 
 motor_datas = [MotorData(c) for c in motor_cfgs]
 motors = [Motor(d) for d in motor_datas]
@@ -69,7 +65,7 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
   battery_is_charging = 1 if vars.battery_is_charging else 0
 
-  if not cfg.has_jbd_bms:
+  if not cfg.cfg.has_jbd_bms:
     battery_is_charging = 0
 
   motor_datas_local = [rear_motor_data]
@@ -102,7 +98,7 @@ display_comms = ESPNowComms(esp, decoder=decode_display_message, encoder=encode_
 lights_tx_comms = ESPNowComms(esp, encoder=encode_lights_message)
 
 # Optional BMS support (BLE) — BLE activation is deferred to bms.start()
-if cfg.has_jbd_bms:
+if cfg.cfg.has_jbd_bms:
   import bluetooth
   from bms_jbd import JbdBmsClient
 
@@ -110,7 +106,7 @@ if cfg.has_jbd_bms:
   ble = bluetooth.BLE()
   bms = JbdBmsClient(
     ble=ble,
-    target_name=cfg.jbd_bms_bluetooth_name,
+    target_name=cfg.cfg.jbd_bms_bluetooth_name,
     query_period_ms=1000,
     interleave_cells=True,
     debug=True,
@@ -142,20 +138,20 @@ if cfg.has_jbd_bms:
 
 # Throttles
 throttle_1 = Throttle(
-  cfg.throttle_1_pin,
-  min_val=cfg.throttle_1_adc_min,   # min ADC (with margin)
-  max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
+  cfg.cfg.throttle_1_pin,
+  min_val=cfg.cfg.throttle_1_adc_min,   # min ADC (with margin)
+  max_val=cfg.cfg.throttle_1_adc_max,   # max ADC (with margin)
 )
 
 throttle_2 = None
 if hasattr(cfg, "throttle_2_pin"):
   throttle_2 = Throttle(
-    cfg.throttle_2_pin,
-    min_val=cfg.throttle_2_adc_min,
-    max_val=cfg.throttle_2_adc_max,
+    cfg.cfg.throttle_2_pin,
+    min_val=cfg.cfg.throttle_2_adc_min,
+    max_val=cfg.cfg.throttle_2_adc_max,
   )
 
-mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.save_mode_to_nvs)
+mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
   # Refresh latest VESC data (call once; it fills both via CAN)
@@ -247,7 +243,7 @@ async def task_control_motor(wdt):
       throttle_value = max(throttle_value, throttle_2_value)
 
     # Over-max safety (ADC glitch protection)
-    if throttle_1_raw > cfg.throttle_1_adc_over_max_error:
+    if throttle_1_raw > cfg.cfg.throttle_1_adc_over_max_error:
       for _ in range(3):
         for motor in motors:
           motor.set_motor_current_amps(0)
@@ -386,14 +382,14 @@ async def task_various():
 
     # Auto-detect charging
     # Note: BMS battery current is positive when charging
-    if cfg.has_jbd_bms:
+    if cfg.cfg.has_jbd_bms:
       now = time.ticks_ms()
       if rear_motor.data.wheel_speed == 0 and \
               vars.bms_battery_current_x100 is not None and \
-              vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
+              vars.bms_battery_current_x100 > cfg.cfg.charge_current_threshold_a_x100:
         if charge_seen_ms is None:
           charge_seen_ms = now
-        elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
+        elif time.ticks_diff(now, charge_seen_ms) >= cfg.cfg.charge_detect_hold_ms:
           vars.battery_is_charging = True
       else:
         vars.battery_is_charging = False
@@ -423,7 +419,7 @@ async def main():
   ]
 
   # Add BMS tasks only if enabled in config
-  if cfg.has_jbd_bms:
+  if cfg.cfg.has_jbd_bms:
     tasks.append(asyncio.create_task(bms_task(bms)))
     tasks.append(asyncio.create_task(bms_read_task(bms)))
 

@@ -23,14 +23,3 @@ def map_range(x, in_min, in_max, out_min, out_max, clamp=False):
   return result
 
 
-def clamp(x, min_val, max_val):
-  """Clamp value into range [min_val, max_val]."""
-  return max(min_val, min(x, max_val))
-
-
-def moving_average(samples, new_val, window=10):
-  """Update a simple moving average buffer."""
-  samples.append(new_val)
-  if len(samples) > window:
-    samples.pop(0)
-  return sum(samples) / len(samples)

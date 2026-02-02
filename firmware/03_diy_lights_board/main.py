@@ -14,7 +14,7 @@ from common.lights_bits import (
   IO_BITS_MASK,
   NON_TURN_MASK,
 )
-import config_lights as cfg
+from common import config_runtime as cfg
 
 ################################################################
 # CONFIGURATIONS
@@ -22,17 +22,21 @@ import config_lights as cfg
 # MAC address for this lights board (local MAC)
 # NOTE: On the ESP32-C3 the Wi-Fi STA has its own MAC. Here we intentionally
 # force a fixed MAC. Make sure this makes sense for your ESP-NOW network.
-try:
-  my_mac_address = cfg.mac_address_lights
-except AttributeError as exc:
-  raise AttributeError(
-    "mac_address_lights is not defined in the active config."
-  ) from exc
+my_mac_address = cfg.mac_address_lights
 
 ################################################################
 # PRINT BOARD VERSION
 
 print("Starting the DIY Lights board")
+print("EBike/EScooter model: " + cfg.model_name)
+print()
+
+if cfg.model not in (
+  cfg.MODEL_ESCOOTER_DUAL_MOTOR,
+  cfg.MODEL_ESCOOTER_SINGLE_MOTOR,
+  cfg.MODEL_EBIKE,
+):
+  raise ValueError("You need to select a valid EBike/EScooter model")
 
 ################################################################
 ################################################################
