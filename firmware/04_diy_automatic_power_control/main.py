@@ -1,116 +1,104 @@
-import board
-import digitalio
-
-import supervisor
-supervisor.runtime.autoreload = False
-
-# enable the IO pins to control the switch
-# needs a few pins as the relay uses some good amount of current
-switch_pins_numbers = [board.IO18, board.IO33, board.IO35, board.IO37, board.IO39]
-switch_pins = [0] * len(switch_pins_numbers)
-
-# configure the pins as outputs and enable
-for index, switch_pin_number in enumerate(switch_pins_numbers):
-  switch_pins[index] = digitalio.DigitalInOut(switch_pin_number)
-  switch_pins[index].direction = digitalio.Direction.OUTPUT
-  switch_pins[index].value = True
-
-import busio
-import adafruit_adxl34x
-import alarm
 import time
 import gc
-import wifi
-import espnow
-import espnow_comms as _ESPNowComms
-import system_data as _SystemData
+from machine import Pin, I2C, deepsleep
+import esp32
+
+from common.espnow import espnow_init, ESPNowComms
+from common.espnow_commands import COMMAND_ID_POWER_SWITCH_1
 import common.config_runtime as cfg
+from adxl345 import ADXL345
 
 ################################################################
 # CONFIGURATIONS
 
-timeout_no_motion_minutes_to_disable_relay = 5 # 5 minutes seems a good value
-
-seconds_to_wait_before_movement_detection = 20 # 20 seconds seems a good value
-
-my_mac_address = cfg.mac_address_power_switch
+timeout_no_motion_minutes_to_disable_relay = 5  # 5 minutes seems a good value
+seconds_to_wait_before_movement_detection = 20  # 20 seconds seems a good value
 
 debug_enable = True
 
 ################################################################
 
-timeout_no_motion_minutes_to_disable_relay *= 60 # need to multiply by 60 seconds
-
 if debug_enable:
   print("Starting the DIY Automatic Anti Spark Switch")
 
-# if we are here, is because
-# the system just wake up from deep sleep,
-# due to motion detection
+# Relay control pins (C3)
+SWITCH_PINS_NUMBERS = (0, 1, 2, 3, 4)
+switch_pins = [Pin(p, Pin.OUT, value=1) for p in SWITCH_PINS_NUMBERS]
 
-system_data = _SystemData.SystemData()
+timeout_no_motion_minutes_to_disable_relay *= 60  # need to multiply by 60 seconds
+timeout_no_motion_ms = timeout_no_motion_minutes_to_disable_relay * 1000
 
-# set mac address
-# this is also need to start ESPNow
-wifi.radio.enabled = True
-wifi.radio.mac_address = bytearray(my_mac_address)
-wifi.radio.start_ap(ssid="NO_SSID", channel=1)
-wifi.radio.stop_ap()
+turn_off_relay = False
 
-_espnow = espnow.ESPNow()
-espnow_comms = _ESPNowComms.ESPNowComms(_espnow, system_data)
+my_mac_address = cfg.mac_address_power_switch
+_sta, esp = espnow_init(channel=1, local_mac=my_mac_address)
 
-# pins used by the ADXL345
-scl_pin = board.IO1
-sda_pin = board.IO2
-int1_pin = board.IO8
+def decode_power_switch_message(msg):
+  parts = [int(s) for s in msg.decode("ascii").split()]
+  if len(parts) == 2 and parts[0] == COMMAND_ID_POWER_SWITCH_1:
+    return parts
+  return None
 
-# init the ADXL345
-i2c = busio.I2C(scl_pin, sda_pin)
-accelerometer = adafruit_adxl34x.ADXL345(i2c)
-accelerometer.enable_motion_detection(threshold = 16) # 16 seems to be the min value possible
-accelerometer.events.get('motion') # this will clear the interrupt
+espnow_comms = ESPNowComms(esp, decoder=decode_power_switch_message)
 
-last_time_motion_detected = time.monotonic()
+# ADXL345 pins (adjust if needed)
+ADXL_SCL_PIN = 20
+ADXL_SDA_PIN = 21
+ADXL_INT_PIN = 8
+
+i2c = I2C(0, scl=Pin(ADXL_SCL_PIN), sda=Pin(ADXL_SDA_PIN), freq=400_000)
+accelerometer = ADXL345(i2c, ADXL_INT_PIN)
+accelerometer.setup_motion_detection(threshold=16)
+
+last_time_motion_detected = time.ticks_ms()
+motion_timeout_deadline = time.ticks_add(
+  last_time_motion_detected, timeout_no_motion_ms
+)
 
 if debug_enable:
   motion_counter = 0
-  previous_display_communication_counter = 0
   timeout_counter_previous = 0
 
 while True:
-  
-  # process any data received by ESPNow
-  espnow_comms.process_data()
-  if debug_enable:
-    if system_data.display_communication_counter != previous_display_communication_counter:
-      previous_display_communication_counter = system_data.display_communication_counter
 
-  # save time value when motion is detected 
-  if accelerometer.events.get('motion'):
-    last_time_motion_detected = time.monotonic()
-    
+  # process any data received by ESPNow
+  msg = espnow_comms.get_data()
+  if msg is not None and len(msg) == 2:
+    command_id, turn_off = msg
+    if command_id == COMMAND_ID_POWER_SWITCH_1:
+      turn_off_relay = True if int(turn_off) != 0 else False
+
+  # save time value when motion is detected
+  if accelerometer.motion_detected():
+    last_time_motion_detected = time.ticks_ms()
+    motion_timeout_deadline = time.ticks_add(
+      last_time_motion_detected, timeout_no_motion_ms
+    )
+
     if debug_enable:
       motion_counter += 1
       print(f"Motion counter: {motion_counter}")
 
   # if we should turn off the relay, leave this infinite loop
-  if system_data.turn_off_relay:
+  if turn_off_relay:
     if debug_enable:
       print("Turn off relay command")
       
     break
 
   # if timeout, leave this infinite loop
-  timeout_counter = int(time.monotonic() - last_time_motion_detected)
-  if timeout_counter > timeout_no_motion_minutes_to_disable_relay:
+  if time.ticks_diff(time.ticks_ms(), motion_timeout_deadline) >= 0:
     break
-  
+
   if debug_enable:
+    remaining_ms = time.ticks_diff(motion_timeout_deadline, time.ticks_ms())
+    if remaining_ms < 0:
+      remaining_ms = 0
+    timeout_counter = remaining_ms // 1000
     if timeout_counter != timeout_counter_previous:
       timeout_counter_previous = timeout_counter
       print(f"Timeout remaining seconds: {timeout_no_motion_minutes_to_disable_relay - timeout_counter}")
-  
+
   # do memory clean
   gc.collect()
 
@@ -122,20 +110,15 @@ if debug_enable:
   print(f"Prepare to enter in sleep mode - delay of {seconds_to_wait_before_movement_detection} seconds")
 
 # if we are here, we should turn off the relay
-# disable relay switch pins
-for index in range(len(switch_pins)):
-  switch_pins[index].value = False
+for pin in switch_pins:
+  pin.value(0)
 
 # wait some time before next movement detection
 time.sleep(seconds_to_wait_before_movement_detection)
 
-# pin change alarm, will be active when motion is detected by the ADXL345
-pin_alarm_motion_detection = alarm.pin.PinAlarm(int1_pin, value = True)
-
-accelerometer.events.get('motion') # this will clear the interrupt
+esp32.wake_on_ext0(pin=Pin(ADXL_INT_PIN, Pin.IN), level=1)
 
 if debug_enable:
   print("Enter in sleep mode")
 
-alarm.exit_and_deep_sleep_until_alarms(pin_alarm_motion_detection, preserve_dios = switch_pins)
-# Does not return. Exits, and restarts after the deep sleep time.
+deepsleep()

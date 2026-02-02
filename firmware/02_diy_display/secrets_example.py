@@ -1,4 +1,4 @@
 secrets = {
-    'wifi_ssid' : 'mywifissid',
-    'wifi_password' : 'mywifipassword'
+  'wifi_ssid' : 'mywifissid',
+  'wifi_password' : 'mywifipassword'
 }

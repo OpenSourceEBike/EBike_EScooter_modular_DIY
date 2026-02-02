@@ -1,2 +1,0 @@
-import microcontroller
-microcontroller.reset()

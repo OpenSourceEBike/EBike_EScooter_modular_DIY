@@ -4,28 +4,28 @@
 version = '0.42'
 
 def height():
-    return 15
+  return 15
 
 def baseline():
-    return 12
+  return 12
 
 def max_width():
-    return 15
+  return 15
 
 def hmap():
-    return True
+  return True
 
 def reverse():
-    return False
+  return False
 
 def monospaced():
-    return False
+  return False
 
 def min_ch():
-    return 32
+  return 32
 
 def max_ch():
-    return 126
+  return 126
 
 _font =\
 b'\x08\x00\x00\x3c\x66\x06\x06\x0e\x0c\x18\x18\x18\x00\x18\x00\x00'\
@@ -205,11 +205,11 @@ _mvi = memoryview(_index)
 ifb = lambda l : l[0] | (l[1] << 8)
 
 def get_ch(ch):
-    oc = ord(ch)
-    ioff = 2 * (oc - 32 + 1) if oc >= 32 and oc <= 126 else 0
-    doff = ifb(_mvi[ioff : ])
-    width = ifb(_mvfont[doff : ])
+  oc = ord(ch)
+  ioff = 2 * (oc - 32 + 1) if oc >= 32 and oc <= 126 else 0
+  doff = ifb(_mvi[ioff : ])
+  width = ifb(_mvfont[doff : ])
 
-    next_offs = doff + 2 + ((width - 1)//8 + 1) * 15
-    return _mvfont[doff + 2:next_offs], 15, width
+  next_offs = doff + 2 + ((width - 1)//8 + 1) * 15
+  return _mvfont[doff + 2:next_offs], 15, width
 

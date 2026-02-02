@@ -8,8 +8,7 @@ from common.config_main_board_common import Cfg, MotorCfg
 mac_address_display       = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF3]
 mac_address_power_switch  = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF1]
 mac_address_motor_board   = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF2]
-mac_address_rear_lights   = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF4]
-mac_address_front_lights  = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF5]
+mac_address_lights        = [0x68, 0xB6, 0xB3, 0x01, 0xF7, 0xF4]
 
 # ===================================================================
 # MAIN BOARD CONFIGS
@@ -38,10 +37,6 @@ cfg.throttle_2_adc_min = 16600
 cfg.throttle_2_adc_max = 48500
 cfg.throttle_2_adc_over_max_error = 54500
 
-# Main board and display MACs
-cfg.my_mac_address = mac_address_motor_board
-cfg.display_mac_address = mac_address_display
-
 # JBD BMS
 cfg.has_jbd_bms = True
 cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
@@ -57,13 +52,13 @@ rear_motor_cfg.poles_pair = 15
 rear_motor_cfg.wheel_radius = 0.165
 
 rear_motor_cfg.motor_erpm_max_speed_limit = [
-    6330,   # ≈25 km/h
-    13263   # ≈55 km/h
+  6330,   # ≈25 km/h
+  13263   # ≈55 km/h
 ]
 
 front_motor_cfg.motor_erpm_max_speed_limit = [
-    6330,   # ≈25 km/h
-    13263   # ≈55 km/h
+  6330,   # ≈25 km/h
+  13263   # ≈55 km/h
 ]
 
 front_motor_cfg.motor_max_current_limit_max = 150.0
@@ -147,9 +142,9 @@ battery_voltage = 72.0
 
 # Motor power scaling (W) for display
 motor_power_max_w = (front_motor_cfg.battery_current_limit_max_min + \
-                    rear_motor_cfg.battery_current_limit_max_min) \
-                    * battery_voltage
-                    
+          rear_motor_cfg.battery_current_limit_max_min) \
+          * battery_voltage
+          
 motor_regen_power_max_w = (front_motor_cfg.battery_current_limit_min_max + \
-                    rear_motor_cfg.battery_current_limit_min_max) \
-                    * battery_voltage
+          rear_motor_cfg.battery_current_limit_min_max) \
+          * battery_voltage
