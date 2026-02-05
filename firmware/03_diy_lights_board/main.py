@@ -28,15 +28,12 @@ my_mac_address = cfg.mac_address_lights
 # PRINT BOARD VERSION
 
 print("Starting the DIY Lights board")
-print("EBike/EScooter model: " + cfg.model_name)
+print("EBike/EScooter type: " + cfg.type_name)
 print()
 
-if cfg.model not in (
-  cfg.MODEL_ESCOOTER_DUAL_MOTOR,
-  cfg.MODEL_ESCOOTER_SINGLE_MOTOR,
-  cfg.MODEL_EBIKE,
-):
-  raise ValueError("You need to select a valid EBike/EScooter model")
+vehicle_type = cfg.type.get("ebike_escooter") if isinstance(cfg.type, dict) else None
+if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
+  raise ValueError("You need to select a valid EBike/EScooter type")
 
 ################################################################
 ################################################################
@@ -76,8 +73,10 @@ switch_pins = [None] * number_of_pins
 for index, pin_num in enumerate(switch_pins_numbers):
   switch_pins[index] = Pin(pin_num, Pin.OUT, value=0)
 
-# ESP-NOW communication interface (command_id = 0)
-_sta, esp = espnow_init(channel=1, local_mac=my_mac_address)
+################################################################
+# ESPNow wireless communications
+
+_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_lights)
 
 def decode_lights_message(msg):
   parts = [int(s) for s in msg.decode("ascii").split()]
@@ -87,6 +86,7 @@ def decode_lights_message(msg):
 
 espnow_comms = ESPNowComms(
   esp,
+  bytes(cfg.mac_address_display),
   decoder=decode_lights_message,
 )
 

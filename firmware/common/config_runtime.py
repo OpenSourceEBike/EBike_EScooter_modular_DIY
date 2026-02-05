@@ -1,17 +1,12 @@
 # Centralized config loader. Loads the single config_*.py at the root
-# and exposes model-specific overrides plus helper names.
+# and exposes config values plus helper names.
 
 import uos
-from common.model_constants import (
-  MODEL_ESCOOTER_DUAL_MOTOR,
-  MODEL_ESCOOTER_SINGLE_MOTOR,
-  MODEL_EBIKE,
-)
+from common.model_constants import TYPE_EBIKE, TYPE_ESCOOTER
 
-MODEL_NAME = {
-  MODEL_ESCOOTER_DUAL_MOTOR: "escooter_dual_motor",
-  MODEL_ESCOOTER_SINGLE_MOTOR: "escooter_single_motor",
-  MODEL_EBIKE: "ebike",
+TYPE_NAME = {
+  TYPE_EBIKE: "ebike",
+  TYPE_ESCOOTER: "escooter",
 }
 
 
@@ -35,16 +30,22 @@ if len(_config_files) != 1:
 _config_module_name = _config_files[0][:-3]
 _cfg = __import__(_config_module_name)
 
-model = getattr(_cfg, "model", None)
-if model is None:
-  raise ValueError("Selected config must define 'model' (e.g. MODEL_ESCOOTER_SINGLE_MOTOR)")
+type = getattr(_cfg, "type", None)
+if not isinstance(type, dict):
+  raise ValueError("Selected config must define 'type' as a dict")
+
+vehicle_type = type.get("ebike_escooter")
+if vehicle_type not in TYPE_NAME:
+  raise ValueError(
+    "Selected config must define type['ebike_escooter'] as TYPE_EBIKE or TYPE_ESCOOTER"
+  )
 
 # Re-export all config values
 for _name in dir(_cfg):
   if not _name.startswith("_"):
     globals()[_name] = getattr(_cfg, _name)
 
-model_name = MODEL_NAME.get(model, "unknown")
+type_name = TYPE_NAME.get(vehicle_type, "unknown")
 
 # Back-compat: attach MAC addresses to cfg object if present.
 if "cfg" in globals():
@@ -52,3 +53,7 @@ if "cfg" in globals():
   for _name in dir(_cfg):
     if _name.startswith("mac_address_"):
       setattr(_cfg_obj, _name, getattr(_cfg, _name))
+  # Promote cfg object fields to module-level for consistency.
+  for _name in dir(_cfg_obj):
+    if not _name.startswith("_") and _name not in globals():
+      globals()[_name] = getattr(_cfg_obj, _name)

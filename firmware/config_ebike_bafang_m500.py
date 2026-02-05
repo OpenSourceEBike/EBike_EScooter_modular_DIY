@@ -1,8 +1,14 @@
 # Bafang M500 config (display + main board + lights + APC)
 
-from common.model_constants import MODEL_EBIKE
+from common.model_constants import (
+  TYPE_EBIKE,
+  MOTOR_SINGLE,
+)
 
-model = MODEL_EBIKE
+type = {
+  "ebike_escooter": TYPE_EBIKE,
+  "single_dual_moor": MOTOR_SINGLE,
+}
 
 # ===================================================================
 # MAC ADDRESSES (all boards)

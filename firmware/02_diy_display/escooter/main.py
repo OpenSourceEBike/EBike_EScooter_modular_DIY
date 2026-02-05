@@ -19,12 +19,9 @@ print("Starting Display")
 
 vars = Vars.Vars()
 
+# ESPNow wireless communications
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
 ap = network.WLAN(network.AP_IF)
-
-power_switch_peer_mac = bytes(cfg.mac_address_power_switch)
-motor_peer_mac = bytes(cfg.mac_address_motor_board)
-lights_peer_mac = bytes(cfg.mac_address_lights)
 
 def encode_power_switch_message():
   turn_off_relay = 1 if vars.turn_off_relay else 0
@@ -45,10 +42,25 @@ def encode_lights_message():
   mask = IO_BITS_MASK & ~REAR_BRAKE_BIT
   return f"{COMMAND_ID_DISPLAY_1} {mask} {pins_state}".encode("ascii")
 
-motor_rx_comms = ESPNowComms(esp, decoder=decode_display_message)
-power_switch_tx_comms = ESPNowComms(esp, encoder=encode_power_switch_message)
-motor_tx_comms = ESPNowComms(esp, encoder=encode_display_message)
-lights_tx_comms = ESPNowComms(esp, encoder=encode_lights_message)
+power_switch_tx_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_power_switch),
+  encoder=encode_power_switch_message)
+
+motor_rx_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_motor_board),
+  decoder=decode_display_message)
+
+motor_tx_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_motor_board),
+  encoder=encode_display_message)
+
+lights_tx_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_lights),
+  encoder=encode_lights_message)
 
 lcd = LCD(
   spi_clk_pin=cfg.pin_spi_clk,
@@ -158,9 +170,9 @@ async def power_off_forever():
 
     try:
       # Ensure desired OFF states are in vars before calling this
-      motor_tx_comms.send_data(motor_peer_mac)
-      power_switch_tx_comms.send_data(power_switch_peer_mac)
-      lights_tx_comms.send_data(lights_peer_mac)
+      motor_tx_comms.send_data()
+      power_switch_tx_comms.send_data()
+      lights_tx_comms.send_data()
     except Exception as ex:
       print("send_all_off_once err:", ex)
 
@@ -295,7 +307,7 @@ async def motor_tx_task(vars):
   period_ms = 100
   next_wake = time.ticks_ms()
   while True:
-    motor_tx_comms.send_data(motor_peer_mac)
+    motor_tx_comms.send_data()
     
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)
@@ -325,7 +337,7 @@ async def lights_task(vars):
     else:
       vars.lights_board_pins_state = 0
 
-    lights_tx_comms.send_data(lights_peer_mac)
+    lights_tx_comms.send_data()
 
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)

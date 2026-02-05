@@ -1,5 +1,9 @@
 from micropython import const
 
-MODEL_ESCOOTER_DUAL_MOTOR = const(1)
-MODEL_ESCOOTER_SINGLE_MOTOR = const(2)
-MODEL_EBIKE = const(3)
+# Vehicle type codes
+TYPE_EBIKE = const(0)
+TYPE_ESCOOTER = const(1)
+
+# Motor count codes
+MOTOR_SINGLE = const(0)
+MOTOR_DUAL = const(1)
