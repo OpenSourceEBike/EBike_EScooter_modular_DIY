@@ -1,9 +1,15 @@
 # Fiido Q1S config (display + main board + lights + APC)
 
-from common.model_constants import MODEL_ESCOOTER_DUAL_MOTOR
+from common.model_constants import (
+  TYPE_ESCOOTER,
+  MOTOR_DUAL,
+)
 from common.config_main_board_common import Cfg, MotorCfg
 
-model = MODEL_ESCOOTER_DUAL_MOTOR
+type = {
+  "ebike_escooter": TYPE_ESCOOTER,
+  "single_dual_moor": MOTOR_DUAL,
+}
 
 # ===================================================================
 # MAC ADDRESSES (all boards)

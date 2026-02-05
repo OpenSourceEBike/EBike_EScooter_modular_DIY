@@ -1,20 +1,18 @@
 #############################################
 #
-# Choose the EBike/EScooter model on common/espnow_commands.py:
-from common.config_runtime import (
-  model,
-  model_name,
-  MODEL_ESCOOTER_DUAL_MOTOR,
-  MODEL_ESCOOTER_SINGLE_MOTOR,
-  MODEL_EBIKE,
-)
+# Choose the EBike/EScooter type on common/espnow_commands.py:
+from common.config_runtime import type_name, type as cfg_type
+from common.model_constants import TYPE_EBIKE, TYPE_ESCOOTER
 
-print('EBike/EScooter model: ' + model_name)
+print('EBike/EScooter type: ' + type_name)
 print()
 
-if model in (MODEL_ESCOOTER_DUAL_MOTOR, MODEL_ESCOOTER_SINGLE_MOTOR):
+vehicle_type = cfg_type.get("ebike_escooter")
+if vehicle_type == TYPE_ESCOOTER:
   import escooter.main
-elif model == MODEL_EBIKE:
+elif vehicle_type == TYPE_EBIKE:
   import ebike.main
 else:
-  raise ValueError("You need to select a valid EBike/EScooter model")
+  raise ValueError(
+    "Selected config must define type['ebike_escooter'] as TYPE_EBIKE or TYPE_ESCOOTER"
+  )

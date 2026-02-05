@@ -35,11 +35,30 @@ def espnow_init(channel: int, local_mac):
   return sta, esp
 
 
+_peer_registry = set()
+
+
 class ESPNowComms:
-  def __init__(self, espnow_inst, decoder=None, encoder=None):
+  def __init__(self, espnow_inst, peer, decoder=None, encoder=None):
     self._esp = espnow_inst
     self._decoder = decoder
     self._encoder = encoder
+    if peer is None:
+      raise ValueError("ESPNowComms requires a peer MAC")
+    self._peer = peer
+    self._peer_added = False
+    self._had_send_failure = False
+    self._had_send_success = False
+    if peer in _peer_registry:
+      self._peer_added = True
+    else:
+      try:
+        self._esp.add_peer(peer)
+        self._peer_added = True
+        _peer_registry.add(peer)
+      except OSError as e:
+        if not (e.args and e.args[0] == -12395):
+          print("ESP-NOW add_peer error:", e)
 
   def get_data(self):
     last_msg = None
@@ -49,10 +68,6 @@ class ESPNowComms:
         if not msg:
           break
         last_msg = msg
-        try:
-          self._esp.add_peer(host)
-        except OSError:
-          pass
     except OSError:
       pass
     except Exception as ex:
@@ -73,22 +88,26 @@ class ESPNowComms:
 
     return decoded
 
-  def send_data(self, peer_mac, *args):
-    if self._encoder is None:
-      raise ValueError("ESPNowComms encoder is not set")
-
+  def send_data(self, *args):
     payload = self._encoder(*args)
     try:
-      ok = self._esp.send(peer_mac, payload)
+      if (not self._peer_added) or (self._peer not in _peer_registry):
+        if not self._had_send_failure:
+          print("ESP-NOW tx error to peer {}".format(self._peer))
+          self._had_send_failure = True
+          self._had_send_success = False
+        return False
+      ok = self._esp.send(self._peer, payload)
       if ok is False:
-        try:
-          self._esp.add_peer(peer_mac)
-        except OSError:
-          pass
-        try:
-          self._esp.send(peer_mac, payload)
-        except Exception:
-          pass
+        if not self._had_send_failure:
+          print("ESP-NOW tx error to peer {}".format(self._peer))
+          self._had_send_failure = True
+          self._had_send_success = False
+      else:
+        self._had_send_failure = False
+        if not self._had_send_success:
+          print("ESP-NOW tx ok to peer {}".format(self._peer))
+          self._had_send_success = True
     except OSError as e:
       if not (e.args and e.args[0] == 116):
         print("ESP-NOW tx error:", e)

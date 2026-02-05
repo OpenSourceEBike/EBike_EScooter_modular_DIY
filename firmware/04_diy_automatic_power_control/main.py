@@ -20,15 +20,12 @@ debug_enable = True
 
 if debug_enable:
   print("Starting the DIY Automatic Anti Spark Switch")
-  print("EBike/EScooter model: " + cfg.model_name)
+  print("EBike/EScooter type: " + cfg.type_name)
   print()
 
-if cfg.model not in (
-  cfg.MODEL_ESCOOTER_DUAL_MOTOR,
-  cfg.MODEL_ESCOOTER_SINGLE_MOTOR,
-  cfg.MODEL_EBIKE,
-):
-  raise ValueError("You need to select a valid EBike/EScooter model")
+vehicle_type = cfg.type.get("ebike_escooter") if isinstance(cfg.type, dict) else None
+if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
+  raise ValueError("You need to select a valid EBike/EScooter type")
 
 # Relay control pins (C3)
 SWITCH_PINS_NUMBERS = (0, 1, 2, 3, 4)
@@ -39,8 +36,8 @@ timeout_no_motion_ms = timeout_no_motion_minutes_to_disable_relay * 1000
 
 turn_off_relay = False
 
-my_mac_address = cfg.mac_address_power_switch
-_sta, esp = espnow_init(channel=1, local_mac=my_mac_address)
+# ESPNow wireless communications
+_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_power_switch)
 
 def decode_power_switch_message(msg):
   parts = [int(s) for s in msg.decode("ascii").split()]
@@ -48,7 +45,11 @@ def decode_power_switch_message(msg):
     return parts
   return None
 
-espnow_comms = ESPNowComms(esp, decoder=decode_power_switch_message)
+espnow_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_display),
+  decoder=decode_power_switch_message,
+)
 
 # ADXL345 pins (adjust if needed)
 ADXL_SCL_PIN = 20

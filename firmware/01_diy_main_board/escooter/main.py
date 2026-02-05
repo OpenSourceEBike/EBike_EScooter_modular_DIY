@@ -15,44 +15,29 @@ from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_LIGHTS_1
 from common.lights_bits import REAR_BRAKE_BIT
 from mode import Mode
 
-import neopixel
-import machine
-_led = neopixel.NeoPixel(machine.Pin(21, machine.Pin.OUT), 1)
+try:
+  import neopixel
+  import machine
+  _led = neopixel.NeoPixel(machine.Pin(21, machine.Pin.OUT), 1)
+except Exception:
+  _led = None
+
+print('EBike/EScooter type: ' + cfg.type_name)
+print()
 
 # Object that holds various runtime variables
 vars = Vars()
 
 # Brake sensor
-brake_sensor = Brake(cfg.cfg.brake_pin)
+brake_sensor = Brake(cfg.brake_pin)
 
 # If brakes are active at startup, block here (development safety)
 while brake_sensor.value:
   print('brake at start')
   time.sleep(1)
 
-motor_cfgs = [cfg.rear_motor_cfg]
-if cfg.front_motor_cfg is not None:
-  motor_cfgs.append(cfg.front_motor_cfg)
-
-motor_datas = [MotorData(c) for c in motor_cfgs]
-motors = [Motor(d) for d in motor_datas]
-
-rear_motor_data = motor_datas[0]
-rear_motor = motors[0]
-front_motor_data = motor_datas[1] if len(motor_datas) > 1 else None
-front_motor = motors[1] if len(motors) > 1 else None
-
-# Init targets from configuration
-for motor_data in motor_datas:
-  motor_data.motor_target_current_limit_max = motor_data.cfg.motor_max_current_limit_max
-  motor_data.motor_target_current_limit_min = motor_data.cfg.motor_max_current_limit_min
-  motor_data.battery_target_current_limit_max = motor_data.cfg.battery_max_current_limit_max
-  motor_data.battery_target_current_limit_min = motor_data.cfg.battery_max_current_limit_min
-
+# ESPNow wireless communications  
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board)
-
-display_peer_mac = bytes(cfg.mac_address_display)
-lights_peer_mac = bytes(cfg.mac_address_lights)
 
 def decode_display_message(msg):
   parts = [int(s) for s in msg.decode("ascii").split()]
@@ -65,7 +50,7 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
   battery_is_charging = 1 if vars.battery_is_charging else 0
 
-  if not cfg.cfg.has_jbd_bms:
+  if not cfg.has_jbd_bms:
     battery_is_charging = 0
 
   motor_datas_local = [rear_motor_data]
@@ -94,11 +79,39 @@ def encode_lights_message(mask, state):
     f"{COMMAND_ID_LIGHTS_1} {int(mask)} {int(state)}"
   ).encode("ascii")
 
-display_comms = ESPNowComms(esp, decoder=decode_display_message, encoder=encode_display_message)
-lights_tx_comms = ESPNowComms(esp, encoder=encode_lights_message)
+display_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_display),
+  decoder=decode_display_message,
+  encoder=encode_display_message,
+)
+
+lights_tx_comms = ESPNowComms(
+  esp,
+  bytes(cfg.mac_address_lights),
+  encoder=encode_lights_message)
+
+motor_cfgs = [cfg.rear_motor_cfg]
+if cfg.front_motor_cfg is not None:
+  motor_cfgs.append(cfg.front_motor_cfg)
+
+motor_datas = [MotorData(c) for c in motor_cfgs]
+motors = [Motor(d) for d in motor_datas]
+
+rear_motor_data = motor_datas[0]
+rear_motor = motors[0]
+front_motor_data = motor_datas[1] if len(motor_datas) > 1 else None
+front_motor = motors[1] if len(motors) > 1 else None
+
+# Init targets from configuration
+for motor_data in motor_datas:
+  motor_data.motor_target_current_limit_max = motor_data.cfg.motor_max_current_limit_max
+  motor_data.motor_target_current_limit_min = motor_data.cfg.motor_max_current_limit_min
+  motor_data.battery_target_current_limit_max = motor_data.cfg.battery_max_current_limit_max
+  motor_data.battery_target_current_limit_min = motor_data.cfg.battery_max_current_limit_min
 
 # Optional BMS support (BLE) — BLE activation is deferred to bms.start()
-if cfg.cfg.has_jbd_bms:
+if cfg.has_jbd_bms:
   import bluetooth
   from bms_jbd import JbdBmsClient
 
@@ -106,7 +119,7 @@ if cfg.cfg.has_jbd_bms:
   ble = bluetooth.BLE()
   bms = JbdBmsClient(
     ble=ble,
-    target_name=cfg.cfg.jbd_bms_bluetooth_name,
+    target_name=cfg.jbd_bms_bluetooth_name,
     query_period_ms=1000,
     interleave_cells=True,
     debug=True,
@@ -138,20 +151,20 @@ if cfg.cfg.has_jbd_bms:
 
 # Throttles
 throttle_1 = Throttle(
-  cfg.cfg.throttle_1_pin,
-  min_val=cfg.cfg.throttle_1_adc_min,   # min ADC (with margin)
-  max_val=cfg.cfg.throttle_1_adc_max,   # max ADC (with margin)
+  cfg.throttle_1_pin,
+  min_val=cfg.throttle_1_adc_min,   # min ADC (with margin)
+  max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
 )
 
 throttle_2 = None
 if hasattr(cfg, "throttle_2_pin"):
   throttle_2 = Throttle(
-    cfg.cfg.throttle_2_pin,
-    min_val=cfg.cfg.throttle_2_adc_min,
-    max_val=cfg.cfg.throttle_2_adc_max,
+    cfg.throttle_2_pin,
+    min_val=cfg.throttle_2_adc_min,
+    max_val=cfg.throttle_2_adc_max,
   )
 
-mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.cfg.save_mode_to_nvs)
+mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
   # Refresh latest VESC data (call once; it fills both via CAN)
@@ -166,16 +179,17 @@ async def task_motors_refresh_data():
 async def task_display_send_data():
   while True:
     if front_motor_data is None:
-      display_comms.send_data(display_peer_mac, vars, rear_motor_data)
+      display_comms.send_data(vars, rear_motor_data)
     else:
-      display_comms.send_data(display_peer_mac, vars, rear_motor_data, front_motor_data)
+      display_comms.send_data(vars, rear_motor_data, front_motor_data)
+    
     gc.collect()
     await asyncio.sleep(0.25)
 
 async def task_lights_send_data():
   while True:
     brake_bit = REAR_BRAKE_BIT if vars.brakes_are_active else 0
-    lights_tx_comms.send_data(lights_peer_mac, REAR_BRAKE_BIT, brake_bit)
+    lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
     gc.collect()
     await asyncio.sleep(0.1)
 
@@ -243,7 +257,7 @@ async def task_control_motor(wdt):
       throttle_value = max(throttle_value, throttle_2_value)
 
     # Over-max safety (ADC glitch protection)
-    if throttle_1_raw > cfg.cfg.throttle_1_adc_over_max_error:
+    if throttle_1_raw > cfg.throttle_1_adc_over_max_error:
       for _ in range(3):
         for motor in motors:
           motor.set_motor_current_amps(0)
@@ -350,11 +364,15 @@ async def task_control_motor_limit_current():
     gc.collect()
     await asyncio.sleep(0.1)
 
-_led_state = False
+_led_blink_state = False
+
 def _led_blink():
-  global _led_state
-  _led_state = not _led_state
-  if _led_state:
+  if _led is None:
+    return
+
+  global _led_blink_state
+  _led_blink_state = not _led_blink_state
+  if _led_blink_state:
     _led[0] = (0, 4, 0)
   else:
     _led[0] = (4, 0, 0)
@@ -382,14 +400,14 @@ async def task_various():
 
     # Auto-detect charging
     # Note: BMS battery current is positive when charging
-    if cfg.cfg.has_jbd_bms:
+    if cfg.has_jbd_bms:
       now = time.ticks_ms()
       if rear_motor.data.wheel_speed == 0 and \
               vars.bms_battery_current_x100 is not None and \
-              vars.bms_battery_current_x100 > cfg.cfg.charge_current_threshold_a_x100:
+              vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
         if charge_seen_ms is None:
           charge_seen_ms = now
-        elif time.ticks_diff(now, charge_seen_ms) >= cfg.cfg.charge_detect_hold_ms:
+        elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
           vars.battery_is_charging = True
       else:
         vars.battery_is_charging = False
@@ -419,7 +437,7 @@ async def main():
   ]
 
   # Add BMS tasks only if enabled in config
-  if cfg.cfg.has_jbd_bms:
+  if cfg.has_jbd_bms:
     tasks.append(asyncio.create_task(bms_task(bms)))
     tasks.append(asyncio.create_task(bms_read_task(bms)))
 
