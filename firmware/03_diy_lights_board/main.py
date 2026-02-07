@@ -90,8 +90,8 @@ espnow_comms = ESPNowComms(
   decoder=decode_lights_message,
 )
 
-# Hardware watchdog: reset the board if not fed within 5 seconds
-wdt = WDT(timeout=5000)  # timeout in milliseconds
+# Hardware watchdog: reset the board if not fed within 10 seconds
+wdt = WDT(timeout=10000)  # timeout in milliseconds
 
 # Target state for IO pins (bitmask)
 io_pins_target = 0

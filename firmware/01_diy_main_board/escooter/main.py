@@ -422,8 +422,8 @@ async def task_various():
     await asyncio.sleep(0.1)
 
 async def main():
-  # Watchdog (min 1s on ESP32). task_control_motor() feeds it continuously.
-  wdt = WDT(timeout=1000)
+  # Watchdog task_control_motor() feeds it continuously.
+  wdt = WDT(timeout=10000)
 
   # Build the task list
   tasks = [

@@ -57,6 +57,13 @@ ADXL_SDA_PIN = 21
 ADXL_INT_PIN = 10
 
 i2c = I2C(0, scl=Pin(ADXL_SCL_PIN), sda=Pin(ADXL_SDA_PIN), freq=400_000)
+found_addrs = i2c.scan()
+if ADXL345._ADDR not in found_addrs:
+  raise RuntimeError(
+    "ADXL345 not found on I2C. Check wiring/power or address. "
+    f"Scanned: {[hex(a) for a in found_addrs]}"
+  )
+
 accelerometer = ADXL345(i2c, ADXL_INT_PIN)
 accelerometer.setup_motion_detection(threshold=16)
 
