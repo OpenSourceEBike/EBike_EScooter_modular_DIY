@@ -48,4 +48,9 @@ lights_button_pin = 5
 power_btn_long_ms = 700
 debounce_ms = 30
 
+# Tail light brake blink (for scooters without a dedicated brake light)
+brake_tail_blink_enable = True
+brake_tail_on_ms = 400
+brake_tail_off_ms = 100
+
 # TODO: fill in ESP-NOW MACs and motor power scaling

@@ -180,6 +180,9 @@ async def power_off_forever():
     except Exception as ex:
       print("send_all_off_once err:", ex)
 
+    # Keep the watchdog alive while staying in the OFF state
+    wdt.feed()
+
     await asyncio.sleep_ms(100)
 
 async def ui_task(fb, lcd, vars):

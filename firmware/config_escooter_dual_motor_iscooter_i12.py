@@ -157,3 +157,8 @@ motor_power_max_w = (front_motor_cfg.battery_current_limit_max_min + \
 motor_regen_power_max_w = (front_motor_cfg.battery_current_limit_min_max + \
           rear_motor_cfg.battery_current_limit_min_max) \
           * battery_voltage
+
+# Tail light brake blink (for scooters without a dedicated brake light)
+brake_tail_blink_enable = True
+brake_tail_on_ms = 400
+brake_tail_off_ms = 100
