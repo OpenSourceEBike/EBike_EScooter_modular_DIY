@@ -24,6 +24,7 @@ from common import config_runtime as cfg
 # force a fixed MAC. Make sure this makes sense for your ESP-NOW network.
 my_mac_address = cfg.mac_address_lights
 
+
 ################################################################
 # PRINT BOARD VERSION
 
@@ -99,13 +100,16 @@ io_pins_target_previous = 0
 display_pins_target = 0
 display_pins_previous = 0
 motor_brake_state = 0
-last_display_msg_ms = time.ticks_ms()
-last_motor_msg_ms = time.ticks_ms()
+display_timeout_ms = time.ticks_add(time.ticks_ms(), 2000)
+motor_timeout_ms = time.ticks_add(time.ticks_ms(), 2000)
 last_gc_ms = time.ticks_add(time.ticks_ms(), 1000)
 
 turn_lights_blink_counter = 0
 turn_lights_blink_state = False
 last_blink_toggle_ms = time.ticks_add(time.ticks_ms(), 375)
+
+tail_brake_blink_state = True
+tail_brake_next_toggle_ms = time.ticks_add(time.ticks_ms(), cfg.brake_tail_on_ms)
 
 
 def set_io_pins(target: int):
@@ -133,6 +137,7 @@ LOOP_INTERVAL_MS = 25  # target loop time in milliseconds
 
 while True:
   loop_start_ms = time.ticks_ms()
+  now = loop_start_ms
 
   # Feed the hardware watchdog at the beginning of each loop
   wdt.feed()
@@ -145,33 +150,58 @@ while True:
       if mask & REAR_BRAKE_BIT:
         # Motor main board controls brake light only
         motor_brake_state = REAR_BRAKE_BIT if (state & REAR_BRAKE_BIT) else 0
-        last_motor_msg_ms = time.ticks_ms()
+        motor_timeout_ms = time.ticks_add(now, 2000)
       else:
         # Display does not control brake light
         mask &= DISPLAY_MASK
         masked_state = state & mask & DISPLAY_MASK
         display_pins_target = (display_pins_target & (~mask & DISPLAY_MASK)) | masked_state
         display_pins_previous = display_pins_target
-        last_display_msg_ms = time.ticks_ms()
+        display_timeout_ms = time.ticks_add(now, 2000)
   else:
     # Reuse previous value if nothing new was received
     display_pins_target = display_pins_previous
 
   # After ~2 seconds with no display messages, reset display-driven pins
-  if time.ticks_diff(time.ticks_ms(), last_display_msg_ms) >= 2000:
+  if time.ticks_diff(now, display_timeout_ms) >= 0:
     display_pins_target = 0
     display_pins_previous = 0
 
   # After ~2 seconds with no motor messages, clear brake light
-  if time.ticks_diff(time.ticks_ms(), last_motor_msg_ms) >= 2000:
+  if time.ticks_diff(now, motor_timeout_ms) >= 0:
     motor_brake_state = 0
 
   io_pins_target = (display_pins_target & DISPLAY_MASK) | motor_brake_state
 
   # Rear behavior (tail/brake + turns)
   if io_pins_target & REAR_BRAKE_BIT:
-    # Clear tail when brake is on
-    io_pins_target &= ~REAR_TAIL_BIT
+    if cfg.brake_tail_blink_enable:
+      # Blink tail when brake is active (900ms ON / 100ms OFF by default)
+      if time.ticks_diff(now, tail_brake_next_toggle_ms) >= 0:
+        if tail_brake_blink_state:
+          tail_brake_blink_state = False
+          tail_brake_next_toggle_ms = time.ticks_add(
+            tail_brake_next_toggle_ms, cfg.brake_tail_off_ms
+          )
+        else:
+          tail_brake_blink_state = True
+          tail_brake_next_toggle_ms = time.ticks_add(
+            tail_brake_next_toggle_ms, cfg.brake_tail_on_ms
+          )
+      if tail_brake_blink_state:
+        io_pins_target |= REAR_TAIL_BIT
+      else:
+        io_pins_target &= ~REAR_TAIL_BIT
+    else:
+      # Clear tail when brake is on
+      io_pins_target &= ~REAR_TAIL_BIT
+  else:
+    # Reset blink timing so the next brake starts with ON
+    if cfg.brake_tail_blink_enable:
+      tail_brake_blink_state = True
+      tail_brake_next_toggle_ms = time.ticks_add(
+        now, cfg.brake_tail_on_ms
+      )
 
   # Disable tail and brake lights when rear turn lights are active
   if io_pins_target & REAR_TURN_BITS_MASK:
@@ -190,18 +220,18 @@ while True:
   #
   # 60–120 flashes per minute are acceptable; we target ~80 flashes/min.
   # 375 ms per half-period -> 750 ms per full on/off cycle.
-  if time.ticks_diff(time.ticks_ms(), last_blink_toggle_ms) >= 0:
+  if time.ticks_diff(now, last_blink_toggle_ms) >= 0:
     last_blink_toggle_ms = time.ticks_add(last_blink_toggle_ms, 375)
     turn_lights_blink_state = not turn_lights_blink_state
 
   # Periodic garbage collection
-  if time.ticks_diff(time.ticks_ms(), last_gc_ms) >= 0:
+  if time.ticks_diff(now, last_gc_ms) >= 0:
     last_gc_ms = time.ticks_add(last_gc_ms, 1000)
     gc.collect()
 
   # Try to maintain a 25 ms loop time
-  elapsed_ms = time.ticks_diff(time.ticks_ms(), loop_start_ms)
-  next_sleep_ms = LOOP_INTERVAL_MS - elapsed_ms
+  next_loop_ms = time.ticks_add(loop_start_ms, LOOP_INTERVAL_MS)
+  next_sleep_ms = time.ticks_diff(next_loop_ms, time.ticks_ms())
 
   # Avoid extremely small or negative delays
   if next_sleep_ms < 1:
