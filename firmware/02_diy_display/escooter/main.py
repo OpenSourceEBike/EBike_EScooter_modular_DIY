@@ -2,6 +2,7 @@ import time
 import network
 import uasyncio as asyncio
 import machine
+from machine import WDT
 
 from lcd.lcd_st7565 import LCD
 from rtc_datetime import RTCDateTime
@@ -61,6 +62,9 @@ lights_tx_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_lights),
   encoder=encode_lights_message)
+
+# Hardware watchdog: reset the board if not fed within 10 seconds
+wdt = WDT(timeout=10000) # timeout in milliseconds
 
 lcd = LCD(
   spi_clk_pin=cfg.pin_spi_clk,
@@ -273,6 +277,9 @@ async def main_task(vars):
       await asyncio.sleep_ms(remaining)
     else:
       await asyncio.sleep_ms(0)
+
+    # Feed the hardware watchdog regularly
+    wdt.feed()
 
 async def motor_rx_task(vars):
   period_ms = 50
