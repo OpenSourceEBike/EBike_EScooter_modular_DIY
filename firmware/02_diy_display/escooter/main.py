@@ -63,8 +63,8 @@ lights_tx_comms = ESPNowComms(
   bytes(cfg.mac_address_lights),
   encoder=encode_lights_message)
 
-# Hardware watchdog: reset the board if not fed within 10 seconds
-wdt = WDT(timeout=10000) # timeout in milliseconds
+# Hardware watchdog: reset the board if not fed within 30 seconds
+wdt = WDT(timeout=30000) # timeout in milliseconds
 
 lcd = LCD(
   spi_clk_pin=cfg.pin_spi_clk,

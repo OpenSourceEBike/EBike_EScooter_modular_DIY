@@ -56,30 +56,30 @@ rear_motor_cfg.motor_erpm_max_speed_limit = [
 
 rear_motor_cfg.vesc_min_temperature_x10 = 750
 rear_motor_cfg.vesc_max_temperature_x10 = 1000
-rear_motor_cfg.min_temperature_x10 = 500
-rear_motor_cfg.max_temperature_x10 = 1000
+rear_motor_cfg.min_temperature_x10 = 650
+rear_motor_cfg.max_temperature_x10 = 950
 
-rear_motor_cfg.motor_max_current_limit_max = 100.0
+rear_motor_cfg.motor_max_current_limit_max = 75.0
 rear_motor_cfg.motor_min_current_start = 1.5
-rear_motor_cfg.motor_max_current_limit_min = -80.0
+rear_motor_cfg.motor_max_current_limit_min = -30.0
 
 rear_motor_cfg.battery_max_current_limit_max = 25.0
 rear_motor_cfg.battery_max_current_limit_min = -8.0
 
 # Speed-dependent current limiting
-rear_motor_cfg.motor_current_limit_max_max = 100.0
-rear_motor_cfg.motor_current_limit_max_min = 50.0
-rear_motor_cfg.motor_current_limit_max_min_speed = 20.0
+rear_motor_cfg.motor_current_limit_max_max = 75.0
+rear_motor_cfg.motor_current_limit_max_min = 45.0
+rear_motor_cfg.motor_current_limit_max_min_speed = 15.0
 
 # Regen current vs speed
-rear_motor_cfg.motor_current_limit_min_min = -70.0
-rear_motor_cfg.motor_current_limit_min_max = -70.0
-rear_motor_cfg.motor_current_limit_min_max_speed = 20.0
+rear_motor_cfg.motor_current_limit_min_min = -30.0
+rear_motor_cfg.motor_current_limit_min_max = -30.0
+rear_motor_cfg.motor_current_limit_min_max_speed = 15.0
 
 # Battery current limits
 rear_motor_cfg.battery_current_limit_max_max = 25.0
 rear_motor_cfg.battery_current_limit_max_min = 20.0
-rear_motor_cfg.battery_current_limit_max_min_speed = 20.0
+rear_motor_cfg.battery_current_limit_max_min_speed = 15.0
 
 # Regen battery current limits
 rear_motor_cfg.battery_current_limit_min_min = -10.0
@@ -119,6 +119,7 @@ motor_power_max_w = rear_motor_cfg.battery_current_limit_max_min * battery_volta
 motor_regen_power_max_w = rear_motor_cfg.battery_current_limit_min_max * battery_voltage
 
 # Tail light brake blink (for scooters without a dedicated brake light)
+tail_always_enabled = True
 brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
