@@ -70,10 +70,15 @@ front_motor_cfg.motor_erpm_max_speed_limit = [
   13263   # ≈55 km/h
 ]
 
-front_motor_cfg.motor_max_current_limit_max = 150.0
-rear_motor_cfg.motor_max_current_limit_max = 135.0
+rear_motor_cfg.vesc_min_temperature_x10 = 850
+rear_motor_cfg.vesc_max_temperature_x10 = 1000
+rear_motor_cfg.min_temperature_x10 = 700
+rear_motor_cfg.max_temperature_x10 = 1100
 
-front_motor_cfg.motor_min_current_start = 4.0
+front_motor_cfg.motor_max_current_limit_max = 90.0
+rear_motor_cfg.motor_max_current_limit_max = 90.0
+
+front_motor_cfg.motor_min_current_start = 1.5
 rear_motor_cfg.motor_min_current_start = 1.5
 
 front_motor_cfg.motor_max_current_limit_min = -80.0
@@ -86,21 +91,21 @@ front_motor_cfg.battery_max_current_limit_min = -7.0
 rear_motor_cfg.battery_max_current_limit_min = -7.0
 
 # Speed-dependent current limiting
-front_motor_cfg.motor_current_limit_max_max = 35.0
-front_motor_cfg.motor_current_limit_max_min = 80.0
+front_motor_cfg.motor_current_limit_max_max = 25.0
+front_motor_cfg.motor_current_limit_max_min = 40.0
 front_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
-rear_motor_cfg.motor_current_limit_max_max = 120.0
-rear_motor_cfg.motor_current_limit_max_min = 50.0
+rear_motor_cfg.motor_current_limit_max_max = 90.0
+rear_motor_cfg.motor_current_limit_max_min = 35.0
 rear_motor_cfg.motor_current_limit_max_min_speed = 30.0
 
 # Regen current vs speed
-front_motor_cfg.motor_current_limit_min_min = -50.0
-front_motor_cfg.motor_current_limit_min_max = -50.0
+front_motor_cfg.motor_current_limit_min_min = -30.0
+front_motor_cfg.motor_current_limit_min_max = -30.0
 front_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
-rear_motor_cfg.motor_current_limit_min_min = -60.0
-rear_motor_cfg.motor_current_limit_min_max = -60.0
+rear_motor_cfg.motor_current_limit_min_min = -40.0
+rear_motor_cfg.motor_current_limit_min_max = -40.0
 rear_motor_cfg.motor_current_limit_min_max_speed = 30.0
 
 # Battery current limits
@@ -159,6 +164,7 @@ motor_regen_power_max_w = (front_motor_cfg.battery_current_limit_min_max + \
           * battery_voltage
 
 # Tail light brake blink (for scooters without a dedicated brake light)
+tail_always_enabled = True
 brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100

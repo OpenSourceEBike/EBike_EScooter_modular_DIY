@@ -111,7 +111,6 @@ last_blink_toggle_ms = time.ticks_add(time.ticks_ms(), 375)
 tail_brake_blink_state = True
 tail_brake_next_toggle_ms = time.ticks_add(time.ticks_ms(), cfg.brake_tail_on_ms)
 
-
 def set_io_pins(target: int):
   """
   Set the pins according to the bitmask 'target':
@@ -193,8 +192,9 @@ while True:
       else:
         io_pins_target &= ~REAR_TAIL_BIT
     else:
-      # Clear tail when brake is on
-      io_pins_target &= ~REAR_TAIL_BIT
+      # Clear tail when brake is on (unless tail is forced on)
+      if not cfg.tail_always_enabled:
+        io_pins_target &= ~REAR_TAIL_BIT
   else:
     # Reset blink timing so the next brake starts with ON
     if cfg.brake_tail_blink_enable:
@@ -202,6 +202,8 @@ while True:
       tail_brake_next_toggle_ms = time.ticks_add(
         now, cfg.brake_tail_on_ms
       )
+    if cfg.tail_always_enabled:
+      io_pins_target |= REAR_TAIL_BIT
 
   # Disable tail and brake lights when rear turn lights are active
   if io_pins_target & REAR_TURN_BITS_MASK:

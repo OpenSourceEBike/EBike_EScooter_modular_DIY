@@ -30,6 +30,18 @@ if len(_config_files) != 1:
 _config_module_name = _config_files[0][:-3]
 _cfg = __import__(_config_module_name)
 
+# Optional lights settings used by 03_diy_lights_board.
+_OPTIONAL_DEFAULTS = {
+  "tail_always_enabled": False,
+  "brake_tail_blink_enable": False,
+  "brake_tail_on_ms": 400,
+  "brake_tail_off_ms": 100,
+}
+
+for _name, _value in _OPTIONAL_DEFAULTS.items():
+  if not hasattr(_cfg, _name):
+    setattr(_cfg, _name, _value)
+
 type = getattr(_cfg, "type", None)
 if not isinstance(type, dict):
   raise ValueError("Selected config must define 'type' as a dict")
