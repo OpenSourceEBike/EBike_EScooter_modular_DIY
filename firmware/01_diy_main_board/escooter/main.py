@@ -423,7 +423,7 @@ async def task_various():
 
 async def main():
   # Watchdog task_control_motor() feeds it continuously.
-  wdt = WDT(timeout=10000)
+  wdt = WDT(timeout=30000)
 
   # Build the task list
   tasks = [
