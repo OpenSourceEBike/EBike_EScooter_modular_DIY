@@ -75,56 +75,56 @@ rear_motor_cfg.vesc_max_temperature_x10 = 1000
 rear_motor_cfg.min_temperature_x10 = 700
 rear_motor_cfg.max_temperature_x10 = 1100
 
-front_motor_cfg.motor_max_current_limit_max = 90.0
-rear_motor_cfg.motor_max_current_limit_max = 90.0
+front_motor_cfg.motor_max_current_limit_max = 100.0
+rear_motor_cfg.motor_max_current_limit_max = 100.0
 
 front_motor_cfg.motor_min_current_start = 1.5
 rear_motor_cfg.motor_min_current_start = 1.5
 
-front_motor_cfg.motor_max_current_limit_min = -80.0
-rear_motor_cfg.motor_max_current_limit_min = -80.0
+front_motor_cfg.motor_max_current_limit_min = -100.0
+rear_motor_cfg.motor_max_current_limit_min = -100.0
 
-front_motor_cfg.battery_max_current_limit_max = 15.0
-rear_motor_cfg.battery_max_current_limit_max = 15.0
+front_motor_cfg.battery_max_current_limit_max = 20.0
+rear_motor_cfg.battery_max_current_limit_max = 20.0
 
 front_motor_cfg.battery_max_current_limit_min = -7.0
 rear_motor_cfg.battery_max_current_limit_min = -7.0
 
 # Speed-dependent current limiting
-front_motor_cfg.motor_current_limit_max_max = 25.0
+front_motor_cfg.motor_current_limit_max_max = 30.0
 front_motor_cfg.motor_current_limit_max_min = 40.0
-front_motor_cfg.motor_current_limit_max_min_speed = 30.0
+front_motor_cfg.motor_current_limit_max_min_speed = 25.0
 
-rear_motor_cfg.motor_current_limit_max_max = 90.0
+rear_motor_cfg.motor_current_limit_max_max = 100.0
 rear_motor_cfg.motor_current_limit_max_min = 35.0
-rear_motor_cfg.motor_current_limit_max_min_speed = 30.0
+rear_motor_cfg.motor_current_limit_max_min_speed = 25.0
 
 # Regen current vs speed
-front_motor_cfg.motor_current_limit_min_min = -30.0
-front_motor_cfg.motor_current_limit_min_max = -30.0
-front_motor_cfg.motor_current_limit_min_max_speed = 30.0
+front_motor_cfg.motor_current_limit_min_min = -35.0
+front_motor_cfg.motor_current_limit_min_max = -35.0
+front_motor_cfg.motor_current_limit_min_max_speed = 25.0
 
-rear_motor_cfg.motor_current_limit_min_min = -40.0
-rear_motor_cfg.motor_current_limit_min_max = -40.0
-rear_motor_cfg.motor_current_limit_min_max_speed = 30.0
+rear_motor_cfg.motor_current_limit_min_min = -45.0
+rear_motor_cfg.motor_current_limit_min_max = -45.0
+rear_motor_cfg.motor_current_limit_min_max_speed = 25.0
 
 # Battery current limits
 front_motor_cfg.battery_current_limit_max_max = 10.0
 front_motor_cfg.battery_current_limit_max_min = 12.5
-front_motor_cfg.battery_current_limit_max_min_speed = 30.0
+front_motor_cfg.battery_current_limit_max_min_speed = 25.0
 
 rear_motor_cfg.battery_current_limit_max_max = 20.0
 rear_motor_cfg.battery_current_limit_max_min = 15.0
-rear_motor_cfg.battery_current_limit_max_min_speed = 30.0
+rear_motor_cfg.battery_current_limit_max_min_speed = 25.0
 
 # Regen battery current limits
-front_motor_cfg.battery_current_limit_min_min = -7.0
-front_motor_cfg.battery_current_limit_min_max = -5.25
-front_motor_cfg.battery_current_limit_min_max_speed = 30.0
+front_motor_cfg.battery_current_limit_min_min = -6.0
+front_motor_cfg.battery_current_limit_min_max = -6.0
+front_motor_cfg.battery_current_limit_min_max_speed = 25.0
 
-rear_motor_cfg.battery_current_limit_min_min = -7.0
-rear_motor_cfg.battery_current_limit_min_max = -5.25
-rear_motor_cfg.battery_current_limit_min_max_speed = 30.0
+rear_motor_cfg.battery_current_limit_min_min = -6.0
+rear_motor_cfg.battery_current_limit_min_max = -6.0
+rear_motor_cfg.battery_current_limit_min_max_speed = 25.0
 
 # ===================================================================
 # DISPLAY
