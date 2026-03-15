@@ -14,14 +14,13 @@ from adxl345 import ADXL345
 timeout_no_motion_minutes_to_disable_relay = 5  # 5 minutes seems a good value
 seconds_to_wait_before_movement_detection = 20  # 20 seconds seems a good value
 
-debug_enable = True
+debug_enable = False
 
 ################################################################
 
-if debug_enable:
-  print("Starting the DIY Automatic Anti Spark Switch")
-  print("EBike/EScooter type: " + cfg.type_name)
-  print()
+print("Starting the DIY Automatic Anti Spark Switch")
+print("EBike/EScooter type: " + cfg.type_name)
+print()
 
 vehicle_type = cfg.type.get("ebike_escooter") if isinstance(cfg.type, dict) else None
 if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
@@ -114,7 +113,7 @@ while True:
     timeout_counter = remaining_ms // 1000
     if timeout_counter != timeout_counter_previous:
       timeout_counter_previous = timeout_counter
-      print(f"Timeout remaining seconds: {timeout_no_motion_minutes_to_disable_relay - timeout_counter}")
+      print(f"Timeout remaining seconds: {timeout_counter}")
 
   # do memory clean
   gc.collect()
