@@ -29,10 +29,6 @@ class MainScreen(BaseScreen):
     self._motor_temp_percent = 0
     self._one_second = time.ticks_add(time.ticks_ms(), 1000)
     self._mode_last_seen = None
-    self._mode_enqueued_once = False
-    self._show_mode_once = False
-    self._mode_show_started = False
-    self._mode_show_start_ms = 0
 
   def on_enter(self):
     self.clear()
@@ -108,15 +104,6 @@ class MainScreen(BaseScreen):
     self._progress_bar_widget.update(0)
     self._progress_bar_widget.set_visible(False, clear=True)
     
-    if not self._mode_enqueued_once:
-      self._enqueue_warning(self._mode_text_from_vars())
-      self._mode_enqueued_once = True
-      self._show_mode_once = True
-      self._mode_show_started = True
-      self._mode_show_start_ms = time.ticks_ms()
-    else:
-      self._show_mode_once = False
-      self._mode_show_started = False
     self._mode_last_seen = None
 
     # Clock
@@ -182,24 +169,6 @@ class MainScreen(BaseScreen):
       else:
         self._progress_bar_widget.update(percent)
 
-      # Mode (show once for 5s after first entry to main screen, and if mode is diferent from 0)
-    if vars.mode != 0 and self._show_mode_once and self._mode_show_started:
-      if time.ticks_diff(now, self._mode_show_start_ms) <= 5000:
-        mode_text = f"mode {int(vars.mode)}" if vars.mode is not None else ''
-        if mode_text != self._warning_text_previous:
-          self._warning_text_previous = mode_text
-          self._progress_bar_widget.set_visible(False, clear=True)
-          self._warning_widget.set_visible(True, clear=True)
-          self._warning_showing_progress_bar = False
-          self._warning_widget.update(mode_text)
-      else:
-        if self._warning_text_previous != '':
-          self._warning_text_previous = ''
-          self._warning_widget.set_visible(True, clear=True)
-          self._warning_showing_progress_bar = False
-          self._warning_widget.update('')
-        self._show_mode_once = False
-
     # Track mode value (enqueue on change)
     if self._mode_last_seen is None:
       self._mode_last_seen = vars.mode
@@ -209,8 +178,6 @@ class MainScreen(BaseScreen):
       
     # Warning queue display (5s each)
     self._tick_warning_queue()
-    
-
 
   def _mode_text_from_vars(self):
     if self._mode_last_seen is None:

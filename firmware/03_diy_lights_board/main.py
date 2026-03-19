@@ -94,14 +94,17 @@ espnow_comms = ESPNowComms(
 # Hardware watchdog: reset the board if not fed within 10 seconds
 wdt = WDT(timeout=10000)  # timeout in milliseconds
 
+DISPLAY_TIMEOUT_MS = 20000
+MOTOR_TIMEOUT_MS = 2000
+
 # Target state for IO pins (bitmask)
 io_pins_target = 0
 io_pins_target_previous = 0
 display_pins_target = 0
 display_pins_previous = 0
 motor_brake_state = 0
-display_timeout_ms = time.ticks_add(time.ticks_ms(), 2000)
-motor_timeout_ms = time.ticks_add(time.ticks_ms(), 2000)
+display_timeout_ms = time.ticks_add(time.ticks_ms(), DISPLAY_TIMEOUT_MS)
+motor_timeout_ms = time.ticks_add(time.ticks_ms(), MOTOR_TIMEOUT_MS)
 last_gc_ms = time.ticks_add(time.ticks_ms(), 1000)
 
 turn_lights_blink_counter = 0
@@ -149,19 +152,19 @@ while True:
       if mask & REAR_BRAKE_BIT:
         # Motor main board controls brake light only
         motor_brake_state = REAR_BRAKE_BIT if (state & REAR_BRAKE_BIT) else 0
-        motor_timeout_ms = time.ticks_add(now, 2000)
+        motor_timeout_ms = time.ticks_add(now, MOTOR_TIMEOUT_MS)
       else:
         # Display does not control brake light
         mask &= DISPLAY_MASK
         masked_state = state & mask & DISPLAY_MASK
         display_pins_target = (display_pins_target & (~mask & DISPLAY_MASK)) | masked_state
         display_pins_previous = display_pins_target
-        display_timeout_ms = time.ticks_add(now, 2000)
+        display_timeout_ms = time.ticks_add(now, DISPLAY_TIMEOUT_MS)
   else:
     # Reuse previous value if nothing new was received
     display_pins_target = display_pins_previous
 
-  # After ~2 seconds with no display messages, reset display-driven pins
+  # After DISPLAY_TIMEOUT_MS with no display messages, reset display-driven pins
   if time.ticks_diff(now, display_timeout_ms) >= 0:
     display_pins_target = 0
     display_pins_previous = 0
@@ -191,10 +194,6 @@ while True:
         io_pins_target |= REAR_TAIL_BIT
       else:
         io_pins_target &= ~REAR_TAIL_BIT
-    else:
-      # Clear tail when brake is on (unless tail is forced on)
-      if not cfg.tail_always_enabled:
-        io_pins_target &= ~REAR_TAIL_BIT
   else:
     # Reset blink timing so the next brake starts with ON
     if cfg.brake_tail_blink_enable:
@@ -202,8 +201,6 @@ while True:
       tail_brake_next_toggle_ms = time.ticks_add(
         now, cfg.brake_tail_on_ms
       )
-    if cfg.tail_always_enabled:
-      io_pins_target |= REAR_TAIL_BIT
 
   # Disable tail and brake lights when rear turn lights are active
   if io_pins_target & REAR_TURN_BITS_MASK:

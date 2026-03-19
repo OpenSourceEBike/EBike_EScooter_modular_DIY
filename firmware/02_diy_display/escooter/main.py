@@ -83,7 +83,13 @@ lcd.display.show()
 screen_manager = ScreenManager(fb, vars)
 
 if cfg.enable_rtc_time:
-  vars.rtc = RTCDateTime(rtc_scl_pin=cfg.rtc_scl_pin, rtc_sda_pin=cfg.rtc_sda_pin)
+  vars.rtc = RTCDateTime(
+    rtc_scl_pin=cfg.rtc_scl_pin,
+    rtc_sda_pin=cfg.rtc_sda_pin,
+    timezone_name=getattr(cfg, "rtc_timezone", "UTC"),
+    utc_offset_hours=getattr(cfg, "rtc_utc_offset_hours", 0),
+    dst_eu_enabled=getattr(cfg, "rtc_dst_eu_enabled", True),
+  )
 
 BUTTON_PINS = [
   cfg.power_button_pin,
@@ -334,12 +340,18 @@ async def lights_task(vars):
   
   while True:
     if screen_manager.current_is(ScreenID.MAIN):
-      # Head/Tail with main lights_state
-      if vars.lights_state:
+      # The display decides the requested head/tail state; the lights board only applies it.
+      tail_enabled = (vars.lights_state or cfg.tail_always_enabled) and vars.motor_enable_state
+      head_enabled = vars.lights_state and vars.motor_enable_state
+
+      if head_enabled:
         vars.lights_board_pins_state |= FRONT_LOW_BIT
-        vars.lights_board_pins_state |= REAR_TAIL_BIT
       else:
         vars.lights_board_pins_state &= ~FRONT_LOW_BIT
+
+      if tail_enabled:
+        vars.lights_board_pins_state |= REAR_TAIL_BIT
+      else:
         vars.lights_board_pins_state &= ~REAR_TAIL_BIT
 
       # Brake light is controlled by the motor main board

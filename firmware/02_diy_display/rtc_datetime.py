@@ -68,8 +68,34 @@ class DS3231:
 
 # ---------- Main class ----------
 class RTCDateTime(object):
-  def __init__(self, rtc_scl_pin=None, rtc_sda_pin=None, i2c_id=0, i2c_freq=400_000):
+  _TIMEZONE_RULES = {
+    "UTC": (0, False),
+    "Europe/Lisbon": (0, True),
+    "Europe/London": (0, True),
+    "Europe/Berlin": (1, True),
+    "Europe/Madrid": (1, True),
+    "Europe/Paris": (1, True),
+  }
+
+  def __init__(
+    self,
+    rtc_scl_pin=None,
+    rtc_sda_pin=None,
+    i2c_id=0,
+    i2c_freq=400_000,
+    timezone_name="UTC",
+    utc_offset_hours=0,
+    dst_eu_enabled=True,
+  ):
     self._rtc_external = None
+    self._timezone_name = timezone_name
+    tz_rule = self._TIMEZONE_RULES.get(timezone_name)
+    if tz_rule is None:
+      print("Unknown timezone '{}', falling back to manual offset".format(timezone_name))
+      self._utc_offset_hours = utc_offset_hours
+      self._dst_eu_enabled = dst_eu_enabled
+    else:
+      self._utc_offset_hours, self._dst_eu_enabled = tz_rule
 
     # Try initialize external DS3231 on I2C if pins are provided
     try:
@@ -89,7 +115,7 @@ class RTCDateTime(object):
     # MicroPython internal RTC
     self._rtc_internal = machine.RTC()
 
-  # ---------- DST helpers (Portugal / WET-WEST) ----------
+  # ---------- Local time helpers ----------
   def _days_in_month(self, year, month):
     # Correct 31-day months
     if month in (1, 3, 5, 7, 8, 10, 12):
@@ -111,13 +137,26 @@ class RTCDateTime(object):
         return d
     return None
 
-  def _is_dst_portugal(self, year, month, day):
-    ms = self._last_sunday(year, 3)    # last Sunday in March
-    os_ = self._last_sunday(year, 10)  # last Sunday in October
-    current = (month, day)
-    dst_start = (3, ms)
-    dst_end = (10, os_)
-    return (ms is not None and os_ is not None) and (dst_start <= current < dst_end)
+  def _is_eu_dst_utc(self, year, month, day, hour):
+    if not self._dst_eu_enabled:
+      return False
+
+    march_switch_day = self._last_sunday(year, 3)
+    october_switch_day = self._last_sunday(year, 10)
+    if march_switch_day is None or october_switch_day is None:
+      return False
+
+    current = (month, day, hour)
+    dst_start = (3, march_switch_day, 1)   # 01:00 UTC
+    dst_end = (10, october_switch_day, 1)  # 01:00 UTC
+    return dst_start <= current < dst_end
+
+  def _localtime_from_utc(self, utc_now):
+    offset_s = self._utc_offset_hours * 3600
+    if self._is_eu_dst_utc(utc_now[0], utc_now[1], utc_now[2], utc_now[3]):
+      offset_s += 3600
+
+    return time.localtime(time.mktime(utc_now) + offset_s), offset_s
 
   # ---------- Radio helpers ----------
   def _reset_wifi_radio(self):
@@ -170,15 +209,14 @@ class RTCDateTime(object):
       try:
         ntptime.host = "pool.ntp.org"
         ntptime.settime()  # sets internal RTC to UTC
-        now = time.localtime()  # UTC tuple (Y,M,D,h,m,s,wday,yday)
-
-        # Adjust to Portugal local time (DST +1h when active)
-        if self._is_dst_portugal(now[0], now[1], now[2]):
-          ts = time.mktime(now) + 3600
-          now = time.localtime(ts)
-          print("Portugal DST active (UTC+1): %02d:%02d:%02d" % (now[3], now[4], now[5]))
-        else:
-          print("Portugal DST not active (UTC): %02d:%02d:%02d" % (now[3], now[4], now[5]))
+        utc_now = time.localtime()  # UTC tuple (Y,M,D,h,m,s,wday,yday)
+        now, offset_s = self._localtime_from_utc(utc_now)
+        offset_h = offset_s // 3600
+        print(
+          "Local RTC time (UTC%+d): %02d:%02d:%02d" % (
+            offset_h, now[3], now[4], now[5]
+          )
+        )
 
         # Set internal RTC (weekday=now[6], us=0)
         self._rtc_internal.datetime((now[0], now[1], now[2], now[6], now[3], now[4], now[5], 0))
