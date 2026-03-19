@@ -32,6 +32,9 @@ rear_motor_cfg.can_mode = 0
 
 cfg = Cfg()
 
+# Store mode / speed limit
+cfg.save_mode_to_nvs = True
+
 cfg.brake_pin = 4
 
 # Right handlebar throttle
@@ -142,6 +145,7 @@ spi_baud = 10_000_000
 enable_rtc_time = True
 rtc_scl_pin = 8
 rtc_sda_pin = 7
+rtc_timezone = "Europe/Lisbon"
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6

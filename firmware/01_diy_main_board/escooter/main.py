@@ -25,16 +25,20 @@ except Exception:
 print('EBike/EScooter type: ' + cfg.type_name)
 print()
 
-# Object that holds various runtime variables
-vars = Vars()
-
 # Brake sensor
 brake_sensor = Brake(cfg.brake_pin)
 
 # If brakes are active at startup, block here (development safety)
 while brake_sensor.value:
-  print('brake at start')
+  print('Startup blocked: release brake to continue')
+  
+  wdt = WDT(timeout=30000)
+  wdt.feed()
+  
   time.sleep(1)
+
+# Object that holds various runtime variables
+vars = Vars()
 
 # ESPNow wireless communications  
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board)
@@ -188,7 +192,11 @@ async def task_display_send_data():
 
 async def task_lights_send_data():
   while True:
-    brake_bit = REAR_BRAKE_BIT if vars.brakes_are_active else 0
+    if vars.motors_enable_state:
+      brake_bit = 0
+    else:
+      brake_bit = REAR_BRAKE_BIT if vars.brakes_are_active else 0
+
     lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
     gc.collect()
     await asyncio.sleep(0.1)

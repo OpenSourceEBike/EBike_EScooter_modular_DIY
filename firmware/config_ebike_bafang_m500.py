@@ -39,6 +39,7 @@ spi_baud = 10_000_000
 enable_rtc_time = True
 rtc_scl_pin = 8
 rtc_sda_pin = 7
+rtc_timezone = "Europe/Lisbon"
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6
