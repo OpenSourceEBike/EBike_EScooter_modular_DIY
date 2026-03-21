@@ -217,7 +217,7 @@ async def task_display_receive_process_data():
     gc.collect()
     await asyncio.sleep(0.1)
 
-def cruise_control(vars, wheel_speed):
+def cruise_control(vars, wheel_speed, requested_motor_target_speed):
   button_long_press_state = vars.buttons_state & 0x0200
   button_press_state = vars.buttons_state & 0x0100
 
@@ -232,7 +232,8 @@ def cruise_control(vars, wheel_speed):
     if (button_long_press_state != vars.cruise_control.button_long_press_previous_state) and (wheel_speed > 4.0):
       vars.cruise_control.button_long_press_previous_state = button_long_press_state
       vars.cruise_control.button_press_previous_state = button_press_state
-      vars.cruise_control.target_wheel_speed = wheel_speed
+      vars.cruise_control.target_motor_speed = requested_motor_target_speed
+      vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 2
 
   # Cruise active
@@ -242,10 +243,19 @@ def cruise_control(vars, wheel_speed):
       vars.cruise_control.button_press_previous_state = button_press_state
       vars.cruise_control.button_pressed = True
 
+    if requested_motor_target_speed < (vars.cruise_control.target_motor_speed * 0.85):
+      vars.cruise_control.manual_cancel_ready = True
+
+    manual_cancel_requested = False
+    if vars.cruise_control.manual_cancel_ready and \
+            requested_motor_target_speed > (vars.cruise_control.target_motor_speed * 1.15):
+      manual_cancel_requested = True
+
     # Stop cruise?
-    if vars.brakes_are_active or vars.cruise_control.button_pressed:
+    if vars.brakes_are_active or vars.cruise_control.button_pressed or manual_cancel_requested:
       vars.cruise_control.button_long_press_previous_state = button_long_press_state
-      vars.cruise_control.target_wheel_speed = 0.0
+      vars.cruise_control.target_motor_speed = 0.0
+      vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 1
 
   return vars.cruise_control.state == 2
@@ -310,16 +320,21 @@ async def task_control_motor(wdt):
         f'throttle 1={throttle_1_raw}, throttle 2={throttle_2_raw}'
       )
 
+    requested_motor_target_speed = map_range(
+      throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limits[0], clamp=True
+    )
+
     # Cruise control
-    cruise_control_is_active = cruise_control(vars, rear_motor.data.wheel_speed)
+    cruise_control_is_active = cruise_control(
+      vars,
+      rear_motor.data.wheel_speed,
+      requested_motor_target_speed,
+    )
 
     # Target speed
     for _motor_data, motor_erpm_max_speed_limit in zip(motor_data, motor_erpm_max_speed_limits):
       if cruise_control_is_active:
-        _motor_data.motor_target_speed = wheel_speed_to_motor_erpm(
-          vars.cruise_control.target_wheel_speed,
-          _motor_data.cfg,
-        )
+        _motor_data.motor_target_speed = vars.cruise_control.target_motor_speed
       else:
         _motor_data.motor_target_speed = map_range(
           throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit, clamp=True
@@ -353,7 +368,8 @@ async def task_control_motor(wdt):
     # Command motor(s)
     if vars.motors_enable_state is False:
       release_hold_start_ms = None
-      vars.cruise_control.target_wheel_speed = 0.0
+      vars.cruise_control.target_motor_speed = 0.0
+      vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 1
       vars.cruise_control.button_press_previous_state = vars.buttons_state & 0x0100
       vars.cruise_control.button_long_press_previous_state = vars.buttons_state & 0x0200
