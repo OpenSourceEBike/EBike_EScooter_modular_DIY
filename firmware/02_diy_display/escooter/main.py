@@ -116,6 +116,19 @@ def filter_motor_power(p):
     else: p = round(p/10)*10
   return p    
 
+def update_time_string(vars):
+  try:
+    dt = vars.rtc.date_time()
+    hour, minute = dt[3], dt[4]
+    vars.time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
+  except Exception as ex:
+    vars.time_string = ''
+    print(ex)
+
+if cfg.enable_rtc_time:
+  vars.rtc.update_internal_rtc_from_external()
+  update_time_string(vars)
+
 # --- button callbacks ---
 def button_power_click_start_cb():
   vars.buttons_state |= 1
@@ -269,13 +282,7 @@ async def main_task(vars):
     # Time draw (1 Hz)
     if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
       time_counter_next = time.ticks_add(time_counter_next, 1000)
-      try:
-        dt = vars.rtc.date_time()
-        hour, minute = dt[3], dt[4]
-        vars.time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
-      except Exception as ex:
-        vars.time_string = ''
-        print(ex)
+      update_time_string(vars)
 
     # Shutdown
     if vars.shutdown_request:
