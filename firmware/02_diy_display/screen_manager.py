@@ -37,6 +37,7 @@ class ScreenManager:
     self._button_power_long_click_previous = False
     self._button_power_click_previous = False
     self._charging_state_previous = False
+    self._charging_entry_is_auto = False
 
   # ---- Convenience getters ----
   def get_current_id(self):
@@ -83,16 +84,27 @@ class ScreenManager:
       # If is now Charging and not in Charging screen, go to Charging screen
       if is_charging and \
         not self.current_is(ScreenID.CHARGING):
+        self._charging_entry_is_auto = True
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)
         return
-      
+
+      # Charging entered automatically must also exit automatically.
+      if not is_charging and \
+        self.current_is(ScreenID.CHARGING) and \
+        self._charging_entry_is_auto:
+        self._charging_entry_is_auto = False
+        vars.motor_enable_state = False
+        self.force(ScreenID.BOOT)
+        return
+
     # Click: Boot -> Main
     if self._button_power_click_previous != button_power_click:
       self._button_power_click_previous = button_power_click
 
       # We are in Boot scren, so go to Main screen
       if self.current_is(ScreenID.BOOT):
+        self._charging_entry_is_auto = False
         vars.motor_enable_state = True
         self.force(ScreenID.MAIN)
         return
@@ -102,17 +114,20 @@ class ScreenManager:
         self.current_is(ScreenID.MAIN)) and \
         wheel_stopped and \
         brakes_on:
+        self._charging_entry_is_auto = False
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)
         return
 
-      # We are in Charging and but not charging, go to Main
+      # Charging entered manually may also be left manually.
       if self.current_is(ScreenID.CHARGING) and \
-              not is_charging:
-        vars.motor_enable_state = True
-        self.force(ScreenID.MAIN)
+              not is_charging and \
+              not self._charging_entry_is_auto:
+        self._charging_entry_is_auto = False
+        vars.motor_enable_state = False
+        self.force(ScreenID.BOOT)
         return
-        
+
       # We are in Power off screen, so restart the display
       elif self.current_is(ScreenID.POWEROFF):
         import machine
