@@ -321,6 +321,7 @@ async def motor_rx_task(vars):
       vars.regen_braking_is_active = bool(flags & (1 << 1))
       vars.battery_is_charging     = bool(flags & (1 << 2))
       vars.mode = (flags >> 3) & 0x07
+      vars.cruise_control_is_active = bool(flags & (1 << 6))
       vars.vesc_temperature_x10  = msg[7]
       vars.motor_temperature_x10 = msg[8]
     

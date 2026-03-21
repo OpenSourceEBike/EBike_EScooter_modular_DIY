@@ -14,6 +14,7 @@ class MainScreen(BaseScreen):
   def __init__(self, fb):
     super().__init__(fb)
     self._time_string_previous = ''
+    self._cruise_control_is_active_previous = None
     self._motor_power_previous = 0
     self._wheel_speed_x10_previous = 0
     self._one_second = 0
@@ -128,6 +129,12 @@ class MainScreen(BaseScreen):
       self._brakes_are_active_previous = vars.brakes_are_active
       brakes = 'B' if vars.brakes_are_active else ''
       self._brakes_widget.update(brakes)
+
+    # Cruise
+    if vars.cruise_control_is_active != self._cruise_control_is_active_previous:
+      self._cruise_control_is_active_previous = vars.cruise_control_is_active
+      self._wheel_speed_widget.set_invert(vars.cruise_control_is_active)
+      self._wheel_speed_widget.update(self._wheel_speed_x10_previous // 10)
 
     # Lights
     if vars.lights_state != self._lights_state_previous:

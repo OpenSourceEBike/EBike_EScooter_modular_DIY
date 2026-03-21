@@ -22,6 +22,7 @@ class Vars:
     self.wheel_speed_x10 = 0
     self.brakes_are_active = False
     self.regen_braking_is_active = False
+    self.cruise_control_is_active = False
     self.torque_weight = 0
     self.cadence = 0
     self.mode = 0

@@ -183,8 +183,8 @@ class Motor(object):
     struct.pack_into(">l", Motor._tx_4, 0, mA)
     self._pack_and_send(Motor._tx_4, 2)  # CAN_PACKET_SET_CURRENT_BRAKE = 2
 
-  def set_motor_speed_rpm(self, value):
-    """Set motor target speed in mechanical RPM."""
+  def set_motor_speed_erpm(self, value):
+    """Set motor target speed in ERPM."""
     struct.pack_into(">l", Motor._tx_4, 0, int(value))
     self._pack_and_send(Motor._tx_4, 3)  # CAN_PACKET_SET_RPM = 3
 

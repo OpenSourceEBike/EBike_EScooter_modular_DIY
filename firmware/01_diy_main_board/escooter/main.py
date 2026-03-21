@@ -53,6 +53,7 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   brakes_are_active = 1 if vars.brakes_are_active else 0
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
   battery_is_charging = 1 if vars.battery_is_charging else 0
+  cruise_control_is_active = 1 if vars.cruise_control.state == 2 else 0
 
   if not cfg.has_jbd_bms:
     battery_is_charging = 0
@@ -69,7 +70,8 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   flags = ((brakes_are_active & 1) << 0) | \
           ((regen_braking_is_active & 1) << 1) | \
           ((battery_is_charging & 1) << 2) | \
-          ((vars.mode & 7) << 3)
+          ((vars.mode & 7) << 3) | \
+          ((cruise_control_is_active & 1) << 6)
 
   return (
     f"{COMMAND_ID_DISPLAY_1} {int(rear_motor_data.battery_voltage_x10)} "
@@ -99,20 +101,20 @@ motor_cfgs = [cfg.rear_motor_cfg]
 if cfg.front_motor_cfg is not None:
   motor_cfgs.append(cfg.front_motor_cfg)
 
-motor_datas = [MotorData(c) for c in motor_cfgs]
-motors = [Motor(d) for d in motor_datas]
+motor_data = [MotorData(c) for c in motor_cfgs]
+motors = [Motor(d) for d in motor_data]
 
-rear_motor_data = motor_datas[0]
+rear_motor_data = motor_data[0]
 rear_motor = motors[0]
-front_motor_data = motor_datas[1] if len(motor_datas) > 1 else None
+front_motor_data = motor_data[1] if len(motor_data) > 1 else None
 front_motor = motors[1] if len(motors) > 1 else None
 
 # Init targets from configuration
-for motor_data in motor_datas:
-  motor_data.motor_target_current_limit_max = motor_data.cfg.motor_max_current_limit_max
-  motor_data.motor_target_current_limit_min = motor_data.cfg.motor_max_current_limit_min
-  motor_data.battery_target_current_limit_max = motor_data.cfg.battery_max_current_limit_max
-  motor_data.battery_target_current_limit_min = motor_data.cfg.battery_max_current_limit_min
+for _motor_data in motor_data:
+  _motor_data.motor_target_current_limit_max = _motor_data.cfg.motor_max_current_limit_max
+  _motor_data.motor_target_current_limit_min = _motor_data.cfg.motor_max_current_limit_min
+  _motor_data.battery_target_current_limit_max = _motor_data.cfg.battery_max_current_limit_max
+  _motor_data.battery_target_current_limit_min = _motor_data.cfg.battery_max_current_limit_min
 
 # Optional BMS support (BLE) — BLE activation is deferred to bms.start()
 if cfg.has_jbd_bms:
@@ -168,6 +170,9 @@ if hasattr(cfg, "throttle_2_pin"):
     max_val=cfg.throttle_2_adc_max,
   )
 
+throttle_1_disabled = False
+throttle_2_disabled = False
+
 mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
@@ -212,91 +217,121 @@ async def task_display_receive_process_data():
     gc.collect()
     await asyncio.sleep(0.1)
 
-def cruise_control(vars, wheel_speed, throttle_value):
+def cruise_control(vars, wheel_speed):
   button_long_press_state = vars.buttons_state & 0x0200
+  button_press_state = vars.buttons_state & 0x0100
 
   # Init
   if vars.cruise_control.state == 0:
     vars.cruise_control.button_long_press_previous_state = button_long_press_state
+    vars.cruise_control.button_press_previous_state = button_press_state
     vars.cruise_control.state = 1
 
   # Wait to start cruise
   if vars.cruise_control.state == 1:
     if (button_long_press_state != vars.cruise_control.button_long_press_previous_state) and (wheel_speed > 4.0):
       vars.cruise_control.button_long_press_previous_state = button_long_press_state
-      vars.cruise_control.throttle_value = throttle_value
+      vars.cruise_control.button_press_previous_state = button_press_state
+      vars.cruise_control.target_wheel_speed = wheel_speed
       vars.cruise_control.state = 2
 
   # Cruise active
   if vars.cruise_control.state == 2:
     vars.cruise_control.button_pressed = False
-    button_press_state = vars.buttons_state & 0x0100
     if button_press_state != vars.cruise_control.button_press_previous_state:
       vars.cruise_control.button_press_previous_state = button_press_state
       vars.cruise_control.button_pressed = True
 
     # Stop cruise?
-    if vars.brakes_are_active or vars.cruise_control.button_pressed or throttle_value > (vars.cruise_control.throttle_value * 1.15):
+    if vars.brakes_are_active or vars.cruise_control.button_pressed:
       vars.cruise_control.button_long_press_previous_state = button_long_press_state
+      vars.cruise_control.target_wheel_speed = 0.0
       vars.cruise_control.state = 1
-    else:
-      # Keep cruising: override throttle
-      throttle_value = vars.cruise_control.throttle_value
 
-  return throttle_value
+  return vars.cruise_control.state == 2
 
-def _read_throttle(throttle):
-  raw, mapped = throttle.value
-  return raw, mapped
+def wheel_speed_to_motor_erpm(wheel_speed, motor_cfg):
+  if motor_cfg.wheel_radius <= 0:
+    return 0.0
+  perimeter = 6.28318 * motor_cfg.wheel_radius  # meters
+  motor_rpm = (wheel_speed * 1000.0) / max(1.0, perimeter * 60.0)
+  return motor_rpm * max(1, motor_cfg.poles_pair)
+
+def _stop_motors():
+  for _ in range(3):
+    for motor in motors:
+      motor.set_motor_current_amps(0)
 
 async def task_control_motor(wdt):
+  global throttle_1_disabled, throttle_2_disabled
+  release_motor_after_ms = 3000
+  release_hold_start_ms = None
+
   while True:
     motor_erpm_max_speed_limits = [
-      motor_data.cfg.motor_erpm_max_speed_limit[vars.mode]
-      for motor_data in motor_datas
+      _motor_data.cfg.motor_erpm_max_speed_limit[vars.mode]
+      for _motor_data in motor_data
     ]
 
     # Throttle: take max of available throttles
-    throttle_1_raw, throttle_1_value = _read_throttle(throttle_1)
+    throttle_1_raw, throttle_1_value = throttle_1.value
+    if throttle_1_disabled:
+      throttle_1_value = 0
     throttle_value = throttle_1_value
 
     throttle_2_raw = None
     throttle_2_value = None
     if throttle_2 is not None:
-      throttle_2_raw, throttle_2_value = _read_throttle(throttle_2)
+      throttle_2_raw, throttle_2_value = throttle_2.value
+      if throttle_2_disabled:
+        throttle_2_value = 0
       throttle_value = max(throttle_value, throttle_2_value)
 
-    # Over-max safety (ADC glitch protection)
-    if throttle_1_raw > cfg.throttle_1_adc_over_max_error:
-      for _ in range(3):
-        for motor in motors:
-          motor.set_motor_current_amps(0)
-      raise Exception(f'throttle 1 value: {throttle_1_raw} -- is over max, this can be dangerous!')
+    # Over-max safety (ADC glitch protection):
+    # disable the affected throttle first; only stop with exception if both fail.
+    throttle_1_over_max = throttle_1_raw > cfg.throttle_1_adc_over_max_error
+    if throttle_1_over_max:
+      throttle_1_disabled = True
+      throttle_1_value = 0
 
+    throttle_2_over_max = False
     if throttle_2_raw is not None:
-      throttle_2_over_max = getattr(cfg, "throttle_2_adc_over_max_error", None)
-      if throttle_2_over_max is not None and throttle_2_raw > throttle_2_over_max:
-        for _ in range(3):
-          for motor in motors:
-            motor.set_motor_current_amps(0)
-        raise Exception(f'throttle 2 value: {throttle_2_raw} -- is over max, this can be dangerous!')
+      throttle_2_over_max = throttle_2_raw > cfg.throttle_2_adc_over_max_error
+      if throttle_2_over_max:
+        throttle_2_disabled = True
+        throttle_2_value = 0
 
-    # Cruise control
-    throttle_value = cruise_control(vars, rear_motor.data.wheel_speed, throttle_value)
+    throttle_value = max(throttle_1_value, throttle_2_value or 0)
 
-    # Target speed (map 0..1000 → 0..ERPM limit)
-    for motor_data, motor_erpm_max_speed_limit in zip(motor_datas, motor_erpm_max_speed_limits):
-      motor_data.motor_target_speed = map_range(
-        throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit, clamp=True
+    if throttle_1_disabled and throttle_2_disabled:
+      _stop_motors()
+      raise Exception(
+        f'both throttles disabled due to over-max ADC values: '
+        f'throttle 1={throttle_1_raw}, throttle 2={throttle_2_raw}'
       )
 
+    # Cruise control
+    cruise_control_is_active = cruise_control(vars, rear_motor.data.wheel_speed)
+
+    # Target speed
+    for _motor_data, motor_erpm_max_speed_limit in zip(motor_data, motor_erpm_max_speed_limits):
+      if cruise_control_is_active:
+        _motor_data.motor_target_speed = wheel_speed_to_motor_erpm(
+          vars.cruise_control.target_wheel_speed,
+          _motor_data.cfg,
+        )
+      else:
+        _motor_data.motor_target_speed = map_range(
+          throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit, clamp=True
+        )
+
       # Small dead-zone
-      if motor_data.motor_target_speed < 500.0:
-        motor_data.motor_target_speed = 0.0
+      if _motor_data.motor_target_speed < 500.0:
+        _motor_data.motor_target_speed = 0.0
 
       # Enforce max
-      if motor_data.motor_target_speed > motor_erpm_max_speed_limit:
-        motor_data.motor_target_speed = motor_erpm_max_speed_limit
+      if _motor_data.motor_target_speed > motor_erpm_max_speed_limit:
+        _motor_data.motor_target_speed = motor_erpm_max_speed_limit
 
     # Set motor/battery current limits
     for motor in motors:
@@ -317,15 +352,35 @@ async def task_control_motor(wdt):
 
     # Command motor(s)
     if vars.motors_enable_state is False:
+      release_hold_start_ms = None
+      vars.cruise_control.target_wheel_speed = 0.0
+      vars.cruise_control.state = 1
+      vars.cruise_control.button_press_previous_state = vars.buttons_state & 0x0100
+      vars.cruise_control.button_long_press_previous_state = vars.buttons_state & 0x0200
       for motor in motors:
         motor.set_motor_current_amps(0)
     else:
       if vars.brakes_are_active:
+        release_hold_start_ms = None
         for motor in motors:
-          motor.set_motor_speed_rpm(0)
+          motor.set_motor_speed_erpm(0)
       else:
+        should_release_motor = False
+        has_motor_target_speed = any(motor.data.motor_target_speed > 0 for motor in motors)
+        if (not has_motor_target_speed) and rear_motor.data.wheel_speed == 0:
+          now = time.ticks_ms()
+          if release_hold_start_ms is None:
+            release_hold_start_ms = now
+          elif time.ticks_diff(now, release_hold_start_ms) >= release_motor_after_ms:
+            should_release_motor = True
+        else:
+          release_hold_start_ms = None
+
         for motor in motors:
-          motor.set_motor_speed_rpm(motor.data.motor_target_speed)
+          if should_release_motor:
+            motor.set_motor_current_amps(0)
+          else:
+            motor.set_motor_speed_erpm(motor.data.motor_target_speed)
 
     if wdt is not None:
       wdt.feed()
@@ -338,37 +393,37 @@ async def task_control_motor_limit_current():
     # Always use rear wheel speed
     wheel_speed = rear_motor.data.wheel_speed
 
-    for motor_data in motor_datas:
-      motor_data.motor_target_current_limit_max = map_range(
+    for _motor_data in motor_data:
+      _motor_data.motor_target_current_limit_max = map_range(
         wheel_speed,
         5.0,
-        motor_data.cfg.motor_current_limit_max_min_speed,
-        motor_data.cfg.motor_current_limit_max_max,
-        motor_data.cfg.motor_current_limit_max_min,
+        _motor_data.cfg.motor_current_limit_max_min_speed,
+        _motor_data.cfg.motor_current_limit_max_max,
+        _motor_data.cfg.motor_current_limit_max_min,
         clamp=True)
 
-      motor_data.motor_target_current_limit_min = map_range(
+      _motor_data.motor_target_current_limit_min = map_range(
         wheel_speed,
         5.0,
-        motor_data.cfg.motor_current_limit_min_max_speed,
-        motor_data.cfg.motor_current_limit_min_max,
-        motor_data.cfg.motor_current_limit_min_min,
+        _motor_data.cfg.motor_current_limit_min_max_speed,
+        _motor_data.cfg.motor_current_limit_min_max,
+        _motor_data.cfg.motor_current_limit_min_min,
         clamp=True)
 
-      motor_data.battery_target_current_limit_max = map_range(
+      _motor_data.battery_target_current_limit_max = map_range(
         wheel_speed,
         5.0,
-        motor_data.cfg.battery_current_limit_max_min_speed,
-        motor_data.cfg.battery_current_limit_max_max,
-        motor_data.cfg.battery_current_limit_max_min,
+        _motor_data.cfg.battery_current_limit_max_min_speed,
+        _motor_data.cfg.battery_current_limit_max_max,
+        _motor_data.cfg.battery_current_limit_max_min,
         clamp=True)
 
-      motor_data.battery_target_current_limit_min = map_range(
+      _motor_data.battery_target_current_limit_min = map_range(
         wheel_speed,
         5.0,
-        motor_data.cfg.battery_current_limit_min_max_speed,
-        motor_data.cfg.battery_current_limit_min_max,
-        motor_data.cfg.battery_current_limit_min_min,
+        _motor_data.cfg.battery_current_limit_min_max_speed,
+        _motor_data.cfg.battery_current_limit_min_max,
+        _motor_data.cfg.battery_current_limit_min_min,
         clamp=True)
 
     gc.collect()

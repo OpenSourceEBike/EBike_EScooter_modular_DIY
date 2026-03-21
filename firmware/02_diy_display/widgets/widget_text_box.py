@@ -29,7 +29,7 @@ class WidgetTextBox:
                 left=0, right=0, top=0, bottom=0,
                 align_inside="right",
                 content_dx=0, content_dy=0,
-                debug_box=False, formatter=None):
+                debug_box=False, formatter=None, invert=False):
     self.fb = fb
     self.disp_w = disp_w
     self.disp_h = disp_h
@@ -51,6 +51,7 @@ class WidgetTextBox:
     self.content_dx = int(content_dx); self.content_dy = int(content_dy)
     self.debug_box = bool(debug_box)
     self.formatter = formatter
+    self.invert = bool(invert)
 
     # visibility + last content
     self.visible = True
@@ -194,6 +195,12 @@ class WidgetTextBox:
         self._box_outline(self._prev_box)
       self._prev_box = None
 
+  def set_invert(self, invert):
+    invert = bool(invert)
+    if invert != self.invert:
+      self.invert = invert
+      self.invalidate()
+
   # ---------- drawing (LOW RAM) ----------
   def update(self, text, valid=True):
     # Store last content so show() can redraw immediately
@@ -290,6 +297,10 @@ class WidgetTextBox:
       clipfb.blit(gf, gx, gy)
 
       advance_x += gw  # move to next glyph position
+
+    if self.invert:
+      for i in range(len(buf_clip)):
+        buf_clip[i] ^= 0xFF
 
     # 6) Blit the clipped buffer to the screen
     self.fb.blit(clipfb, bx, by)
