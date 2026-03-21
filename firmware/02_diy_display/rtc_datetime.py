@@ -5,6 +5,13 @@ import time
 import machine
 import network
 import ntptime
+try:
+  import socket
+except ImportError:
+  try:
+    import usocket as socket
+  except ImportError:
+    socket = None
 
 # ---------- Minimal DS3231 driver (I2C) ----------
 class DS3231:
@@ -30,12 +37,17 @@ class DS3231:
     data = self.i2c.readfrom_mem(self.addr, 0x00, 7)
     sec   = self._bcd2bin(data[0] & 0x7F)
     minute= self._bcd2bin(data[1] & 0x7F)
-    hour  = self._bcd2bin(data[2] & 0x3F)  # 24h assumed
+    hour_reg = data[2]
+    if hour_reg & 0x40:
+      hour = self._bcd2bin(hour_reg & 0x1F)
+      if hour == 12:
+        hour = 0
+      if hour_reg & 0x20:
+        hour += 12
+    else:
+      hour = self._bcd2bin(hour_reg & 0x3F)
     # DS3231 weekday: 1=Sun..7=Sat -> convert to 0=Mon..6=Sun
     ds_wday = (data[3] & 0x07) or 7  # treat 0 as 7
-    wday = (ds_wday % 7)  # Sun(1)->1%7=1, we need 6; adjust below
-    # fix: map DS3231 1..7 (Sun..Sat) to 0..6 (Mon..Sun)
-    # Build a small map: Sun->6, Mon->0, Tue->1, ... Sat->5
     map_ds_to_mp = {1:6, 2:0, 3:1, 4:2, 5:3, 6:4, 7:5}
     wday = map_ds_to_mp.get(ds_wday, 0)
 
@@ -158,6 +170,15 @@ class RTCDateTime(object):
 
     return time.localtime(time.mktime(utc_now) + offset_s), offset_s
 
+  def _datetime8_to_rtc_tuple(self, tt):
+    return (tt[0], tt[1], tt[2], tt[6], tt[3], tt[4], tt[5], 0)
+
+  def _rtc_tuple_to_datetime8(self, rtc_tt):
+    return (rtc_tt[0], rtc_tt[1], rtc_tt[2], rtc_tt[4], rtc_tt[5], rtc_tt[6], rtc_tt[3], 0)
+
+  def _internal_utc_now(self):
+    return self._rtc_tuple_to_datetime8(self._rtc_internal.datetime())
+
   # ---------- Radio helpers ----------
   def _reset_wifi_radio(self):
     try:
@@ -168,14 +189,47 @@ class RTCDateTime(object):
     except Exception as e:
       print("Radio reset failed:", e)
 
+  async def _reset_wifi_radio_async(self):
+    try:
+      import uasyncio as asyncio
+      sta = network.WLAN(network.STA_IF)
+      sta.active(False)
+      await asyncio.sleep_ms(200)
+      sta.active(True)
+    except Exception as e:
+      print("Radio reset failed:", e)
+
+  def _set_socket_timeout(self, timeout_s):
+    if socket is None:
+      return None
+
+    setter = getattr(socket, "setdefaulttimeout", None)
+    getter = getattr(socket, "getdefaulttimeout", None)
+    if setter is None:
+      return None
+
+    previous = None
+    if getter is not None:
+      try:
+        previous = getter()
+      except Exception:
+        previous = None
+
+    try:
+      setter(timeout_s)
+    except Exception:
+      return None
+
+    return previous
+
   # ---------- Public API ----------
   def update_internal_rtc_from_external(self):
     if self._rtc_external is not None:
-      now = self._rtc_external.datetime()  # 8-tuple
-      # machine.RTC().datetime expects: (Y,M,D,weekday,h,m,s,us)
-      tup = (now[0], now[1], now[2], now[6], now[3], now[4], now[5], 0)
-      self._rtc_internal.datetime(tup)
-      print("RTC internal updated from external to:", time.localtime())
+      utc_now = self._rtc_external.datetime()  # 8-tuple in UTC
+      self._rtc_internal.datetime(self._datetime8_to_rtc_tuple(utc_now))
+      local_now, _ = self._localtime_from_utc(utc_now)
+      print("RTC internal updated from external UTC to:", utc_now)
+      print("Current local time is:", local_now)
       return True
     return False
 
@@ -189,6 +243,20 @@ class RTCDateTime(object):
         if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
           raise OSError("WiFi connect timeout")
         time.sleep_ms(200)
+    return sta
+
+  async def _connect_wifi_async(self, ssid, password, timeout_s=5):
+    import uasyncio as asyncio
+
+    sta = network.WLAN(network.STA_IF)
+    sta.active(True)
+    if not sta.isconnected():
+      sta.connect(ssid, password)
+      t0 = time.ticks_ms()
+      while not sta.isconnected():
+        if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
+          raise OSError("WiFi connect timeout")
+        await asyncio.sleep_ms(200)
     return sta
 
   def update_datetime_from_wifi_ntp(self, ssid=None, password=None):
@@ -209,7 +277,7 @@ class RTCDateTime(object):
       try:
         ntptime.host = "pool.ntp.org"
         ntptime.settime()  # sets internal RTC to UTC
-        utc_now = time.localtime()  # UTC tuple (Y,M,D,h,m,s,wday,yday)
+        utc_now = self._internal_utc_now()
         now, offset_s = self._localtime_from_utc(utc_now)
         offset_h = offset_s // 3600
         print(
@@ -217,15 +285,12 @@ class RTCDateTime(object):
             offset_h, now[3], now[4], now[5]
           )
         )
+        print("RTC internal kept in UTC:", utc_now)
 
-        # Set internal RTC (weekday=now[6], us=0)
-        self._rtc_internal.datetime((now[0], now[1], now[2], now[6], now[3], now[4], now[5], 0))
-        print("RTC internal updated to:", time.localtime())
-
-        # Also set external RTC if present (store local-adjusted time)
+        # Keep the external RTC in UTC as well.
         if self._rtc_external is not None:
-          self._rtc_external.set_datetime(now)
-          print("RTC external updated to:", self._rtc_external.datetime())
+          self._rtc_external.set_datetime(utc_now)
+          print("RTC external updated to UTC:", self._rtc_external.datetime())
 
         self._reset_wifi_radio()
         return True
@@ -240,13 +305,74 @@ class RTCDateTime(object):
       self._reset_wifi_radio()
       return self.update_internal_rtc_from_external()
 
+  async def update_datetime_from_wifi_ntp_async(self, ssid=None, password=None, wifi_timeout_s=5, ntp_timeout_s=3):
+    # Read secrets.py if not provided
+    if ssid is None or password is None:
+      try:
+        import secrets
+        ssid = ssid or secrets.secrets["wifi_ssid"]
+        password = password or secrets.secrets["wifi_password"]
+      except Exception:
+        print("Missing or invalid secrets.py!")
+        return self.update_internal_rtc_from_external()
+
+    previous_socket_timeout = None
+    try:
+      await self._connect_wifi_async(ssid, password, timeout_s=wifi_timeout_s)
+      print("Connected to WiFi:", ssid)
+
+      try:
+        ntptime.host = "pool.ntp.org"
+        previous_socket_timeout = self._set_socket_timeout(ntp_timeout_s)
+        ntptime.settime()  # sets internal RTC to UTC
+        utc_now = self._internal_utc_now()
+        now, offset_s = self._localtime_from_utc(utc_now)
+        offset_h = offset_s // 3600
+        print(
+          "Local RTC time (UTC%+d): %02d:%02d:%02d" % (
+            offset_h, now[3], now[4], now[5]
+          )
+        )
+        print("RTC internal kept in UTC:", utc_now)
+
+        if self._rtc_external is not None:
+          self._rtc_external.set_datetime(utc_now)
+          print("RTC external updated to UTC:", self._rtc_external.datetime())
+
+        await self._reset_wifi_radio_async()
+        return True
+
+      except Exception as e:
+        print("Error fetching time from NTP:", e)
+        await self._reset_wifi_radio_async()
+        return self.update_internal_rtc_from_external()
+
+    except Exception as e:
+      print("Failed to connect to WiFi:", e)
+      await self._reset_wifi_radio_async()
+      return self.update_internal_rtc_from_external()
+
+    finally:
+      if socket is not None:
+        setter = getattr(socket, "setdefaulttimeout", None)
+        if setter is not None:
+          try:
+            setter(previous_socket_timeout)
+          except Exception:
+            pass
+
   # --- Aliases for compatibility with your existing code ---
   def update_date_time_from_wifi_ntp(self, *a, **kw):
     return self.update_datetime_from_wifi_ntp(*a, **kw)
 
+  async def update_date_time_from_wifi_ntp_async(self, *a, **kw):
+    return await self.update_datetime_from_wifi_ntp_async(*a, **kw)
+
   def datetime(self):
     """Return current *local* time as an 8-tuple (MicroPython style)."""
-    return time.localtime()
+    utc_now = self._internal_utc_now()
+    local_now, _ = self._localtime_from_utc(utc_now)
+    return local_now
 
   def date_time(self):
     """Alias kept for compatibility with your CP code."""

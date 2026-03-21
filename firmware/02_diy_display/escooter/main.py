@@ -20,6 +20,24 @@ print("Starting Display")
 
 vars = Vars.Vars()
 
+lcd = LCD(
+  spi_clk_pin=cfg.pin_spi_clk,
+  spi_mosi_pin=cfg.pin_spi_mosi,
+  chip_select_pin=cfg.pin_cs,
+  command_pin=cfg.pin_dc,
+  reset_pin=cfg.pin_rst,
+  backlight_pin=cfg.pin_bl,
+  spi_clock_frequency=cfg.spi_baud,
+)
+fb = lcd.display
+lcd.backlight_pwm(0.5)
+fb.fill(0)
+fb.text("Ready", 44, 28, 1)
+fb.show()
+
+screen_manager = ScreenManager(fb, vars)
+screen_manager.render(vars)
+
 # ESPNow wireless communications
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
 ap = network.WLAN(network.AP_IF)
@@ -65,22 +83,6 @@ lights_tx_comms = ESPNowComms(
 
 # Hardware watchdog: reset the board if not fed within 30 seconds
 wdt = WDT(timeout=30000) # timeout in milliseconds
-
-lcd = LCD(
-  spi_clk_pin=cfg.pin_spi_clk,
-  spi_mosi_pin=cfg.pin_spi_mosi,
-  chip_select_pin=cfg.pin_cs,
-  command_pin=cfg.pin_dc,
-  reset_pin=cfg.pin_rst,
-  backlight_pin=cfg.pin_bl,
-  spi_clock_frequency=cfg.spi_baud,
-)
-fb = lcd.display
-lcd.backlight_pwm(0.5)
-lcd.clear()
-lcd.display.show()
-
-screen_manager = ScreenManager(fb, vars)
 
 if cfg.enable_rtc_time:
   vars.rtc = RTCDateTime(
@@ -211,13 +213,20 @@ async def ui_task(fb, lcd, vars):
     else:
       await asyncio.sleep_ms(0)
 
+async def rtc_sync_task(vars, delay_ms=5000):
+  await asyncio.sleep_ms(delay_ms)
+  try:
+    await vars.rtc.update_date_time_from_wifi_ntp_async()
+  except Exception as ex:
+    print(ex)
+
 async def main_task(vars):
   global screen_manager
   
   motor_power_previous = 0
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
   update_date_time_once = False
-  time_rtc_try_update_at = None
+  rtc_sync_started = False
   first_transition_to_main_screen = False
   period_ms = 50
   next_wake = time.ticks_ms()
@@ -247,19 +256,15 @@ async def main_task(vars):
     if not first_transition_to_main_screen and \
       screen_manager.current_is(ScreenID.MAIN):
       first_transition_to_main_screen = True
-      time_rtc_try_update_at = time.ticks_add(now, 5000)
     
     # Try NTP once after ~5s
     if not update_date_time_once and \
+      not rtc_sync_started and \
       cfg.enable_rtc_time and \
-      screen_manager.current_is(ScreenID.MAIN) and \
-      time_rtc_try_update_at is not None and \
-      time.ticks_diff(now, time_rtc_try_update_at) >= 0:
+      screen_manager.current_is(ScreenID.MAIN):
+      rtc_sync_started = True
       update_date_time_once = True
-      try:
-        vars.rtc.update_date_time_from_wifi_ntp()
-      except Exception as ex:
-        print(ex)
+      asyncio.create_task(rtc_sync_task(vars))
         
     # Time draw (1 Hz)
     if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
