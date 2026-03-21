@@ -18,17 +18,20 @@ debug_enable = False
 
 ################################################################
 
-print("Starting the DIY Automatic Anti Spark Switch")
-print("EBike/EScooter type: " + cfg.type_name)
-print()
+# Relay control pins (C3)
+# Assert them as early as possible in main.py so display power comes up before
+# radio, I2C and accelerometer initialization.
+SWITCH_PINS_NUMBERS = (0, 1, 2, 3, 4)
+switch_pins = [Pin(p, Pin.OUT, value=1) for p in SWITCH_PINS_NUMBERS]
+
+if debug_enable:
+  print("Starting the DIY Automatic Anti Spark Switch")
+  print("EBike/EScooter type: " + cfg.type_name)
+  print()
 
 vehicle_type = cfg.type.get("ebike_escooter") if isinstance(cfg.type, dict) else None
 if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
   raise ValueError("You need to select a valid EBike/EScooter type")
-
-# Relay control pins (C3)
-SWITCH_PINS_NUMBERS = (0, 1, 2, 3, 4)
-switch_pins = [Pin(p, Pin.OUT, value=1) for p in SWITCH_PINS_NUMBERS]
 
 timeout_no_motion_minutes_to_disable_relay *= 60  # need to multiply by 60 seconds
 timeout_no_motion_ms = timeout_no_motion_minutes_to_disable_relay * 1000

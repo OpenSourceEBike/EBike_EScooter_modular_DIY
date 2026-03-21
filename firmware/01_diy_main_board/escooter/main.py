@@ -192,10 +192,12 @@ async def task_display_send_data():
 
 async def task_lights_send_data():
   while True:
-    if vars.motors_enable_state:
-      brake_bit = 0
+    # Tail-blink on brake is only valid while riding on the main screen.
+    # When charging or with motors disabled, the rear lights must stay off.
+    if vars.motors_enable_state and not vars.battery_is_charging and vars.brakes_are_active:
+      brake_bit = REAR_BRAKE_BIT
     else:
-      brake_bit = REAR_BRAKE_BIT if vars.brakes_are_active else 0
+      brake_bit = 0
 
     lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
     gc.collect()

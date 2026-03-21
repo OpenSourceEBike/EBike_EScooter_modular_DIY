@@ -1,6 +1,8 @@
 # boot.py — simple crash-loop breaker using RTC memory
 import machine
 
+DEBUG_BOOT = False
+
 MAX_BAD = 2
 BAD_CAUSES = (machine.WDT_RESET, machine.HARD_RESET)
 
@@ -20,7 +22,8 @@ def set_bad(v):
     pass
 
 cause = machine.reset_cause()
-print("Reset cause:", cause)
+if DEBUG_BOOT:
+  print("Reset cause:", cause)
 
 bad = get_bad()
 
@@ -30,7 +33,8 @@ else:
   bad = 0  # clean reset clears the streak
 
 set_bad(bad)
-print("Bad boot streak:", bad)
+if DEBUG_BOOT:
+  print("Bad boot streak:", bad)
 
 if bad >= MAX_BAD:
   print("Crash loop detected -> skipping main.py (REPL only)")
