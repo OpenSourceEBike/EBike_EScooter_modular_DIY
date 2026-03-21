@@ -39,14 +39,14 @@ cfg.brake_pin = 4
 
 # Right handlebar throttle
 cfg.throttle_1_pin = 3
-cfg.throttle_1_adc_min = 16600
-cfg.throttle_1_adc_max = 49500
+cfg.throttle_1_adc_min = 17500
+cfg.throttle_1_adc_max = 49200
 cfg.throttle_1_adc_over_max_error = 54500
 
 # Left handlebar throttle
 cfg.throttle_2_pin = 2
-cfg.throttle_2_adc_min = 16600
-cfg.throttle_2_adc_max = 48500
+cfg.throttle_2_adc_min = 17500
+cfg.throttle_2_adc_max = 49000
 cfg.throttle_2_adc_over_max_error = 54500
 
 # JBD BMS
