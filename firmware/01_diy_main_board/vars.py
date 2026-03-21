@@ -45,7 +45,7 @@ class CruiseControl(object):
     self.state = 0
     self.button_long_press_previous_state = 0
     self.button_press_previous_state = 0
-    self.throttle_value = 0
+    self.target_wheel_speed = 0.0
 
 class Vars(object):
   def __init__(self):

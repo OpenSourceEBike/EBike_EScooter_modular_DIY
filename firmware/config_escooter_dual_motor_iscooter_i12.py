@@ -62,6 +62,7 @@ front_motor_cfg.poles_pair = 15
 rear_motor_cfg.poles_pair = 15
 
 rear_motor_cfg.wheel_radius = 0.165
+front_motor_cfg.wheel_radius = 0.165
 
 rear_motor_cfg.motor_erpm_max_speed_limit = [
   6330,   # ≈25 km/h
