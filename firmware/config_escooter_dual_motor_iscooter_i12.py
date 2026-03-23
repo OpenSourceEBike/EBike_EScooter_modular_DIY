@@ -143,9 +143,12 @@ pin_bl = 10
 
 spi_baud = 10_000_000
 
+# Enable reading date/time from the external RTC chip (DS3231).
 enable_rtc_time = True
+# I2C pins used by the RTC chip.
 rtc_scl_pin = 8
 rtc_sda_pin = 7
+# Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
 
 # Power button pin (active-low with PULL_UP)

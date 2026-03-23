@@ -96,18 +96,13 @@ class RTCDateTime(object):
     i2c_id=0,
     i2c_freq=400_000,
     timezone_name="UTC",
-    utc_offset_hours=0,
-    dst_eu_enabled=True,
   ):
     self._rtc_external = None
     self._timezone_name = timezone_name
     tz_rule = self._TIMEZONE_RULES.get(timezone_name)
     if tz_rule is None:
-      print("Unknown timezone '{}', falling back to manual offset".format(timezone_name))
-      self._utc_offset_hours = utc_offset_hours
-      self._dst_eu_enabled = dst_eu_enabled
-    else:
-      self._utc_offset_hours, self._dst_eu_enabled = tz_rule
+      raise ValueError("Unsupported rtc_timezone: {}".format(timezone_name))
+    self._utc_offset_hours, self._dst_eu_enabled = tz_rule
 
     # Try initialize external DS3231 on I2C if pins are provided
     try:

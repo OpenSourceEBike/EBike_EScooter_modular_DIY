@@ -162,18 +162,16 @@ throttle_1 = Throttle(
   max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
 )
 
-throttle_2 = None
-if hasattr(cfg, "throttle_2_pin"):
-  throttle_2 = Throttle(
-    cfg.throttle_2_pin,
-    min_val=cfg.throttle_2_adc_min,
-    max_val=cfg.throttle_2_adc_max,
-  )
+throttle_2 = Throttle(
+  cfg.throttle_2_pin,
+  min_val=cfg.throttle_2_adc_min,
+  max_val=cfg.throttle_2_adc_max,
+)
 
 throttle_1_disabled = False
 throttle_2_disabled = False
 
-mode = Mode(brake_sensor, throttle_1, vars, save_to_nvs=cfg.save_mode_to_nvs)
+mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
   # Refresh latest VESC data (call once; it fills both via CAN)
@@ -243,12 +241,12 @@ def cruise_control(vars, wheel_speed, requested_motor_target_speed):
       vars.cruise_control.button_press_previous_state = button_press_state
       vars.cruise_control.button_pressed = True
 
-    if requested_motor_target_speed < (vars.cruise_control.target_motor_speed * 0.85):
+    if requested_motor_target_speed < (vars.cruise_control.target_motor_speed * 0.80):
       vars.cruise_control.manual_cancel_ready = True
 
     manual_cancel_requested = False
     if vars.cruise_control.manual_cancel_ready and \
-            requested_motor_target_speed > (vars.cruise_control.target_motor_speed * 1.15):
+            requested_motor_target_speed > vars.cruise_control.target_motor_speed:
       manual_cancel_requested = True
 
     # Stop cruise?
