@@ -7,11 +7,14 @@ except ImportError:
 class Mode:
   NR_MODES = 2
   THROTTLE_ZERO_MAX = 50
-  THROTTLE_FULL_MIN = 950
+  THROTTLE_FULL_MIN = 800
   
-  def __init__(self, brake, throttle, vars, save_to_nvs=True):
+  def __init__(self, brake, throttles, vars, save_to_nvs=True):
     self._brake = brake
-    self._throttle = throttle
+    if isinstance(throttles, (tuple, list)):
+      self._throttles = throttles
+    else:
+      self._throttles = (throttles,)
     self._vars = vars
     self._state = 0
     self._nvs = None
@@ -43,9 +46,18 @@ class Mode:
     except Exception:
       pass
 
+  def _throttle_value_max(self):
+    throttle_value = 0
+    for throttle in self._throttles:
+      if throttle is None:
+        continue
+      _, value = throttle.value
+      throttle_value = max(throttle_value, value)
+    return throttle_value
+
   def tick(self):
     brake_pressed = bool(self._brake.value)
-    _, throttle_value = self._throttle.value
+    throttle_value = self._throttle_value_max()
 
     if self._state == 0:
       if brake_pressed and throttle_value <= self.THROTTLE_ZERO_MAX:

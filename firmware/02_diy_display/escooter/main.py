@@ -88,9 +88,7 @@ if cfg.enable_rtc_time:
   vars.rtc = RTCDateTime(
     rtc_scl_pin=cfg.rtc_scl_pin,
     rtc_sda_pin=cfg.rtc_sda_pin,
-    timezone_name=getattr(cfg, "rtc_timezone", "UTC"),
-    utc_offset_hours=getattr(cfg, "rtc_utc_offset_hours", 0),
-    dst_eu_enabled=getattr(cfg, "rtc_dst_eu_enabled", True),
+    timezone_name=cfg.rtc_timezone,
   )
 
 BUTTON_PINS = [
