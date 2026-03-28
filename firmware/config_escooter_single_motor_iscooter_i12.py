@@ -106,10 +106,18 @@ enable_rtc_time = True
 # I2C pins used by the RTC chip.
 rtc_scl_pin = 8
 rtc_sda_pin = 7
+
 # Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
 rtc_debug = False
+
+# Delayed sync timing and per-step timeouts.
+rtc_sync_delay_ms = 2000
+rtc_wifi_timeout_s = 3
+rtc_ntp_timeout_s = 2
+# Backlight auto-off while staying on idle display screens.
+backlight_timeout_ms = 1000
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6

@@ -6,6 +6,7 @@ from machine import WDT
 
 from lcd.lcd_st7565 import LCD
 from rtc_datetime import RTCDateTime
+from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
 from common.thisbutton import thisButton
 from common.utils import map_range
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
@@ -37,6 +38,63 @@ fb.show()
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
+
+# Hardware watchdog: reset the board if not fed within 30 seconds
+wdt = WDT(timeout=30000) # timeout in milliseconds
+
+if cfg.enable_rtc_time:
+  vars.rtc = RTCDateTime(
+    rtc_scl_pin=cfg.rtc_scl_pin,
+    rtc_sda_pin=cfg.rtc_sda_pin,
+    timezone_name=cfg.rtc_timezone,
+    debug=cfg.rtc_debug,
+  )
+
+BUTTON_PINS = [
+  cfg.power_button_pin,
+  cfg.lights_button_pin
+  ]
+
+nr_buttons = len(BUTTON_PINS)
+button_POWER, button_LIGHTS = range(nr_buttons)
+BACKLIGHT_ON_BRIGHTNESS = 0.5
+backlight_is_on = True
+
+def filter_motor_power(p):
+  if p < 0:
+    if p > -10: p = 0
+    elif p > -25: pass
+    elif p > -50: p = round(p/2)*2
+    elif p > -100: p = round(p/5)*5
+    else: p = round(p/10)*10
+  else:
+    if p < 10: p = 0
+    elif p < 25: pass
+    elif p < 50: p = round(p/2)*2
+    elif p < 100: p = round(p/5)*5
+    else: p = round(p/10)*10
+  return p    
+
+def update_time_string(vars):
+  try:
+    dt = vars.rtc.date_time()
+    hour, minute = dt[3], dt[4]
+    vars.time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
+  except Exception as ex:
+    vars.time_string = ''
+    print(ex)
+
+def set_backlight_enabled(enabled):
+  global backlight_is_on
+  enabled = bool(enabled)
+  if backlight_is_on == enabled:
+    return
+  backlight_is_on = enabled
+  lcd.backlight_pwm(BACKLIGHT_ON_BRIGHTNESS if enabled else 0.0)
+
+if cfg.enable_rtc_time:
+  vars.rtc.update_internal_rtc_from_external()
+  update_time_string(vars)
 
 # ESPNow wireless communications
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
@@ -80,52 +138,6 @@ lights_tx_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_lights),
   encoder=encode_lights_message)
-
-# Hardware watchdog: reset the board if not fed within 30 seconds
-wdt = WDT(timeout=30000) # timeout in milliseconds
-
-if cfg.enable_rtc_time:
-  vars.rtc = RTCDateTime(
-    rtc_scl_pin=cfg.rtc_scl_pin,
-    rtc_sda_pin=cfg.rtc_sda_pin,
-    timezone_name=cfg.rtc_timezone,
-  )
-
-BUTTON_PINS = [
-  cfg.power_button_pin,
-  cfg.lights_button_pin
-  ]
-
-nr_buttons = len(BUTTON_PINS)
-button_POWER, button_LIGHTS = range(nr_buttons)
-
-def filter_motor_power(p):
-  if p < 0:
-    if p > -10: p = 0
-    elif p > -25: pass
-    elif p > -50: p = round(p/2)*2
-    elif p > -100: p = round(p/5)*5
-    else: p = round(p/10)*10
-  else:
-    if p < 10: p = 0
-    elif p < 25: pass
-    elif p < 50: p = round(p/2)*2
-    elif p < 100: p = round(p/5)*5
-    else: p = round(p/10)*10
-  return p    
-
-def update_time_string(vars):
-  try:
-    dt = vars.rtc.date_time()
-    hour, minute = dt[3], dt[4]
-    vars.time_string = ('{:01d}:{:02d}' if hour < 10 else '{:02d}:{:02d}').format(hour, minute)
-  except Exception as ex:
-    vars.time_string = ''
-    print(ex)
-
-if cfg.enable_rtc_time:
-  vars.rtc.update_internal_rtc_from_external()
-  update_time_string(vars)
 
 # --- button callbacks ---
 def button_power_click_start_cb():
@@ -224,10 +236,15 @@ async def ui_task(fb, lcd, vars):
     else:
       await asyncio.sleep_ms(0)
 
-async def rtc_sync_task(vars, delay_ms=5000):
+async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
   try:
-    await vars.rtc.update_date_time_from_wifi_ntp_async()
+    await sync_rtc_time_from_wifi_ntp_async(
+      vars.rtc,
+      wifi_timeout_s=cfg.rtc_wifi_timeout_s,
+      ntp_timeout_s=cfg.rtc_ntp_timeout_s,
+    )
+    update_time_string(vars)
   except Exception as ex:
     print(ex)
 
@@ -236,9 +253,8 @@ async def main_task(vars):
   
   motor_power_previous = 0
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
-  update_date_time_once = False
-  rtc_sync_started = False
-  first_transition_to_main_screen = False
+  backlight_timeout_ms = getattr(cfg, 'backlight_timeout_ms', 1000)
+  backlight_idle_since = time.ticks_ms()
   period_ms = 50
   next_wake = time.ticks_ms()
 
@@ -263,20 +279,27 @@ async def main_task(vars):
     for i in range(len(vars.buttons)):
       vars.buttons[i].tick()
 
-    # Time
-    if not first_transition_to_main_screen and \
-      screen_manager.current_is(ScreenID.MAIN):
-      first_transition_to_main_screen = True
-    
-    # Try NTP once after ~5s
-    if not update_date_time_once and \
-      not rtc_sync_started and \
-      cfg.enable_rtc_time and \
-      screen_manager.current_is(ScreenID.MAIN):
-      rtc_sync_started = True
-      update_date_time_once = True
-      asyncio.create_task(rtc_sync_task(vars))
-        
+    in_idle_screen = (
+      screen_manager.current_is(ScreenID.BOOT) or
+      screen_manager.current_is(ScreenID.CHARGING) or
+      screen_manager.current_is(ScreenID.POWEROFF)
+    )
+    wake_backlight = (
+      vars.brakes_are_active or
+      bool(vars.buttons_state & 0x03) or
+      vars.motor_current_x10 > 10
+    )
+
+    if not in_idle_screen:
+      backlight_idle_since = now
+      set_backlight_enabled(True)
+    else:
+      if wake_backlight:
+        backlight_idle_since = now
+        set_backlight_enabled(True)
+      elif time.ticks_diff(now, backlight_idle_since) >= backlight_timeout_ms:
+        set_backlight_enabled(False)
+
     # Time draw (1 Hz)
     if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
       time_counter_next = time.ticks_add(time_counter_next, 1000)
@@ -390,6 +413,9 @@ async def main():
       asyncio.create_task(lights_task(vars)),
       asyncio.create_task(main_task(vars))
     ]
+
+    if cfg.enable_rtc_time:
+      tasks.append(asyncio.create_task(rtc_sync_task(vars, delay_ms=cfg.rtc_sync_delay_ms)))
     
     await asyncio.gather(*tasks)
     

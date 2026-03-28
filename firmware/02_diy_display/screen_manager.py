@@ -15,23 +15,17 @@ class ScreenManager:
   def __init__(self, fb, vars):
     self.fb = fb
 
-    # Create instances once
-    self._boot      = BootScreen(fb)
-    self._main      = MainScreen(fb)
-    self._charging  = ChargingScreen(fb)
-    self._poweroff  = PowerOffScreen(fb)
-
-    # Map IDs <-> instances
-    self._screens = {
-      ScreenID.BOOT:     self._boot,
-      ScreenID.MAIN:     self._main,
-      ScreenID.CHARGING: self._charging,
-      ScreenID.POWEROFF: self._poweroff,
+    self._screen_factories = {
+      ScreenID.BOOT: BootScreen,
+      ScreenID.MAIN: MainScreen,
+      ScreenID.CHARGING: ChargingScreen,
+      ScreenID.POWEROFF: PowerOffScreen,
     }
+    self._screens = {}
 
     # Start in BOOT
     self._current_id = ScreenID.BOOT
-    self._current = self._screens[self._current_id]
+    self._current = self._get_screen(self._current_id)
     self._current.on_enter()
 
     self._button_power_long_click_previous = False
@@ -52,6 +46,13 @@ class ScreenManager:
     """Fast equality without tuples/strings."""
     return self._current_id == screen_id
 
+  def _get_screen(self, screen_id):
+    screen = self._screens.get(screen_id)
+    if screen is None:
+      screen = self._screen_factories[screen_id](self.fb)
+      self._screens[screen_id] = screen
+    return screen
+
   # ---- Core operations ----
   def render(self, vars):
     self._current.render(vars)
@@ -66,7 +67,7 @@ class ScreenManager:
       return
     self._current.on_exit()
     self._current_id = screen_id
-    self._current = self._screens[screen_id]
+    self._current = self._get_screen(screen_id)
     self._current.on_enter()
 
   def update(self, vars):
