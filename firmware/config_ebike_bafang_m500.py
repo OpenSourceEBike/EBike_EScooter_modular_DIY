@@ -45,6 +45,8 @@ rtc_sda_pin = 7
 rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
 rtc_debug = False
+# Backlight auto-off while staying on idle display screens.
+backlight_timeout_ms = 1000
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6
