@@ -63,7 +63,7 @@ rear_motor_cfg.max_temperature_x10 = 950
 
 rear_motor_cfg.motor_max_current_limit_max = 75.0
 rear_motor_cfg.motor_min_current_start = 1.5
-rear_motor_cfg.motor_max_current_limit_min = -30.0
+rear_motor_cfg.motor_max_current_limit_min = -38.0
 
 rear_motor_cfg.battery_max_current_limit_max = 25.0
 rear_motor_cfg.battery_max_current_limit_min = -8.0
@@ -74,8 +74,8 @@ rear_motor_cfg.motor_current_limit_max_min = 45.0
 rear_motor_cfg.motor_current_limit_max_min_speed = 15.0
 
 # Regen current vs speed
-rear_motor_cfg.motor_current_limit_min_min = -30.0
-rear_motor_cfg.motor_current_limit_min_max = -30.0
+rear_motor_cfg.motor_current_limit_min_min = -38.0
+rear_motor_cfg.motor_current_limit_min_max = -38.0
 rear_motor_cfg.motor_current_limit_min_max_speed = 15.0
 
 # Battery current limits
@@ -108,6 +108,8 @@ rtc_scl_pin = 8
 rtc_sda_pin = 7
 # Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
+# Verbose RTC initialization and WiFi/NTP sync logging.
+rtc_debug = False
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6

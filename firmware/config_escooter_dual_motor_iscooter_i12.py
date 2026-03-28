@@ -150,6 +150,8 @@ rtc_scl_pin = 8
 rtc_sda_pin = 7
 # Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
+# Verbose RTC initialization and WiFi/NTP sync logging.
+rtc_debug = False
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6

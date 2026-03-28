@@ -162,14 +162,18 @@ throttle_1 = Throttle(
   max_val=cfg.throttle_1_adc_max,   # max ADC (with margin)
 )
 
-throttle_2 = Throttle(
-  cfg.throttle_2_pin,
-  min_val=cfg.throttle_2_adc_min,
-  max_val=cfg.throttle_2_adc_max,
-)
+throttle_2_pin = getattr(cfg, 'throttle_2_pin', None)
+if throttle_2_pin is None:
+  throttle_2 = None
+else:
+  throttle_2 = Throttle(
+    throttle_2_pin,
+    min_val=cfg.throttle_2_adc_min,
+    max_val=cfg.throttle_2_adc_max,
+  )
 
 throttle_1_disabled = False
-throttle_2_disabled = False
+throttle_2_disabled = throttle_2 is None
 
 mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_mode_to_nvs)
 
@@ -311,7 +315,7 @@ async def task_control_motor(wdt):
 
     throttle_value = max(throttle_1_value, throttle_2_value or 0)
 
-    if throttle_1_disabled and throttle_2_disabled:
+    if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):
       _stop_motors()
       raise Exception(
         f'both throttles disabled due to over-max ADC values: '
