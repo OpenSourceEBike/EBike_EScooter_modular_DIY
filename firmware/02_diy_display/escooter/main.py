@@ -32,6 +32,7 @@ lcd = LCD(
 )
 fb = lcd.display
 lcd.backlight_pwm(0.5)
+system_boot_ms = time.ticks_ms()
 fb.fill(0)
 fb.text("Ready", 44, 28, 1)
 fb.show()
@@ -190,18 +191,35 @@ for i, pin in enumerate(BUTTON_PINS):
     btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
   vars.buttons[i] = btn
 
-async def power_off_forever():
+async def power_off_forever(backlight_timeout_ms):
   """
   Block forever: keep OFF states latched and only poll POWER to allow a hard reset.
   Any change on POWER bit (0x0100) triggers machine.reset().
   """
   buttons_state_previous = bool(vars.buttons_state & 0x0100)
+  backlight_idle_since = time.ticks_ms()
   while True:
-    # Poll just the POWER button
-    vars.buttons[button_POWER].tick()
+    # Keep button state fresh so the same wake conditions still apply while powering off.
+    for i in range(len(vars.buttons)):
+      vars.buttons[i].tick()
+
     current = bool(vars.buttons_state & 0x0100)
     if current != buttons_state_previous:
       machine.reset()
+
+    now = time.ticks_ms()
+    wake_backlight = (
+      vars.brakes_are_active or
+      bool(vars.buttons_state & 0x03) or
+      vars.motor_current_x10 > 10 or
+      vars.wheel_speed_x10 != 0
+    )
+
+    if wake_backlight:
+      backlight_idle_since = now
+      set_backlight_enabled(True)
+    elif time.ticks_diff(now, backlight_idle_since) >= backlight_timeout_ms:
+      set_backlight_enabled(False)
 
     try:
       # Ensure desired OFF states are in vars before calling this
@@ -254,9 +272,12 @@ async def main_task(vars):
   motor_power_previous = 0
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
   backlight_timeout_ms = getattr(cfg, 'backlight_timeout_ms', 1000)
-  backlight_idle_since = time.ticks_ms()
+  backlight_idle_since = system_boot_ms
+  main_screen_timeout_ms = getattr(cfg, 'main_screen_timeout_ms', 300000)
+  main_screen_idle_since = time.ticks_ms()
   period_ms = 50
   next_wake = time.ticks_ms()
+  set_backlight_enabled(True)
 
   while True:
     now = time.ticks_ms()
@@ -287,7 +308,12 @@ async def main_task(vars):
     wake_backlight = (
       vars.brakes_are_active or
       bool(vars.buttons_state & 0x03) or
-      vars.motor_current_x10 > 10
+      vars.motor_current_x10 > 10 or
+      vars.wheel_speed_x10 != 0
+    )
+    main_screen_active = (
+      wake_backlight or
+      vars.wheel_speed_x10 != 0
     )
 
     if not in_idle_screen:
@@ -300,6 +326,16 @@ async def main_task(vars):
       elif time.ticks_diff(now, backlight_idle_since) >= backlight_timeout_ms:
         set_backlight_enabled(False)
 
+    if screen_manager.current_is(ScreenID.MAIN):
+      if main_screen_active:
+        main_screen_idle_since = now
+      elif time.ticks_diff(now, main_screen_idle_since) >= main_screen_timeout_ms:
+        vars.motor_enable_state = False
+        screen_manager.force(ScreenID.BOOT)
+        main_screen_idle_since = now
+    else:
+      main_screen_idle_since = now
+
     # Time draw (1 Hz)
     if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
       time_counter_next = time.ticks_add(time_counter_next, 1000)
@@ -310,7 +346,7 @@ async def main_task(vars):
       vars.turn_off_relay = True
       vars.motor_enable_state = False
       vars.lights_board_pins_state = 0
-      await power_off_forever()  # never returns
+      await power_off_forever(backlight_timeout_ms)  # never returns
     
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)
@@ -335,8 +371,6 @@ async def motor_rx_task(vars):
       vars.battery_soc_x1000     = msg[3]
       vars.motor_current_x10     = msg[4]
       vars.wheel_speed_x10       = msg[5]
-      if vars.wheel_speed_x10 < 0:
-        vars.wheel_speed_x10 = 0
       flags = msg[6]
       vars.brakes_are_active       = bool(flags & (1 << 0))
       vars.regen_braking_is_active = bool(flags & (1 << 1))

@@ -116,8 +116,11 @@ rtc_debug = False
 rtc_sync_delay_ms = 2000
 rtc_wifi_timeout_s = 3
 rtc_ntp_timeout_s = 2
+
 # Backlight auto-off while staying on idle display screens.
-backlight_timeout_ms = 1000
+backlight_timeout_ms = 60000 # 1 minute
+# Auto-return from Main to Boot after inactivity.
+main_screen_timeout_ms = 600000 # 10 minutes
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6

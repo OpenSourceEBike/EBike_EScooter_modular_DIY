@@ -47,6 +47,8 @@ rtc_timezone = "Europe/Lisbon"
 rtc_debug = False
 # Backlight auto-off while staying on idle display screens.
 backlight_timeout_ms = 1000
+# Auto-return from Main to Boot after inactivity.
+main_screen_timeout_ms = 300000
 
 # Power button pin (active-low with PULL_UP)
 power_button_pin = 6
