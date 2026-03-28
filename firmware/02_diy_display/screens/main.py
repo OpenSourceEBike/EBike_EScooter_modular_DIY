@@ -33,10 +33,12 @@ class MainScreen(BaseScreen):
 
   def on_enter(self):
     self.clear()
+    self._time_string_previous = None
     self._warning_queue = []
     self._warning_current = None
     self._warning_start_ms = 0
     self._warning_text_previous = ''
+    self._one_second = 0
 
     # Motor power widget
     self._motor_power_widget = MotorPowerWidget(self.fb, self.fb.width, self.fb.width)
