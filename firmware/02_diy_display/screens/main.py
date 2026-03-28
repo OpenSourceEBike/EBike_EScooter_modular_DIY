@@ -150,7 +150,7 @@ class MainScreen(BaseScreen):
       self._battery_soc_widget.update(vars.battery_soc_x1000 // 10)
 
       # Wheel speed
-      wheel_speed_x10 = vars.wheel_speed_x10
+      wheel_speed_x10 = abs(vars.wheel_speed_x10)
       if wheel_speed_x10 > 999:
         wheel_speed_x10 = 999
 
