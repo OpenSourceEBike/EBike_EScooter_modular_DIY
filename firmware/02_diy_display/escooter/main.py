@@ -85,6 +85,35 @@ def update_time_string(vars):
     vars.time_string = ''
     print(ex)
 
+def update_auto_lights_state(vars):
+  previous_auto_lights_state = bool(vars.auto_lights_state)
+  vars.auto_lights_state = False
+
+  if not cfg.enable_rtc_time or not getattr(cfg, 'auto_lights_schedule_enabled', False):
+    return
+
+  try:
+    dt = vars.rtc.date_time()
+    now_minutes = (int(dt[3]) * 60) + int(dt[4])
+    on_minutes = (int(cfg.auto_lights_on_hour) * 60) + int(cfg.auto_lights_on_minute)
+    off_minutes = (int(cfg.auto_lights_off_hour) * 60) + int(cfg.auto_lights_off_minute)
+
+    if on_minutes == off_minutes:
+      vars.auto_lights_state = False
+    elif on_minutes < off_minutes:
+      vars.auto_lights_state = on_minutes <= now_minutes < off_minutes
+    else:
+      vars.auto_lights_state = now_minutes >= on_minutes or now_minutes < off_minutes
+  except Exception as ex:
+    print(ex)
+    return
+
+  if vars.auto_lights_state != previous_auto_lights_state:
+    vars.lights_state = vars.auto_lights_state
+
+def effective_lights_state(vars):
+  return bool(vars.lights_state)
+
 def set_backlight_enabled(enabled):
   global backlight_is_on
   enabled = bool(enabled)
@@ -96,6 +125,7 @@ def set_backlight_enabled(enabled):
 if cfg.enable_rtc_time:
   vars.rtc.update_internal_rtc_from_external()
   update_time_string(vars)
+  update_auto_lights_state(vars)
 
 # ESPNow wireless communications
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
@@ -263,6 +293,8 @@ async def rtc_sync_task(vars, delay_ms=2000):
       ntp_timeout_s=cfg.rtc_ntp_timeout_s,
     )
     update_time_string(vars)
+    if not getattr(cfg, 'auto_lights_schedule_enabled_at_boot_only', False):
+      update_auto_lights_state(vars)
   except Exception as ex:
     print(ex)
 
@@ -270,6 +302,8 @@ async def main_task(vars):
   global screen_manager
   
   motor_power_previous = 0
+  rtc_sync_started = False
+  was_in_main_screen = screen_manager.current_is(ScreenID.MAIN)
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
   backlight_timeout_ms = getattr(cfg, 'backlight_timeout_ms', 1000)
   backlight_idle_since = system_boot_ms
@@ -281,6 +315,12 @@ async def main_task(vars):
 
   while True:
     now = time.ticks_ms()
+    in_main_screen = screen_manager.current_is(ScreenID.MAIN)
+
+    if cfg.enable_rtc_time and in_main_screen and not was_in_main_screen and not rtc_sync_started:
+      rtc_sync_started = True
+      asyncio.create_task(rtc_sync_task(vars, delay_ms=cfg.rtc_sync_delay_ms))
+    was_in_main_screen = in_main_screen
     
     # Motor power
     motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
@@ -326,7 +366,7 @@ async def main_task(vars):
       elif time.ticks_diff(now, backlight_idle_since) >= backlight_timeout_ms:
         set_backlight_enabled(False)
 
-    if screen_manager.current_is(ScreenID.MAIN):
+    if in_main_screen:
       if main_screen_active:
         main_screen_idle_since = now
       elif time.ticks_diff(now, main_screen_idle_since) >= main_screen_timeout_ms:
@@ -340,6 +380,8 @@ async def main_task(vars):
     if cfg.enable_rtc_time and time.ticks_diff(now, time_counter_next) >= 0:
       time_counter_next = time.ticks_add(time_counter_next, 1000)
       update_time_string(vars)
+      if not getattr(cfg, 'auto_lights_schedule_enabled_at_boot_only', False):
+        update_auto_lights_state(vars)
 
     # Shutdown
     if vars.shutdown_request:
@@ -409,8 +451,9 @@ async def lights_task(vars):
   while True:
     if screen_manager.current_is(ScreenID.MAIN):
       # The display decides the requested head/tail state; the lights board only applies it.
-      tail_enabled = (vars.lights_state or cfg.tail_always_enabled) and vars.motor_enable_state
-      head_enabled = vars.lights_state and vars.motor_enable_state
+      lights_requested = effective_lights_state(vars)
+      tail_enabled = (lights_requested or cfg.tail_always_enabled) and vars.motor_enable_state
+      head_enabled = lights_requested and vars.motor_enable_state
 
       if head_enabled:
         vars.lights_board_pins_state |= FRONT_LOW_BIT
@@ -448,9 +491,6 @@ async def main():
       asyncio.create_task(main_task(vars))
     ]
 
-    if cfg.enable_rtc_time:
-      tasks.append(asyncio.create_task(rtc_sync_task(vars, delay_ms=cfg.rtc_sync_delay_ms)))
-    
     await asyncio.gather(*tasks)
     
   finally:

@@ -153,6 +153,11 @@ rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
 rtc_debug = False
 
+# Delayed sync timing and per-step timeouts.
+rtc_sync_delay_ms = 10000
+rtc_wifi_timeout_s = 3
+rtc_ntp_timeout_s = 2
+
 # Backlight auto-off while staying on idle display screens.
 backlight_timeout_ms = 60000 # 1 minute
 # Auto-return from Main to Boot after inactivity.
@@ -183,3 +188,11 @@ tail_always_enabled = True
 brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
+
+# Automatic lights schedule using local RTC time.
+auto_lights_schedule_enabled = True
+auto_lights_schedule_enabled_at_boot_only = True
+auto_lights_on_hour = 19
+auto_lights_on_minute = 0
+auto_lights_off_hour = 7
+auto_lights_off_minute = 0
