@@ -139,9 +139,10 @@ class MainScreen(BaseScreen):
       self._wheel_speed_widget.update(self._wheel_speed_x10_previous // 10)
 
     # Lights
-    if vars.lights_state != self._lights_state_previous:
-      self._lights_state_previous = vars.lights_state
-      lights = 'L' if vars.lights_state else ''
+    lights_active = bool(vars.lights_state)
+    if lights_active != self._lights_state_previous:
+      self._lights_state_previous = lights_active
+      lights = 'L' if lights_active else ''
       self._lights_widget.update(lights)
       
     # Slow tick (about 1 Hz)

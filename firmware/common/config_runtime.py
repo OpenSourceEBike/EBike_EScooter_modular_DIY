@@ -36,6 +36,12 @@ _OPTIONAL_DEFAULTS = {
   "brake_tail_blink_enable": False,
   "brake_tail_on_ms": 400,
   "brake_tail_off_ms": 100,
+  "auto_lights_schedule_enabled": False,
+  "auto_lights_schedule_enabled_at_boot_only": False,
+  "auto_lights_on_hour": 19,
+  "auto_lights_on_minute": 0,
+  "auto_lights_off_hour": 7,
+  "auto_lights_off_minute": 0,
 }
 
 for _name, _value in _OPTIONAL_DEFAULTS.items():

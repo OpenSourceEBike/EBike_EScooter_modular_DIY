@@ -34,6 +34,7 @@ class Vars:
     self.turn_off_relay = False
     self.motor_enable_state = False
     self.lights_state = False
+    self.auto_lights_state = False
     self.lights_board_pins_state = 0
     self.buttons_state = 0
     self.shutdown_request = False
