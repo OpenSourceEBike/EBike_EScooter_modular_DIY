@@ -41,3 +41,4 @@ class Vars:
     self.buttons = None
     self.rtc = None
     self.time_string = ''
+    self.comms_paused = False

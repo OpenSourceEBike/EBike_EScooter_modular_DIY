@@ -127,10 +127,6 @@ if cfg.enable_rtc_time:
   update_time_string(vars)
   update_auto_lights_state(vars)
 
-# ESPNow wireless communications
-sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
-ap = network.WLAN(network.AP_IF)
-
 def encode_power_switch_message():
   turn_off_relay = 1 if vars.turn_off_relay else 0
   return f"{COMMAND_ID_POWER_SWITCH_1} {turn_off_relay}".encode("ascii")
@@ -150,25 +146,35 @@ def encode_lights_message():
   mask = IO_BITS_MASK & ~REAR_BRAKE_BIT
   return f"{COMMAND_ID_DISPLAY_1} {mask} {pins_state}".encode("ascii")
 
-power_switch_tx_comms = ESPNowComms(
-  esp,
-  bytes(cfg.mac_address_power_switch),
-  encoder=encode_power_switch_message)
+def init_espnow_stack():
+  global sta, ap, esp
+  global power_switch_tx_comms, motor_rx_comms, motor_tx_comms, lights_tx_comms
 
-motor_rx_comms = ESPNowComms(
-  esp,
-  bytes(cfg.mac_address_motor_board),
-  decoder=decode_display_message)
+  sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
+  ap = network.WLAN(network.AP_IF)
 
-motor_tx_comms = ESPNowComms(
-  esp,
-  bytes(cfg.mac_address_motor_board),
-  encoder=encode_display_message)
+  power_switch_tx_comms = ESPNowComms(
+    esp,
+    bytes(cfg.mac_address_power_switch),
+    encoder=encode_power_switch_message)
 
-lights_tx_comms = ESPNowComms(
-  esp,
-  bytes(cfg.mac_address_lights),
-  encoder=encode_lights_message)
+  motor_rx_comms = ESPNowComms(
+    esp,
+    bytes(cfg.mac_address_motor_board),
+    decoder=decode_display_message)
+
+  motor_tx_comms = ESPNowComms(
+    esp,
+    bytes(cfg.mac_address_motor_board),
+    encoder=encode_display_message)
+
+  lights_tx_comms = ESPNowComms(
+    esp,
+    bytes(cfg.mac_address_lights),
+    encoder=encode_lights_message)
+
+# ESPNow wireless communications
+init_espnow_stack()
 
 # --- button callbacks ---
 def button_power_click_start_cb():
@@ -240,7 +246,7 @@ async def power_off_forever(backlight_timeout_ms):
     now = time.ticks_ms()
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 0x03) or
+      bool(vars.buttons_state & 0x0100) or
       vars.motor_current_x10 > 10 or
       vars.wheel_speed_x10 != 0
     )
@@ -286,6 +292,7 @@ async def ui_task(fb, lcd, vars):
 
 async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
+  vars.comms_paused = True
   try:
     await sync_rtc_time_from_wifi_ntp_async(
       vars.rtc,
@@ -297,6 +304,10 @@ async def rtc_sync_task(vars, delay_ms=2000):
       update_auto_lights_state(vars)
   except Exception as ex:
     print(ex)
+  finally:
+    init_espnow_stack()
+    await asyncio.sleep_ms(300)
+    vars.comms_paused = False
 
 async def main_task(vars):
   global screen_manager
@@ -347,7 +358,7 @@ async def main_task(vars):
     )
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 0x03) or
+      bool(vars.buttons_state & 0x0100) or
       vars.motor_current_x10 > 10 or
       vars.wheel_speed_x10 != 0
     )
@@ -406,6 +417,15 @@ async def motor_rx_task(vars):
   next_wake = time.ticks_ms()
   
   while True:
+    if vars.comms_paused:
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      if remaining > 0:
+        await asyncio.sleep_ms(remaining)
+      else:
+        await asyncio.sleep_ms(0)
+      continue
+
     msg = motor_rx_comms.get_data()
     if msg is not None and len(msg) == 9 and msg[0] == COMMAND_ID_DISPLAY_1:
       vars.battery_voltage_x10   = msg[1]
@@ -433,6 +453,15 @@ async def motor_tx_task(vars):
   period_ms = 100
   next_wake = time.ticks_ms()
   while True:
+    if vars.comms_paused:
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      if remaining > 0:
+        await asyncio.sleep_ms(remaining)
+      else:
+        await asyncio.sleep_ms(0)
+      continue
+
     motor_tx_comms.send_data()
     
     # Control loop time
@@ -449,6 +478,15 @@ async def lights_task(vars):
   next_wake = time.ticks_ms()
   
   while True:
+    if vars.comms_paused:
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      if remaining > 0:
+        await asyncio.sleep_ms(remaining)
+      else:
+        await asyncio.sleep_ms(0)
+      continue
+
     if screen_manager.current_is(ScreenID.MAIN):
       # The display decides the requested head/tail state; the lights board only applies it.
       lights_requested = effective_lights_state(vars)

@@ -35,9 +35,6 @@ def espnow_init(channel: int, local_mac):
   return sta, esp
 
 
-_peer_registry = set()
-
-
 class ESPNowComms:
   def __init__(self, espnow_inst, peer, decoder=None, encoder=None):
     self._esp = espnow_inst
@@ -49,16 +46,14 @@ class ESPNowComms:
     self._peer_added = False
     self._had_send_failure = False
     self._had_send_success = False
-    if peer in _peer_registry:
+    try:
+      self._esp.add_peer(peer)
       self._peer_added = True
-    else:
-      try:
-        self._esp.add_peer(peer)
+    except OSError as e:
+      if e.args and e.args[0] == -12395:
         self._peer_added = True
-        _peer_registry.add(peer)
-      except OSError as e:
-        if not (e.args and e.args[0] == -12395):
-          print("ESP-NOW add_peer error:", e)
+      else:
+        print("ESP-NOW add_peer error:", e)
 
   def get_data(self):
     last_msg = None
@@ -91,7 +86,7 @@ class ESPNowComms:
   def send_data(self, *args):
     payload = self._encoder(*args)
     try:
-      if (not self._peer_added) or (self._peer not in _peer_registry):
+      if not self._peer_added:
         if not self._had_send_failure:
           print("ESP-NOW tx error to peer {}".format(self._peer))
           self._had_send_failure = True

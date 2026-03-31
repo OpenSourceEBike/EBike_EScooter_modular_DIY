@@ -106,47 +106,13 @@ def _load_wifi_credentials(ssid, password):
 
 
 def _connect_wifi(sta, ssid, password, timeout_s=15):
-  sta.active(True)
-  _log_wifi_scan(sta, ssid)
-  if sta.isconnected():
-    return sta
-
-  sta.connect(ssid, password)
-  t0 = time.ticks_ms()
-  last_status = None
-  while not sta.isconnected():
-    status = sta.status()
-    if status != last_status:
-      print("WiFi status:", _wifi_status_name(status))
-      last_status = status
-    if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
-      print("WiFi final status:", _wifi_status_name(sta.status()))
-      raise OSError("WiFi connect timeout")
-    time.sleep_ms(200)
-  return sta
+  return _connect_wifi_common(sta, ssid, password, timeout_s=timeout_s)
 
 
 async def _connect_wifi_async(sta, ssid, password, timeout_s=5):
   import uasyncio as asyncio
 
-  sta.active(True)
-  _log_wifi_scan(sta, ssid)
-  if sta.isconnected():
-    return sta
-
-  sta.connect(ssid, password)
-  t0 = time.ticks_ms()
-  last_status = None
-  while not sta.isconnected():
-    status = sta.status()
-    if status != last_status:
-      print("WiFi status:", _wifi_status_name(status))
-      last_status = status
-    if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
-      print("WiFi final status:", _wifi_status_name(sta.status()))
-      raise OSError("WiFi connect timeout")
-    await asyncio.sleep_ms(200)
-  return sta
+  return await _connect_wifi_common_async(sta, ssid, password, timeout_s=timeout_s)
 
 
 def _reset_wifi_radio():
@@ -163,6 +129,107 @@ async def _reset_wifi_radio_async():
   sta.active(False)
   await asyncio.sleep_ms(200)
   sta.active(True)
+
+
+def _disconnect_wifi(sta):
+  try:
+    sta.disconnect()
+  except Exception:
+    pass
+
+
+def _prepare_wifi_station(sta):
+  try:
+    ap = network.WLAN(network.AP_IF)
+    if ap.active():
+      ap.active(False)
+  except Exception:
+    pass
+
+  if sta.active():
+    _disconnect_wifi(sta)
+  else:
+    sta.active(True)
+
+
+def _connect_wifi_attempt(sta, ssid, password, timeout_s):
+  _prepare_wifi_station(sta)
+  _log_wifi_scan(sta, ssid)
+
+  if sta.isconnected():
+    return sta
+
+  sta.connect(ssid, password)
+  t0 = time.ticks_ms()
+  last_status = None
+  terminal_statuses = {200, 201, 202, 203, 204}
+
+  while not sta.isconnected():
+    status = sta.status()
+    if status != last_status:
+      print("WiFi status:", _wifi_status_name(status))
+      last_status = status
+    if status in terminal_statuses:
+      raise OSError("WiFi connect failed: {}".format(_wifi_status_name(status)))
+    if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
+      print("WiFi final status:", _wifi_status_name(sta.status()))
+      raise OSError("WiFi connect timeout")
+    time.sleep_ms(200)
+
+  return sta
+
+
+async def _connect_wifi_attempt_async(sta, ssid, password, timeout_s):
+  import uasyncio as asyncio
+
+  _prepare_wifi_station(sta)
+  _log_wifi_scan(sta, ssid)
+
+  if sta.isconnected():
+    return sta
+
+  sta.connect(ssid, password)
+  t0 = time.ticks_ms()
+  last_status = None
+  terminal_statuses = {200, 201, 202, 203, 204}
+
+  while not sta.isconnected():
+    status = sta.status()
+    if status != last_status:
+      print("WiFi status:", _wifi_status_name(status))
+      last_status = status
+    if status in terminal_statuses:
+      raise OSError("WiFi connect failed: {}".format(_wifi_status_name(status)))
+    if time.ticks_diff(time.ticks_ms(), t0) > timeout_s * 1000:
+      print("WiFi final status:", _wifi_status_name(sta.status()))
+      raise OSError("WiFi connect timeout")
+    await asyncio.sleep_ms(200)
+
+  return sta
+
+
+def _connect_wifi_common(sta, ssid, password, timeout_s=15):
+  try:
+    return _connect_wifi_attempt(sta, ssid, password, timeout_s)
+  except Exception as first_error:
+    print("WiFi first attempt failed:", first_error)
+    _reset_wifi_radio()
+    retry_sta = network.WLAN(network.STA_IF)
+    retry_timeout_s = max(timeout_s, 15)
+    print("Retrying WiFi connect with timeout_s =", retry_timeout_s)
+    return _connect_wifi_attempt(retry_sta, ssid, password, retry_timeout_s)
+
+
+async def _connect_wifi_common_async(sta, ssid, password, timeout_s=5):
+  try:
+    return await _connect_wifi_attempt_async(sta, ssid, password, timeout_s)
+  except Exception as first_error:
+    print("WiFi first attempt failed:", first_error)
+    await _reset_wifi_radio_async()
+    retry_sta = network.WLAN(network.STA_IF)
+    retry_timeout_s = max(timeout_s, 15)
+    print("Retrying WiFi connect with timeout_s =", retry_timeout_s)
+    return await _connect_wifi_attempt_async(retry_sta, ssid, password, retry_timeout_s)
 
 
 def sync_rtc_time_from_wifi_ntp(
