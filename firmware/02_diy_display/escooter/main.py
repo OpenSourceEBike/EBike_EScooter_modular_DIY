@@ -1,25 +1,7 @@
 import time
-import network
-import uasyncio as asyncio
-import machine
-from machine import WDT
-
 from lcd.lcd_st7565 import LCD
-from rtc_datetime import RTCDateTime
-from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
-from common.thisbutton import thisButton
-from common.utils import map_range
-from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
-from screen_manager import ScreenManager, ScreenID
-import vars as Vars
 import common.config_runtime as cfg
-from common.espnow import espnow_init, ESPNowComms
- 
-from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_POWER_SWITCH_1
-
 print("Starting Display")
-
-vars = Vars.Vars()
 
 lcd = LCD(
   spi_clk_pin=cfg.pin_spi_clk,
@@ -33,9 +15,24 @@ lcd = LCD(
 fb = lcd.display
 lcd.backlight_pwm(0.5)
 system_boot_ms = time.ticks_ms()
-fb.fill(0)
-fb.text("Ready", 44, 28, 1)
+fb.fill(1)
 fb.show()
+
+import network
+import uasyncio as asyncio
+import machine
+from machine import WDT
+from rtc_datetime import RTCDateTime
+from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
+from common.utils import map_range
+from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
+import vars as Vars
+from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_POWER_SWITCH_1
+from screen_manager import ScreenManager, ScreenID
+from common.thisbutton import thisButton
+from common.espnow import espnow_init, ESPNowComms
+
+vars = Vars.Vars()
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
@@ -77,6 +74,9 @@ def filter_motor_power(p):
   return p    
 
 def update_time_string(vars):
+  if not getattr(vars, 'rtc_time_valid', False):
+    vars.time_string = ''
+    return
   try:
     dt = vars.rtc.date_time()
     hour, minute = dt[3], dt[4]
@@ -123,7 +123,7 @@ def set_backlight_enabled(enabled):
   lcd.backlight_pwm(BACKLIGHT_ON_BRIGHTNESS if enabled else 0.0)
 
 if cfg.enable_rtc_time:
-  vars.rtc.update_internal_rtc_from_external()
+  vars.rtc_time_valid = bool(vars.rtc.update_internal_rtc_from_external())
   update_time_string(vars)
   update_auto_lights_state(vars)
 
@@ -246,7 +246,7 @@ async def power_off_forever(backlight_timeout_ms):
     now = time.ticks_ms()
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 0x0100) or
+      bool(vars.buttons_state & 1) or
       vars.motor_current_x10 > 10 or
       vars.wheel_speed_x10 != 0
     )
@@ -294,11 +294,11 @@ async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
   vars.comms_paused = True
   try:
-    await sync_rtc_time_from_wifi_ntp_async(
+    vars.rtc_time_valid = bool(await sync_rtc_time_from_wifi_ntp_async(
       vars.rtc,
       wifi_timeout_s=cfg.rtc_wifi_timeout_s,
       ntp_timeout_s=cfg.rtc_ntp_timeout_s,
-    )
+    ))
     update_time_string(vars)
     if not getattr(cfg, 'auto_lights_schedule_enabled_at_boot_only', False):
       update_auto_lights_state(vars)
@@ -308,6 +308,26 @@ async def rtc_sync_task(vars, delay_ms=2000):
     init_espnow_stack()
     await asyncio.sleep_ms(300)
     vars.comms_paused = False
+
+
+async def preload_screens_task(delay_ms=0):
+  await asyncio.sleep_ms(delay_ms)
+  try:
+    screen_manager.preload(ScreenID.MAIN)
+  except Exception as ex:
+    print("MainScreen preload failed:", ex)
+
+  try:
+    await asyncio.sleep_ms(500)
+    screen_manager.preload(ScreenID.CHARGING)
+  except Exception as ex:
+    print("ChargingScreen preload failed:", ex)
+
+  try:
+    await asyncio.sleep_ms(500)
+    screen_manager.preload(ScreenID.POWEROFF)
+  except Exception as ex:
+    print("PowerOffScreen preload failed:", ex)
 
 async def main_task(vars):
   global screen_manager
@@ -358,7 +378,7 @@ async def main_task(vars):
     )
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 0x0100) or
+      bool(vars.buttons_state & 1) or
       vars.motor_current_x10 > 10 or
       vars.wheel_speed_x10 != 0
     )
@@ -521,13 +541,14 @@ async def lights_task(vars):
 # Entry
 async def main():    
   try:
-    tasks = [
-      asyncio.create_task(ui_task(fb, lcd, vars)),
-      asyncio.create_task(motor_rx_task(vars)),
-      asyncio.create_task(motor_tx_task(vars)),
-      asyncio.create_task(lights_task(vars)),
-      asyncio.create_task(main_task(vars))
-    ]
+    tasks = []
+    tasks.append(asyncio.create_task(ui_task(fb, lcd, vars)))
+    await asyncio.sleep_ms(0)
+    tasks.append(asyncio.create_task(preload_screens_task()))
+    tasks.append(asyncio.create_task(motor_rx_task(vars)))
+    tasks.append(asyncio.create_task(motor_tx_task(vars)))
+    tasks.append(asyncio.create_task(lights_task(vars)))
+    tasks.append(asyncio.create_task(main_task(vars)))
 
     await asyncio.gather(*tasks)
     

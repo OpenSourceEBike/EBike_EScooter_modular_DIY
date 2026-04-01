@@ -76,4 +76,3 @@ class BootScreen(BaseScreen):
       self._battery_soc_widget.update(battery_soc_x1000 // 10)
       self._battery_soc.update(f"{battery_soc_x1000 / 10:.0f} %")
       self._battery_voltage.update(f"{vars.battery_voltage_x10 / 10:.1f} v")
-

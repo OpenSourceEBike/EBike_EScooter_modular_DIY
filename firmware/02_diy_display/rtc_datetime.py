@@ -192,8 +192,8 @@ class RTCDateTime(object):
       self._rtc_internal.datetime(self._datetime8_to_rtc_tuple(utc_now))
       local_now, _ = self.localtime_from_utc(utc_now)
       self._debug_print("Using external RTC value:", utc_now, "local:", local_now)
-      print("RTC internal updated from external UTC to:", utc_now)
-      print("Current local time is:", local_now)
+      print("RTC loaded from external UTC source:", utc_now)
+      print("Displayed local time is:", local_now)
       return True
     self._debug_print("No external RTC available; internal RTC not updated from external source")
     return False

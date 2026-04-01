@@ -34,10 +34,20 @@ class MainScreen(BaseScreen):
   def on_enter(self):
     self.clear()
     self._time_string_previous = None
+    # Reset cached values because the screen instance is reused.
+    # Widgets are recreated blank below, so the first render after re-entering
+    # must redraw the current states even if they did not change while away.
+    self._cruise_control_is_active_previous = None
+    self._motor_power_previous = None
+    self._wheel_speed_x10_previous = None
+    self._brakes_are_active_previous = None
+    self._lights_state_previous = None
     self._warning_queue = []
     self._warning_current = None
     self._warning_start_ms = 0
     self._warning_text_previous = ''
+    self._warning_showing_progress_bar = False
+    self._warning_bar_kind = None
     self._one_second = 0
 
     # Motor power widget
@@ -136,7 +146,12 @@ class MainScreen(BaseScreen):
     if vars.cruise_control_is_active != self._cruise_control_is_active_previous:
       self._cruise_control_is_active_previous = vars.cruise_control_is_active
       self._wheel_speed_widget.set_invert(vars.cruise_control_is_active)
-      self._wheel_speed_widget.update(self._wheel_speed_x10_previous // 10)
+      wheel_speed_x10 = self._wheel_speed_x10_previous
+      if wheel_speed_x10 is None:
+        wheel_speed_x10 = abs(vars.wheel_speed_x10)
+        if wheel_speed_x10 > 999:
+          wheel_speed_x10 = 999
+      self._wheel_speed_widget.update(wheel_speed_x10 // 10)
 
     # Lights
     lights_active = bool(vars.lights_state)
