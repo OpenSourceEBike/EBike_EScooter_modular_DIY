@@ -260,15 +260,15 @@ def sync_rtc_time_from_wifi_ntp(
     now, offset_s = rtc.localtime_from_utc(utc_now)
     offset_h = offset_s // 3600
     print(
-      "Local RTC time (UTC%+d): %02d:%02d:%02d" % (
+      "Displayed local time (UTC%+d): %02d:%02d:%02d" % (
         offset_h, now[3], now[4], now[5]
       )
     )
-    print("RTC internal kept in UTC:", utc_now)
+    print("RTC stored internally in UTC:", utc_now)
 
     if rtc.has_external_rtc():
       rtc.set_external_utc(utc_now)
-      print("RTC external updated to UTC:", rtc.external_utc_now())
+      print("External RTC stored in UTC:", rtc.external_utc_now())
 
     _reset_wifi_radio()
     return True
@@ -316,15 +316,15 @@ async def sync_rtc_time_from_wifi_ntp_async(
     now, offset_s = rtc.localtime_from_utc(utc_now)
     offset_h = offset_s // 3600
     print(
-      "Local RTC time (UTC%+d): %02d:%02d:%02d" % (
+      "Displayed local time (UTC%+d): %02d:%02d:%02d" % (
         offset_h, now[3], now[4], now[5]
       )
     )
-    print("RTC internal kept in UTC:", utc_now)
+    print("RTC stored internally in UTC:", utc_now)
 
     if rtc.has_external_rtc():
       rtc.set_external_utc(utc_now)
-      print("RTC external updated to UTC:", rtc.external_utc_now())
+      print("External RTC stored in UTC:", rtc.external_utc_now())
 
     await _reset_wifi_radio_async()
     return True

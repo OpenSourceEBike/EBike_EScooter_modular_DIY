@@ -154,7 +154,7 @@ rtc_timezone = "Europe/Lisbon"
 rtc_debug = False
 
 # Delayed sync timing and per-step timeouts.
-rtc_sync_delay_ms = 10000
+rtc_sync_delay_ms = 5000
 rtc_wifi_timeout_s = 3
 rtc_ntp_timeout_s = 2
 

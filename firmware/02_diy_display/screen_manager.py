@@ -1,8 +1,4 @@
-# screens/screen_manager.py
 from screens.boot import BootScreen
-from screens.main import MainScreen
-from screens.charging import ChargingScreen
-from screens.poweroff import PowerOffScreen
 
 # Lightweight "enum" that works on MicroPython
 class ScreenID:
@@ -15,11 +11,14 @@ class ScreenManager:
   def __init__(self, fb, vars):
     self.fb = fb
 
+    self._screen_specs = {
+      ScreenID.BOOT: ("screens.boot", "BootScreen"),
+      ScreenID.MAIN: ("screens.main", "MainScreen"),
+      ScreenID.CHARGING: ("screens.charging", "ChargingScreen"),
+      ScreenID.POWEROFF: ("screens.poweroff", "PowerOffScreen"),
+    }
     self._screen_factories = {
       ScreenID.BOOT: BootScreen,
-      ScreenID.MAIN: MainScreen,
-      ScreenID.CHARGING: ChargingScreen,
-      ScreenID.POWEROFF: PowerOffScreen,
     }
     self._screens = {}
 
@@ -49,9 +48,24 @@ class ScreenManager:
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
     if screen is None:
-      screen = self._screen_factories[screen_id](self.fb)
+      screen_factory = self._screen_factories.get(screen_id)
+      if screen_factory is None:
+        screen_factory = self._load_screen_factory(screen_id)
+      screen = screen_factory(self.fb)
       self._screens[screen_id] = screen
     return screen
+
+  def _load_screen_factory(self, screen_id):
+    module_name, class_name = self._screen_specs[screen_id]
+    module = __import__(module_name, None, None, (class_name,))
+    screen_factory = getattr(module, class_name)
+    self._screen_factories[screen_id] = screen_factory
+    return screen_factory
+
+  def preload(self, screen_id):
+    if screen_id == self._current_id:
+      return self._current
+    return self._get_screen(screen_id)
 
   # ---- Core operations ----
   def render(self, vars):
