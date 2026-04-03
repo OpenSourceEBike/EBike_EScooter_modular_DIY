@@ -1,3 +1,5 @@
+import time
+import common.config_runtime as cfg
 from screens.boot import BootScreen
 
 # Lightweight "enum" that works on MicroPython
@@ -48,11 +50,15 @@ class ScreenManager:
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
     if screen is None:
+      start_ms = time.ticks_ms()
       screen_factory = self._screen_factories.get(screen_id)
       if screen_factory is None:
         screen_factory = self._load_screen_factory(screen_id)
       screen = screen_factory(self.fb)
       self._screens[screen_id] = screen
+      if cfg.boot_timing_debug:
+        elapsed_ms = time.ticks_diff(time.ticks_ms(), start_ms)
+        print("[boot screen +{:>4} ms] create id={}".format(elapsed_ms, screen_id))
     return screen
 
   def _load_screen_factory(self, screen_id):
@@ -66,6 +72,7 @@ class ScreenManager:
     if screen_id == self._current_id:
       return self._current
     return self._get_screen(screen_id)
+    
 
   # ---- Core operations ----
   def render(self, vars):
@@ -79,6 +86,8 @@ class ScreenManager:
     """Switch to a screen by numeric ID (no strings!)."""
     if screen_id == self._current_id:
       return
+    if cfg.boot_timing_debug:
+      print("[screen] switch {} -> {}".format(self._current_id, screen_id))
     self._current.on_exit()
     self._current_id = screen_id
     self._current = self._get_screen(screen_id)

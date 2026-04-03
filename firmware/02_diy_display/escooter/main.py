@@ -1,7 +1,14 @@
 import time
+_boot_t0 = time.ticks_ms()
 from lcd.lcd_st7565 import LCD
 import common.config_runtime as cfg
-print("Starting Display")
+
+def boot_log(label):
+  if cfg.boot_timing_debug:
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), _boot_t0)
+    print("[boot +{:>5} ms] {}".format(elapsed_ms, label))
+
+boot_log("Starting Display")
 
 lcd = LCD(
   spi_clk_pin=cfg.pin_spi_clk,
@@ -12,11 +19,13 @@ lcd = LCD(
   backlight_pin=cfg.pin_bl,
   spi_clock_frequency=cfg.spi_baud,
 )
+boot_log("LCD initialized")
 fb = lcd.display
 lcd.backlight_pwm(0.5)
 system_boot_ms = time.ticks_ms()
 fb.fill(1)
 fb.show()
+boot_log("First framebuffer flush")
 
 import network
 import uasyncio as asyncio
@@ -33,9 +42,11 @@ from common.thisbutton import thisButton
 from common.espnow import espnow_init, ESPNowComms
 
 vars = Vars.Vars()
+boot_log("Vars initialized")
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
+boot_log("Boot screen rendered")
 
 # Hardware watchdog: reset the board if not fed within 30 seconds
 wdt = WDT(timeout=30000) # timeout in milliseconds
@@ -47,6 +58,7 @@ if cfg.enable_rtc_time:
     timezone_name=cfg.rtc_timezone,
     debug=cfg.rtc_debug,
   )
+  boot_log("RTC object initialized")
 
 BUTTON_PINS = [
   cfg.power_button_pin,
@@ -126,6 +138,7 @@ if cfg.enable_rtc_time:
   vars.rtc_time_valid = bool(vars.rtc.update_internal_rtc_from_external())
   update_time_string(vars)
   update_auto_lights_state(vars)
+  boot_log("RTC initial sync complete")
 
 def encode_power_switch_message():
   turn_off_relay = 1 if vars.turn_off_relay else 0
@@ -175,6 +188,7 @@ def init_espnow_stack():
 
 # ESPNow wireless communications
 init_espnow_stack()
+boot_log("ESP-NOW stack initialized")
 
 # --- button callbacks ---
 def button_power_click_start_cb():
@@ -226,6 +240,7 @@ for i, pin in enumerate(BUTTON_PINS):
   if 'long_click_release' in buttons_callbacks[i]:
     btn.assignLongClickRelease(buttons_callbacks[i]['long_click_release'])
   vars.buttons[i] = btn
+boot_log("Buttons initialized")
 
 async def power_off_forever(backlight_timeout_ms):
   """
@@ -280,7 +295,6 @@ async def ui_task(fb, lcd, vars):
   while True:
     screen_manager.update(vars)
     screen_manager.render(vars)
-    lcd.show()
   
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)
@@ -312,22 +326,36 @@ async def rtc_sync_task(vars, delay_ms=2000):
 
 async def preload_screens_task(delay_ms=0):
   await asyncio.sleep_ms(delay_ms)
+  boot_log("Preload screens start")
   try:
+    preload_start_ms = time.ticks_ms()
     screen_manager.preload(ScreenID.MAIN)
+    if cfg.boot_timing_debug:
+      print("[boot preload +{:>4} ms] MAIN ready".format(
+        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
   except Exception as ex:
     print("MainScreen preload failed:", ex)
 
   try:
     await asyncio.sleep_ms(500)
+    preload_start_ms = time.ticks_ms()
     screen_manager.preload(ScreenID.CHARGING)
+    if cfg.boot_timing_debug:
+      print("[boot preload +{:>4} ms] CHARGING ready".format(
+        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
   except Exception as ex:
     print("ChargingScreen preload failed:", ex)
 
   try:
     await asyncio.sleep_ms(500)
+    preload_start_ms = time.ticks_ms()
     screen_manager.preload(ScreenID.POWEROFF)
+    if cfg.boot_timing_debug:
+      print("[boot preload +{:>4} ms] POWEROFF ready".format(
+        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
   except Exception as ex:
     print("PowerOffScreen preload failed:", ex)
+  boot_log("Preload screens complete")
 
 async def main_task(vars):
   global screen_manager
@@ -549,6 +577,7 @@ async def main():
     tasks.append(asyncio.create_task(motor_tx_task(vars)))
     tasks.append(asyncio.create_task(lights_task(vars)))
     tasks.append(asyncio.create_task(main_task(vars)))
+    boot_log("Main tasks started")
 
     await asyncio.gather(*tasks)
     

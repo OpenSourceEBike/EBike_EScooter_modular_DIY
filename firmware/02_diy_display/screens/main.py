@@ -32,6 +32,7 @@ class MainScreen(BaseScreen):
     self._mode_last_seen = None
 
   def on_enter(self):
+    on_enter_start_ms = time.ticks_ms()
     self.clear()
     self._time_string_previous = None
     # Reset cached values because the screen instance is reused.
@@ -128,6 +129,10 @@ class MainScreen(BaseScreen):
       )
       self._clock_widget.set_box(x1=self.fb.width - 49, y1=self.fb.height - 17, x2=self.fb.width - 6, y2=self.fb.height - 2)
       self._clock_widget.update('')
+
+    if cfg.boot_timing_debug:
+      elapsed_ms = time.ticks_diff(time.ticks_ms(), on_enter_start_ms)
+      print("[boot screen +{:>4} ms] MainScreen.on_enter".format(elapsed_ms))
 
   def render(self, vars):
     now = time.ticks_ms()
