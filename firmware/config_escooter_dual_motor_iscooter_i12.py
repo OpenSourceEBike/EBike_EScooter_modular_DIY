@@ -152,11 +152,13 @@ rtc_sda_pin = 7
 rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
 rtc_debug = False
+# Print boot timing checkpoints on the display board startup.
+boot_timing_debug = False
 
 # Delayed sync timing and per-step timeouts.
-rtc_sync_delay_ms = 5000
-rtc_wifi_timeout_s = 3
-rtc_ntp_timeout_s = 2
+rtc_sync_delay_ms = 3000
+rtc_wifi_timeout_s = 10
+rtc_ntp_timeout_s = 3
 
 # Backlight auto-off while staying on idle display screens.
 backlight_timeout_ms = 60000 # 1 minute

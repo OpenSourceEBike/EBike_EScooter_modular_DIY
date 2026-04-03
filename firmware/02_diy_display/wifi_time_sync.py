@@ -94,6 +94,13 @@ def _restore_socket_timeout(previous):
     pass
 
 
+def _is_wifi_connect_error(error):
+  message = str(error)
+  if message == "WiFi connect timeout":
+    return True
+  return message.startswith("WiFi connect failed:")
+
+
 def _load_wifi_credentials(ssid, password):
   if ssid is not None and password is not None:
     return ssid, password
@@ -274,7 +281,7 @@ def sync_rtc_time_from_wifi_ntp(
     return True
 
   except Exception as e:
-    if str(e) == "WiFi connect timeout":
+    if _is_wifi_connect_error(e):
       print("Failed to connect to WiFi:", e)
     else:
       print("Error fetching time from NTP:", e)
@@ -330,7 +337,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
     return True
 
   except Exception as e:
-    if str(e) == "WiFi connect timeout":
+    if _is_wifi_connect_error(e):
       print("Failed to connect to WiFi:", e)
     else:
       print("Error fetching time from NTP:", e)

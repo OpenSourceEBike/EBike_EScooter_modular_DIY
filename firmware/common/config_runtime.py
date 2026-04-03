@@ -2,12 +2,23 @@
 # and exposes config values plus helper names.
 
 import uos
+import time
 from common.model_constants import TYPE_EBIKE, TYPE_ESCOOTER
 
 TYPE_NAME = {
   TYPE_EBIKE: "ebike",
   TYPE_ESCOOTER: "escooter",
 }
+
+_config_runtime_t0 = time.ticks_ms()
+_discovery_done_ms = None
+_import_done_ms = None
+
+
+def _boot_log(label):
+  if boot_timing_debug:
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), _config_runtime_t0)
+    print("[config +{:>5} ms] {}".format(elapsed_ms, label))
 
 
 def _list_root_configs():
@@ -18,7 +29,9 @@ def _list_root_configs():
   return [f for f in files if f.startswith("config_") and f.endswith(".py")]
 
 
+boot_timing_debug = False
 _config_files = _list_root_configs()
+_discovery_done_ms = time.ticks_ms()
 
 if len(_config_files) != 1:
   raise ValueError(
@@ -29,6 +42,7 @@ if len(_config_files) != 1:
 
 _config_module_name = _config_files[0][:-3]
 _cfg = __import__(_config_module_name)
+_import_done_ms = time.ticks_ms()
 
 # Optional lights settings used by 03_diy_lights_board.
 _OPTIONAL_DEFAULTS = {
@@ -36,6 +50,7 @@ _OPTIONAL_DEFAULTS = {
   "brake_tail_blink_enable": False,
   "brake_tail_on_ms": 400,
   "brake_tail_off_ms": 100,
+  "boot_timing_debug": False,
   "auto_lights_schedule_enabled": False,
   "auto_lights_schedule_enabled_at_boot_only": False,
   "auto_lights_on_hour": 19,
@@ -47,6 +62,14 @@ _OPTIONAL_DEFAULTS = {
 for _name, _value in _OPTIONAL_DEFAULTS.items():
   if not hasattr(_cfg, _name):
     setattr(_cfg, _name, _value)
+
+boot_timing_debug = _cfg.boot_timing_debug
+if boot_timing_debug:
+  print("[config +{:>5} ms] root config discovery complete".format(
+    time.ticks_diff(_discovery_done_ms, _config_runtime_t0)))
+  print("[config +{:>5} ms] selected config module imported: {}".format(
+    time.ticks_diff(_import_done_ms, _config_runtime_t0), _config_module_name))
+_boot_log("optional defaults applied")
 
 type = getattr(_cfg, "type", None)
 if not isinstance(type, dict):
@@ -63,6 +86,8 @@ for _name in dir(_cfg):
   if not _name.startswith("_"):
     globals()[_name] = getattr(_cfg, _name)
 
+_boot_log("module globals exported")
+
 type_name = TYPE_NAME.get(vehicle_type, "unknown")
 
 # Back-compat: attach MAC addresses to cfg object if present.
@@ -75,3 +100,5 @@ if "cfg" in globals():
   for _name in dir(_cfg_obj):
     if not _name.startswith("_") and _name not in globals():
       globals()[_name] = getattr(_cfg_obj, _name)
+
+_boot_log("cfg object merged")
