@@ -31,8 +31,6 @@ import network
 import uasyncio as asyncio
 import machine
 from machine import WDT
-from rtc_datetime import RTCDateTime
-from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
 from common.utils import map_range
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
 import vars as Vars
@@ -48,18 +46,6 @@ screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
 boot_log("Boot screen rendered")
 
-# Hardware watchdog: reset the board if not fed within 30 seconds
-wdt = WDT(timeout=30000) # timeout in milliseconds
-
-if cfg.enable_rtc_time:
-  vars.rtc = RTCDateTime(
-    rtc_scl_pin=cfg.rtc_scl_pin,
-    rtc_sda_pin=cfg.rtc_sda_pin,
-    timezone_name=cfg.rtc_timezone,
-    debug=cfg.rtc_debug,
-  )
-  boot_log("RTC object initialized")
-
 BUTTON_PINS = [
   cfg.power_button_pin,
   cfg.lights_button_pin
@@ -69,6 +55,34 @@ nr_buttons = len(BUTTON_PINS)
 button_POWER, button_LIGHTS = range(nr_buttons)
 BACKLIGHT_ON_BRIGHTNESS = 0.5
 backlight_is_on = True
+_rtc_datetime_class = None
+_wifi_ntp_sync = None
+
+def get_rtc_datetime_class():
+  global _rtc_datetime_class
+  if _rtc_datetime_class is None:
+    from rtc_datetime import RTCDateTime
+    _rtc_datetime_class = RTCDateTime
+  return _rtc_datetime_class
+
+async def sync_rtc_time_from_wifi_ntp_async_lazy(*args, **kwargs):
+  global _wifi_ntp_sync
+  if _wifi_ntp_sync is None:
+    from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
+    _wifi_ntp_sync = sync_rtc_time_from_wifi_ntp_async
+  return await _wifi_ntp_sync(*args, **kwargs)
+
+# Hardware watchdog: reset the board if not fed within 30 seconds
+wdt = WDT(timeout=30000) # timeout in milliseconds
+
+if cfg.enable_rtc_time:
+  vars.rtc = get_rtc_datetime_class()(
+    rtc_scl_pin=cfg.rtc_scl_pin,
+    rtc_sda_pin=cfg.rtc_sda_pin,
+    timezone_name=cfg.rtc_timezone,
+    debug=cfg.rtc_debug,
+  )
+  boot_log("RTC object initialized")
 
 def filter_motor_power(p):
   if p < 0:
@@ -308,7 +322,7 @@ async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
   vars.comms_paused = True
   try:
-    vars.rtc_time_valid = bool(await sync_rtc_time_from_wifi_ntp_async(
+    vars.rtc_time_valid = bool(await sync_rtc_time_from_wifi_ntp_async_lazy(
       vars.rtc,
       wifi_timeout_s=cfg.rtc_wifi_timeout_s,
       ntp_timeout_s=cfg.rtc_ntp_timeout_s,
@@ -327,34 +341,21 @@ async def rtc_sync_task(vars, delay_ms=2000):
 async def preload_screens_task(delay_ms=0):
   await asyncio.sleep_ms(delay_ms)
   boot_log("Preload screens start")
-  try:
-    preload_start_ms = time.ticks_ms()
-    screen_manager.preload(ScreenID.MAIN)
-    if cfg.boot_timing_debug:
-      print("[boot preload +{:>4} ms] MAIN ready".format(
-        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
-  except Exception as ex:
-    print("MainScreen preload failed:", ex)
-
-  try:
-    await asyncio.sleep_ms(500)
-    preload_start_ms = time.ticks_ms()
-    screen_manager.preload(ScreenID.CHARGING)
-    if cfg.boot_timing_debug:
-      print("[boot preload +{:>4} ms] CHARGING ready".format(
-        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
-  except Exception as ex:
-    print("ChargingScreen preload failed:", ex)
-
-  try:
-    await asyncio.sleep_ms(500)
-    preload_start_ms = time.ticks_ms()
-    screen_manager.preload(ScreenID.POWEROFF)
-    if cfg.boot_timing_debug:
-      print("[boot preload +{:>4} ms] POWEROFF ready".format(
-        time.ticks_diff(time.ticks_ms(), preload_start_ms)))
-  except Exception as ex:
-    print("PowerOffScreen preload failed:", ex)
+  for screen_id, label in (
+    (ScreenID.MAIN, "MAIN"),
+    (ScreenID.CHARGING, "CHARGING"),
+    (ScreenID.POWEROFF, "POWEROFF"),
+  ):
+    try:
+      preload_start_ms = time.ticks_ms()
+      screen_manager.preload(screen_id)
+      if cfg.boot_timing_debug:
+        print("[boot preload +{:>4} ms] {} ready".format(
+          time.ticks_diff(time.ticks_ms(), preload_start_ms), label))
+    except Exception as ex:
+      print("{} preload failed:".format(label.title()), ex)
+    # Yield without adding fixed startup latency.
+    await asyncio.sleep_ms(0)
   boot_log("Preload screens complete")
 
 async def main_task(vars):
