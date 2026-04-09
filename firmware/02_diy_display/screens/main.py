@@ -6,7 +6,11 @@ from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
 from widgets.widget_progress_bar import ProgressBarWidget
 from widgets.widget_text_box import WidgetTextBox
-from fonts import robotobold12 as font_small, robotobold18 as font, robotobold50 as font_big
+from fonts import robotobold12 as font_small, robotobold18 as font
+try:
+  from native_fonts import robotobold50 as font_big
+except ImportError:
+  from fonts import robotobold50 as font_big
 
 class MainScreen(BaseScreen):
   NAME = "Main"

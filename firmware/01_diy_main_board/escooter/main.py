@@ -28,14 +28,31 @@ print()
 # Brake sensor
 brake_sensor = Brake(cfg.brake_pin)
 
-# If brakes are active at startup, block here (development safety)
-while brake_sensor.value:
-  print('Startup blocked: release brake to continue')
-  
-  wdt = WDT(timeout=30000)
-  wdt.feed()
-  
-  time.sleep(1)
+# If brakes are active at startup, hold for 20 seconds and then latch
+# the board until the next power cycle.
+if brake_sensor.value:
+  boot_block_ms = 20000
+  boot_block_start_ms = time.ticks_ms()
+  seconds_reported = -1
+
+  while time.ticks_diff(time.ticks_ms(), boot_block_start_ms) < boot_block_ms:
+    if not brake_sensor.value:
+      print('Startup resumed: brake released before timeout')
+      break
+
+    elapsed_ms = time.ticks_diff(time.ticks_ms(), boot_block_start_ms)
+    seconds_elapsed = elapsed_ms // 1000
+
+    if seconds_elapsed != seconds_reported:
+      seconds_reported = seconds_elapsed
+      seconds_left = max(0, 20 - seconds_elapsed)
+      print(f'Startup blocked: brake active at boot, hanging in {seconds_left}s')
+
+    time.sleep_ms(100)
+  else:
+    print('Startup blocked: brake held at boot, waiting for next power cycle')
+    while True:
+      time.sleep(1)
 
 # Object that holds various runtime variables
 vars = Vars()
@@ -201,7 +218,11 @@ async def task_lights_send_data():
   while True:
     # Tail-blink on brake is only valid while riding on the main screen.
     # When charging or with motors disabled, the rear lights must stay off.
-    if vars.motors_enable_state and not vars.battery_is_charging and vars.brakes_are_active:
+    if (
+      vars.motors_enable_state and
+      not vars.battery_is_charging and
+      (vars.brakes_are_active or vars.regen_braking_is_active)
+    ):
       brake_bit = REAR_BRAKE_BIT
     else:
       brake_bit = 0
