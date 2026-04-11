@@ -30,8 +30,12 @@ class MainScreen(BaseScreen):
     self._warning_text_previous = ''
     self._warning_showing_progress_bar = False
     self._warning_bar_kind = None
-    self._vesc_temp_percent = 0
-    self._motor_temp_percent = 0
+    self._temp_bar_percents = {
+      "vr": 0,
+      "vf": 0,
+      "mr": 0,
+      "mf": 0,
+    }
     self._one_second = time.ticks_add(time.ticks_ms(), 1000)
     self._mode_last_seen = None
 
@@ -53,6 +57,12 @@ class MainScreen(BaseScreen):
     self._warning_text_previous = ''
     self._warning_showing_progress_bar = False
     self._warning_bar_kind = None
+    self._temp_bar_percents = {
+      "vr": 0,
+      "vf": 0,
+      "mr": 0,
+      "mf": 0,
+    }
     self._one_second = 0
 
     # Motor power widget
@@ -228,10 +238,14 @@ class MainScreen(BaseScreen):
     self._warning_queue.append(("bar", kind))
 
   def _enqueue_temp_bars(self):
-    if self._vesc_temp_percent > 0:
-      self._enqueue_progress_bar_unique("v")
-    if self._motor_temp_percent > 0:
-      self._enqueue_progress_bar_unique("m")
+    if self._temp_bar_percents["vr"] > 0:
+      self._enqueue_progress_bar_unique("vr")
+    if self._temp_bar_percents["vf"] > 0:
+      self._enqueue_progress_bar_unique("vf")
+    if self._temp_bar_percents["mr"] > 0:
+      self._enqueue_progress_bar_unique("mr")
+    if self._temp_bar_percents["mf"] > 0:
+      self._enqueue_progress_bar_unique("mf")
 
   def _queue_has(self, kind, payload):
     for item in self._warning_queue:
@@ -254,18 +268,16 @@ class MainScreen(BaseScreen):
     ]
 
   def _bar_percent(self, kind):
-    if kind == "v":
-      return self._vesc_temp_percent
-    if kind == "m":
-      return self._motor_temp_percent
-    return 0
+    return self._temp_bar_percents.get(kind, 0)
 
   def _bar_label(self, kind):
-    if kind == "v":
-      return "ve"
-    if kind == "m":
-      return "mo"
-    return ""
+    labels = {
+      "vr": "vr",
+      "vf": "vf",
+      "mr": "mr",
+      "mf": "mf",
+    }
+    return labels.get(kind, "")
 
   def _temp_percent(self, temp_x10, min_x10, max_x10):
     if max_x10 <= min_x10:
@@ -277,26 +289,37 @@ class MainScreen(BaseScreen):
     return int((temp_x10 - min_x10) * 100 / (max_x10 - min_x10))
 
   def _update_temp_percents(self, vars):
-    self._vesc_temp_percent = self._temp_percent(
-      vars.vesc_temperature_x10,
+    self._temp_bar_percents["vr"] = self._temp_percent(
+      vars.rear_vesc_temperature_x10,
       cfg.rear_motor_cfg.vesc_min_temperature_x10,
       cfg.rear_motor_cfg.vesc_max_temperature_x10,
     )
-    self._motor_temp_percent = self._temp_percent(
-      vars.motor_temperature_x10,
+    self._temp_bar_percents["mr"] = self._temp_percent(
+      vars.rear_motor_temperature_x10,
       cfg.rear_motor_cfg.min_temperature_x10,
       cfg.rear_motor_cfg.max_temperature_x10,
     )
-    if self._vesc_temp_percent <= 0:
-      self._remove_queue_items("bar", "v")
-    if self._motor_temp_percent <= 0:
-      self._remove_queue_items("bar", "m")
-    if self._warning_bar_kind == "v" and self._vesc_temp_percent <= 0:
-      self._warning_current = None
-      self._warning_showing_progress_bar = False
-      self._warning_bar_kind = None
-      self._progress_bar_widget.set_visible(False, clear=True)
-    if self._warning_bar_kind == "m" and self._motor_temp_percent <= 0:
+
+    if cfg.front_motor_cfg is not None:
+      self._temp_bar_percents["vf"] = self._temp_percent(
+        vars.front_vesc_temperature_x10,
+        cfg.front_motor_cfg.vesc_min_temperature_x10,
+        cfg.front_motor_cfg.vesc_max_temperature_x10,
+      )
+      self._temp_bar_percents["mf"] = self._temp_percent(
+        vars.front_motor_temperature_x10,
+        cfg.front_motor_cfg.min_temperature_x10,
+        cfg.front_motor_cfg.max_temperature_x10,
+      )
+    else:
+      self._temp_bar_percents["vf"] = 0
+      self._temp_bar_percents["mf"] = 0
+
+    for kind in ("vr", "vf", "mr", "mf"):
+      if self._temp_bar_percents[kind] <= 0:
+        self._remove_queue_items("bar", kind)
+
+    if self._warning_bar_kind is not None and self._bar_percent(self._warning_bar_kind) <= 0:
       self._warning_current = None
       self._warning_showing_progress_bar = False
       self._warning_bar_kind = None
@@ -335,7 +358,7 @@ class MainScreen(BaseScreen):
           self._warning_widget.update(payload)
           break
     else:
-      if time.ticks_diff(now, self._warning_start_ms) > 5000:
+      if time.ticks_diff(now, self._warning_start_ms) > 2000:
         kind, payload = self._warning_current
         if kind == "bar":
           if self._bar_percent(payload) > 0:

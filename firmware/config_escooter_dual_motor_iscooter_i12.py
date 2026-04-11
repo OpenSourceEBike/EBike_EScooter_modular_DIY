@@ -78,12 +78,16 @@ rear_motor_cfg.vesc_min_temperature_x10 = 850
 rear_motor_cfg.vesc_max_temperature_x10 = 1000
 rear_motor_cfg.min_temperature_x10 = 700
 rear_motor_cfg.max_temperature_x10 = 1100
+front_motor_cfg.vesc_min_temperature_x10 = 850
+front_motor_cfg.vesc_max_temperature_x10 = 1000
+front_motor_cfg.min_temperature_x10 = 700
+front_motor_cfg.max_temperature_x10 = 1100
 
 front_motor_cfg.motor_max_current_limit_max = 100.0
 rear_motor_cfg.motor_max_current_limit_max = 100.0
 
-front_motor_cfg.motor_min_current_start = 1.5
-rear_motor_cfg.motor_min_current_start = 1.5
+front_motor_cfg.motor_min_current_start = 1.0
+rear_motor_cfg.motor_min_current_start = 1.0
 
 front_motor_cfg.motor_max_current_limit_min = -100.0
 rear_motor_cfg.motor_max_current_limit_min = -100.0

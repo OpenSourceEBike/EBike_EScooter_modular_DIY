@@ -162,8 +162,8 @@ class ScreenManager:
     if self._button_power_long_click_previous != button_power_long_click:
       self._button_power_long_click_previous = button_power_long_click
 
-      # Go to Power off
-      if self.current_is(ScreenID.MAIN) and wheel_stopped:
+      # Go to Power off when stopped, or allow a brake-assisted shutdown while rolling.
+      if self.current_is(ScreenID.MAIN) and (wheel_stopped or brakes_on):
         vars.motor_enable_state = False
         vars.shutdown_request = True
         self.force(ScreenID.POWEROFF)

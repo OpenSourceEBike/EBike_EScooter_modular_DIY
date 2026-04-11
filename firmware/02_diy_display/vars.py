@@ -29,8 +29,10 @@ class Vars:
     self.ramp_last_time = _ticks_ns()
     self.motor_current_target = 0
     self.assist_level = 0
-    self.vesc_temperature_x10 = 0
-    self.motor_temperature_x10 = 0
+    self.rear_vesc_temperature_x10 = 0
+    self.front_vesc_temperature_x10 = 0
+    self.rear_motor_temperature_x10 = 0
+    self.front_motor_temperature_x10 = 0
     self.turn_off_relay = False
     self.motor_enable_state = False
     self.lights_state = False
