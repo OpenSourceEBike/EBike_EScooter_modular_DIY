@@ -164,7 +164,7 @@ def encode_display_message():
 
 def decode_display_message(msg):
   parts = [int(s) for s in msg.decode("ascii").split()]
-  if len(parts) == 9 and parts[0] == COMMAND_ID_DISPLAY_1:
+  if len(parts) == 11 and parts[0] == COMMAND_ID_DISPLAY_1:
     return parts
   return None
 
@@ -476,7 +476,7 @@ async def motor_rx_task(vars):
       continue
 
     msg = motor_rx_comms.get_data()
-    if msg is not None and len(msg) == 9 and msg[0] == COMMAND_ID_DISPLAY_1:
+    if msg is not None and len(msg) == 11 and msg[0] == COMMAND_ID_DISPLAY_1:
       vars.battery_voltage_x10   = msg[1]
       vars.battery_current_x10   = msg[2]
       vars.battery_soc_x1000     = msg[3]
@@ -488,8 +488,10 @@ async def motor_rx_task(vars):
       vars.battery_is_charging     = bool(flags & (1 << 2))
       vars.mode = (flags >> 3) & 0x07
       vars.cruise_control_is_active = bool(flags & (1 << 6))
-      vars.vesc_temperature_x10  = msg[7]
-      vars.motor_temperature_x10 = msg[8]
+      vars.rear_vesc_temperature_x10 = msg[7]
+      vars.front_vesc_temperature_x10 = msg[8]
+      vars.rear_motor_temperature_x10 = msg[9]
+      vars.front_motor_temperature_x10 = msg[10]
     
     next_wake = time.ticks_add(next_wake, period_ms)
     remaining = time.ticks_diff(next_wake, time.ticks_ms())

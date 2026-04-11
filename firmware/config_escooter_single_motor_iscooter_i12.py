@@ -62,7 +62,7 @@ rear_motor_cfg.min_temperature_x10 = 650
 rear_motor_cfg.max_temperature_x10 = 950
 
 rear_motor_cfg.motor_max_current_limit_max = 75.0
-rear_motor_cfg.motor_min_current_start = 1.5
+rear_motor_cfg.motor_min_current_start = 1.0
 rear_motor_cfg.motor_max_current_limit_min = -38.0
 
 rear_motor_cfg.battery_max_current_limit_max = 25.0

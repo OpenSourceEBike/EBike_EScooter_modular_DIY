@@ -15,6 +15,8 @@ from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_LIGHTS_1
 from common.lights_bits import REAR_BRAKE_BIT
 from mode import Mode
 
+TEMPERATURE_NOT_AVAILABLE_X10 = -2550
+
 try:
   import neopixel
   import machine
@@ -81,8 +83,8 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
 
   battery_current_x10 = sum(int(m.battery_current_x10) for m in motor_datas_local)
   motor_current_x10 = sum(int(m.motor_current_x10) for m in motor_datas_local)
-  vesc_temperature_x10 = max(int(m.vesc_temperature_x10) for m in motor_datas_local)
-  motor_temperature_x10 = max(int(m.motor_temperature_x10) for m in motor_datas_local)
+  front_vesc_temperature_x10 = int(front_motor_data.vesc_temperature_x10) if front_motor_data is not None else TEMPERATURE_NOT_AVAILABLE_X10
+  front_motor_temperature_x10 = int(front_motor_data.motor_temperature_x10) if front_motor_data is not None else TEMPERATURE_NOT_AVAILABLE_X10
 
   flags = ((brakes_are_active & 1) << 0) | \
           ((regen_braking_is_active & 1) << 1) | \
@@ -94,7 +96,8 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
     f"{COMMAND_ID_DISPLAY_1} {int(rear_motor_data.battery_voltage_x10)} "
     f"{battery_current_x10} {int(rear_motor_data.battery_soc_x1000)} "
     f"{motor_current_x10} {int(rear_motor_data.wheel_speed * 10)} {int(flags)} "
-    f"{int(vesc_temperature_x10)} {int(motor_temperature_x10)}"
+    f"{int(rear_motor_data.vesc_temperature_x10)} {front_vesc_temperature_x10} "
+    f"{int(rear_motor_data.motor_temperature_x10)} {front_motor_temperature_x10}"
   ).encode("ascii")
 
 def encode_lights_message(mask, state):
@@ -252,10 +255,13 @@ def cruise_control(vars, wheel_speed, requested_motor_target_speed):
 
   # Wait to start cruise
   if vars.cruise_control.state == 1:
-    if (button_long_press_state != vars.cruise_control.button_long_press_previous_state) and (wheel_speed > 4.0):
+    if (button_long_press_state != vars.cruise_control.button_long_press_previous_state) and (wheel_speed > 2.0):
       vars.cruise_control.button_long_press_previous_state = button_long_press_state
       vars.cruise_control.button_press_previous_state = button_press_state
-      vars.cruise_control.target_motor_speed = requested_motor_target_speed
+      vars.cruise_control.target_motor_speed = wheel_speed_to_motor_erpm(
+        wheel_speed,
+        rear_motor.data.cfg,
+      )
       vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 2
 
@@ -297,8 +303,6 @@ def _stop_motors():
 
 async def task_control_motor(wdt):
   global throttle_1_disabled, throttle_2_disabled
-  release_motor_after_ms = 3000
-  release_hold_start_ms = None
 
   while True:
     motor_erpm_max_speed_limits = [
@@ -390,7 +394,6 @@ async def task_control_motor(wdt):
 
     # Command motor(s)
     if vars.motors_enable_state is False:
-      release_hold_start_ms = None
       vars.cruise_control.target_motor_speed = 0.0
       vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 1
@@ -400,23 +403,14 @@ async def task_control_motor(wdt):
         motor.set_motor_current_amps(0)
     else:
       if vars.brakes_are_active:
-        release_hold_start_ms = None
         for motor in motors:
           motor.set_motor_speed_erpm(0)
       else:
-        should_release_motor = False
         has_motor_target_speed = any(motor.data.motor_target_speed > 0 for motor in motors)
-        if (not has_motor_target_speed) and rear_motor.data.wheel_speed == 0:
-          now = time.ticks_ms()
-          if release_hold_start_ms is None:
-            release_hold_start_ms = now
-          elif time.ticks_diff(now, release_hold_start_ms) >= release_motor_after_ms:
-            should_release_motor = True
-        else:
-          release_hold_start_ms = None
+        should_release_motors = (not has_motor_target_speed) and rear_motor.data.wheel_speed == 0
 
         for motor in motors:
-          if should_release_motor:
+          if should_release_motors:
             motor.set_motor_current_amps(0)
           else:
             motor.set_motor_speed_erpm(motor.data.motor_target_speed)
@@ -498,8 +492,8 @@ async def task_various():
       motor_rpm = rear_motor.data.speed_erpm / max(1, rear_motor.data.cfg.poles_pair)
       rear_motor.data.wheel_speed = (perimeter * motor_rpm * 60.0) / 1000.0  # km/h
 
-      # Small floor near zero
-      if abs(rear_motor.data.wheel_speed) < 2.0:
+      # Small floor near zero to suppress standstill jitter while still showing 1 km/h.
+      if abs(rear_motor.data.wheel_speed) < 1.0:
         rear_motor.data.wheel_speed = 0.0
 
     # Auto-detect charging
