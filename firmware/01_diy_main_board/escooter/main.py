@@ -493,7 +493,8 @@ async def task_various():
       rear_motor.data.wheel_speed = (perimeter * motor_rpm * 60.0) / 1000.0  # km/h
 
       # Small floor near zero to suppress standstill jitter while still showing 1 km/h.
-      if abs(rear_motor.data.wheel_speed) < 1.0:
+      # No negative values
+      if rear_motor.data.wheel_speed < 1.0:
         rear_motor.data.wheel_speed = 0.0
 
     # Auto-detect charging
