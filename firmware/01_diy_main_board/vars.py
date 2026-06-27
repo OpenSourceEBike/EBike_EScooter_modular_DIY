@@ -59,6 +59,8 @@ class Vars(object):
     self.cadence = 0
     self.assist_level = 0
     self.throttle_value = 0
+    self.throttle_right_fault = False
+    self.throttle_left_fault = False
     self.brakes_value = 0
     self.motors_enable_state = False
     self.buttons_state = 0

@@ -544,7 +544,9 @@ async def motor_rx_task(vars):
       vars.battery_is_charging     = bool(flags & (1 << 2))
       vars.mode = (flags >> 3) & 0x07
       vars.cruise_control_is_active = bool(flags & (1 << 6))
-      vars.throttle_is_active = bool(flags & (1 << 7))
+      vars.throttle_is_active       = bool(flags & (1 << 7))
+      vars.throttle_right_fault     = bool(flags & (1 << 8))
+      vars.throttle_left_fault      = bool(flags & (1 << 9))
       vars.rear_vesc_temperature_x10 = msg[7]
       vars.front_vesc_temperature_x10 = msg[8]
       vars.rear_motor_temperature_x10 = msg[9]
@@ -598,7 +600,7 @@ async def lights_task(vars):
     if screen_manager.current_is(ScreenID.MAIN):
       # The display decides the requested head/tail state; the lights board only applies it.
       lights_requested = effective_lights_state(vars)
-      tail_enabled = (lights_requested or cfg.tail_always_enabled) and vars.motor_enable_state
+      tail_enabled = (lights_requested or cfg.tail_always_enabled) and vars.motor_enable_state and not vars.battery_is_charging
       head_enabled = lights_requested and vars.motor_enable_state
 
       if head_enabled:
