@@ -74,6 +74,8 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   battery_is_charging = 1 if vars.battery_is_charging else 0
   cruise_control_is_active = 1 if vars.cruise_control.state == 2 else 0
   throttle_active = 1 if vars.throttle_value > 50 else 0
+  throttle_right_fault = 1 if vars.throttle_right_fault else 0
+  throttle_left_fault = 1 if vars.throttle_left_fault else 0
 
   if not cfg.has_jbd_bms:
     battery_is_charging = 0
@@ -92,7 +94,9 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
           ((battery_is_charging & 1) << 2) | \
           ((vars.mode & 7) << 3) | \
           ((cruise_control_is_active & 1) << 6) | \
-          ((throttle_active & 1) << 7)
+          ((throttle_active & 1) << 7) | \
+          ((throttle_right_fault & 1) << 8) | \
+          ((throttle_left_fault & 1) << 9)
 
   return (
     f"{COMMAND_ID_DISPLAY_1} {int(rear_motor_data.battery_voltage_x10)} "
@@ -268,7 +272,7 @@ def cruise_control(vars, wheel_speed, requested_motor_target_speed):
       vars.cruise_control.state = 2
 
   # Cruise active
-  if vars.cruise_control.state == 2:
+  elif vars.cruise_control.state == 2:
     vars.cruise_control.button_pressed = False
     if button_press_state != vars.cruise_control.button_press_previous_state:
       vars.cruise_control.button_press_previous_state = button_press_state
@@ -305,6 +309,11 @@ def _stop_motors():
 
 async def task_control_motor(wdt):
   global throttle_1_disabled, throttle_2_disabled
+  _release_condition_since_ms = None
+
+  # Hall-effect throttle supply can spike above over-max threshold at power-on;
+  # a single bad reading permanently sets throttle_1_disabled with no recovery path.
+  await asyncio.sleep_ms(500)
 
   while True:
     motor_erpm_max_speed_limits = [
@@ -342,6 +351,8 @@ async def task_control_motor(wdt):
 
     throttle_value = max(throttle_1_value, throttle_2_value or 0)
     vars.throttle_value = throttle_value
+    vars.throttle_right_fault = throttle_1_disabled
+    vars.throttle_left_fault = throttle_2_disabled and throttle_2 is not None
 
     if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):
       _stop_motors()
@@ -410,7 +421,15 @@ async def task_control_motor(wdt):
           motor.set_motor_speed_erpm(0)
       else:
         has_motor_target_speed = any(motor.data.motor_target_speed > 0 for motor in motors)
-        should_release_motors = (not has_motor_target_speed) and rear_motor.data.wheel_speed == 0
+        release_condition_met = (not has_motor_target_speed) and rear_motor.data.wheel_speed == 0
+
+        if release_condition_met:
+          if _release_condition_since_ms is None:
+            _release_condition_since_ms = time.ticks_ms()
+          should_release_motors = time.ticks_diff(time.ticks_ms(), _release_condition_since_ms) >= 2000
+        else:
+          _release_condition_since_ms = None
+          should_release_motors = False
 
         for motor in motors:
           if should_release_motors:

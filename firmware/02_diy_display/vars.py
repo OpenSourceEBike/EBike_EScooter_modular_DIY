@@ -24,6 +24,8 @@ class Vars:
     self.regen_braking_is_active = False
     self.cruise_control_is_active = False
     self.throttle_is_active = False
+    self.throttle_right_fault = False
+    self.throttle_left_fault = False
     self.torque_weight = 0
     self.cadence = 0
     self.mode = 0

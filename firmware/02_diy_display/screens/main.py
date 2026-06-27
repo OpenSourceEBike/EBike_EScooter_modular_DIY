@@ -195,6 +195,12 @@ class MainScreen(BaseScreen):
         self._wheel_speed_x10_previous = wheel_speed_x10
         self._wheel_speed_widget.update(wheel_speed_x10 // 10)
 
+      # Throttle fault warnings (re-enqueued every second while fault persists)
+      if vars.throttle_right_fault:
+        self._enqueue_warning("thr R!")
+      if vars.throttle_left_fault:
+        self._enqueue_warning("thr L!")
+
       # Time
       if cfg.enable_rtc_time:
         if self._time_string_previous != vars.time_string:
