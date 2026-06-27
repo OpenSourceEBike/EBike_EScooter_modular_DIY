@@ -36,7 +36,8 @@ pin_bl = 10
 
 spi_baud = 10_000_000
 
-# Enable reading date/time from the external RTC chip (DS3231).
+# RTC date/time feature and settings.
+# This feature is optional and can be ignored.
 enable_rtc_time = True
 # I2C pins used by the RTC chip.
 rtc_scl_pin = 8
@@ -62,5 +63,12 @@ debounce_ms = 30
 brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
+
+# Automatic Power Control board motion detection defaults.
+# This board/feature is optional and can be ignored. In that case,
+# keep the default values below: motion_detection_threshold = 16
+# and motion_detection_rate_hz = 25.
+motion_detection_threshold = 16
+motion_detection_rate_hz = 25
 
 # TODO: fill in ESP-NOW MACs and motor power scaling

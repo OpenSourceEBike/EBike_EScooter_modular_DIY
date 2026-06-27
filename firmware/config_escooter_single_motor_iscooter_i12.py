@@ -101,7 +101,8 @@ pin_bl = 10
 
 spi_baud = 10_000_000
 
-# Enable reading date/time from the external RTC chip (DS3231).
+# RTC date/time feature and settings.
+# This feature is optional and can be ignored.
 enable_rtc_time = True
 # I2C pins used by the RTC chip.
 rtc_scl_pin = 8
@@ -114,10 +115,19 @@ rtc_debug = False
 # Print boot timing checkpoints on the display board startup.
 boot_timing_debug = False
 
-# Delayed sync timing and per-step timeouts.
+# Delayed RTC WiFi/NTP sync timing and per-step timeouts.
 rtc_sync_delay_ms = 3000
 rtc_wifi_timeout_s = 10
 rtc_ntp_timeout_s = 3
+
+# Automatic lights schedule using local RTC time.
+# This feature is optional and can be ignored.
+auto_lights_schedule_enabled = True
+auto_lights_schedule_enabled_at_boot_only = True
+auto_lights_on_hour = 19
+auto_lights_on_minute = 0
+auto_lights_off_hour = 7
+auto_lights_off_minute = 0
 
 # Backlight auto-off while staying on idle display screens.
 backlight_timeout_ms = 60000 # 1 minute
@@ -145,10 +155,9 @@ brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
 
-# Automatic lights schedule using local RTC time.
-auto_lights_schedule_enabled = True
-auto_lights_schedule_enabled_at_boot_only = True
-auto_lights_on_hour = 19
-auto_lights_on_minute = 0
-auto_lights_off_hour = 7
-auto_lights_off_minute = 0
+# Automatic Power Control board motion detection defaults.
+# This board/feature is optional and can be ignored. In that case,
+# keep the default values below: motion_detection_threshold = 16
+# and motion_detection_rate_hz = 25.
+motion_detection_threshold = 16
+motion_detection_rate_hz = 25
