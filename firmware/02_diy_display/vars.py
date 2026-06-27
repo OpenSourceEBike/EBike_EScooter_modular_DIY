@@ -23,6 +23,7 @@ class Vars:
     self.brakes_are_active = False
     self.regen_braking_is_active = False
     self.cruise_control_is_active = False
+    self.throttle_is_active = False
     self.torque_weight = 0
     self.cadence = 0
     self.mode = 0
@@ -44,4 +45,5 @@ class Vars:
     self.rtc = None
     self.time_string = ''
     self.rtc_time_valid = False
+    self.rtc_ntp_sync_valid = False
     self.comms_paused = False

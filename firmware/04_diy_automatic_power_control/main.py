@@ -36,14 +36,72 @@ if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
 timeout_no_motion_minutes_to_disable_relay *= 60  # need to multiply by 60 seconds
 timeout_no_motion_ms = timeout_no_motion_minutes_to_disable_relay * 1000
 
+NVS_NAMESPACE = "diy_power_sw"
+NVS_KEY_THRESHOLD = "motion_thr"
+NVS_KEY_RATE_HZ = "motion_rate"
+DEFAULT_MOTION_THRESHOLD = cfg.motion_detection_threshold
+DEFAULT_MOTION_RATE_HZ = cfg.motion_detection_rate_hz
+
 turn_off_relay = False
+motion_threshold = DEFAULT_MOTION_THRESHOLD
+motion_rate_hz = DEFAULT_MOTION_RATE_HZ
+
+def _open_nvs():
+  try:
+    return esp32.NVS(NVS_NAMESPACE)
+  except Exception:
+    return None
+
+def _validate_motion_settings(threshold, rate_hz):
+  try:
+    validated_threshold = ADXL345.normalize_motion_threshold(threshold)
+    validated_rate_hz = ADXL345.normalize_motion_rate_hz(rate_hz)
+  except Exception:
+    return None
+  return validated_threshold, validated_rate_hz
+
+def load_motion_settings_from_nvs():
+  nvs = _open_nvs()
+  if nvs is None:
+    return DEFAULT_MOTION_THRESHOLD, DEFAULT_MOTION_RATE_HZ
+
+  try:
+    stored_threshold = nvs.get_i32(NVS_KEY_THRESHOLD)
+    stored_rate_hz = nvs.get_i32(NVS_KEY_RATE_HZ)
+  except Exception:
+    return DEFAULT_MOTION_THRESHOLD, DEFAULT_MOTION_RATE_HZ
+
+  validated = _validate_motion_settings(stored_threshold, stored_rate_hz)
+  if validated is None:
+    return DEFAULT_MOTION_THRESHOLD, DEFAULT_MOTION_RATE_HZ
+
+  return validated
+
+def save_motion_settings_to_nvs(threshold, rate_hz):
+  validated = _validate_motion_settings(threshold, rate_hz)
+  if validated is None:
+    return False
+
+  validated_threshold, validated_rate_hz = validated
+  nvs = _open_nvs()
+  if nvs is None:
+    return False
+
+  try:
+    nvs.set_i32(NVS_KEY_THRESHOLD, validated_threshold)
+    nvs.set_i32(NVS_KEY_RATE_HZ, validated_rate_hz)
+    nvs.commit()
+  except Exception:
+    return False
+
+  return True
 
 # ESPNow wireless communications
 _sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_power_switch)
 
 def decode_power_switch_message(msg):
   parts = [int(s) for s in msg.decode("ascii").split()]
-  if len(parts) == 2 and parts[0] == COMMAND_ID_POWER_SWITCH_1:
+  if len(parts) == 4 and parts[0] == COMMAND_ID_POWER_SWITCH_1:
     return parts
   return None
 
@@ -66,8 +124,20 @@ if ADXL345._ADDR not in found_addrs:
     f"Scanned: {[hex(a) for a in found_addrs]}"
   )
 
+motion_threshold, motion_rate_hz = load_motion_settings_from_nvs()
+validated_defaults = _validate_motion_settings(motion_threshold, motion_rate_hz)
+if validated_defaults is None:
+  motion_threshold = DEFAULT_MOTION_THRESHOLD
+  motion_rate_hz = DEFAULT_MOTION_RATE_HZ
+else:
+  motion_threshold, motion_rate_hz = validated_defaults
+save_motion_settings_to_nvs(motion_threshold, motion_rate_hz)
+
 accelerometer = ADXL345(i2c, ADXL_INT_PIN)
-accelerometer.setup_motion_detection(threshold=16)
+accelerometer.setup_motion_detection(
+  threshold=motion_threshold,
+  rate_hz=motion_rate_hz,
+)
 
 last_time_motion_detected = time.ticks_ms()
 motion_timeout_deadline = time.ticks_add(
@@ -82,10 +152,28 @@ while True:
 
   # process any data received by ESPNow
   msg = espnow_comms.get_data()
-  if msg is not None and len(msg) == 2:
-    command_id, turn_off = msg
+  if msg is not None and len(msg) == 4:
+    command_id, turn_off, threshold, rate_hz = msg
     if command_id == COMMAND_ID_POWER_SWITCH_1:
       turn_off_relay = True if int(turn_off) != 0 else False
+      validated = _validate_motion_settings(threshold, rate_hz)
+      if validated is not None:
+        new_motion_threshold, new_motion_rate_hz = validated
+      else:
+        new_motion_threshold = motion_threshold
+        new_motion_rate_hz = motion_rate_hz
+
+      if (
+        new_motion_threshold != motion_threshold or
+        new_motion_rate_hz != motion_rate_hz
+      ):
+        motion_threshold = new_motion_threshold
+        motion_rate_hz = new_motion_rate_hz
+        accelerometer.setup_motion_detection(
+          threshold=motion_threshold,
+          rate_hz=motion_rate_hz,
+        )
+        save_motion_settings_to_nvs(motion_threshold, motion_rate_hz)
 
   # save time value when motion is detected
   if accelerometer.motion_detected():

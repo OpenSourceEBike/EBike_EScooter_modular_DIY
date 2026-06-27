@@ -12,6 +12,21 @@ class ADXL345:
     _REG_ACT_INACT_CTL = 0x27
 
     _INT_ACTIVITY = 0x10
+    _THRESHOLD_MIN = 0
+    _THRESHOLD_MAX = 255
+    _RATE_CODES = {
+        3200: 0x0F,
+        1600: 0x0E,
+        800: 0x0D,
+        400: 0x0C,
+        200: 0x0B,
+        100: 0x0A,
+        50: 0x09,
+        25: 0x08,
+        12: 0x07,
+        6: 0x06,
+        3: 0x05,
+    }
 
     def __init__(self, i2c: I2C, int_pin: int, address: int = _ADDR):
         self._i2c = i2c
@@ -24,9 +39,37 @@ class ADXL345:
     def _read8(self, reg):
         return self._i2c.readfrom_mem(self._addr, reg, 1)[0]
 
-    def setup_motion_detection(self, threshold: int = 8, ac_mode: bool = True):
-        # 100 Hz output data rate
-        self._write8(self._REG_BW_RATE, 0x0A)
+    @classmethod
+    def normalize_motion_threshold(cls, threshold: int) -> int:
+        threshold = int(threshold)
+        if threshold < cls._THRESHOLD_MIN or threshold > cls._THRESHOLD_MAX:
+            raise ValueError(
+                f"threshold must be between {cls._THRESHOLD_MIN} and {cls._THRESHOLD_MAX}"
+            )
+        return threshold
+
+    @classmethod
+    def normalize_motion_rate_hz(cls, rate_hz: int) -> int:
+        rate_hz = int(rate_hz)
+        if rate_hz <= 0:
+            raise ValueError("rate_hz must be > 0")
+        return min(
+            cls._RATE_CODES,
+            key=lambda supported: abs(supported - rate_hz),
+        )
+
+    def setup_motion_detection(
+        self,
+        threshold: int = 8,
+        rate_hz: int = 100,
+        ac_mode: bool = True,
+    ):
+        threshold = self.normalize_motion_threshold(threshold)
+        supported_rate = self.normalize_motion_rate_hz(rate_hz)
+        rate_code = self._RATE_CODES[supported_rate]
+
+        # Output data rate
+        self._write8(self._REG_BW_RATE, rate_code)
 
         # Full resolution, +/-2g
         self._write8(self._REG_DATA_FORMAT, 0x08)

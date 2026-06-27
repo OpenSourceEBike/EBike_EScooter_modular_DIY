@@ -73,6 +73,7 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
   battery_is_charging = 1 if vars.battery_is_charging else 0
   cruise_control_is_active = 1 if vars.cruise_control.state == 2 else 0
+  throttle_active = 1 if vars.throttle_value > 50 else 0
 
   if not cfg.has_jbd_bms:
     battery_is_charging = 0
@@ -90,7 +91,8 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
           ((regen_braking_is_active & 1) << 1) | \
           ((battery_is_charging & 1) << 2) | \
           ((vars.mode & 7) << 3) | \
-          ((cruise_control_is_active & 1) << 6)
+          ((cruise_control_is_active & 1) << 6) | \
+          ((throttle_active & 1) << 7)
 
   return (
     f"{COMMAND_ID_DISPLAY_1} {int(rear_motor_data.battery_voltage_x10)} "
@@ -339,6 +341,7 @@ async def task_control_motor(wdt):
         throttle_2_value = 0
 
     throttle_value = max(throttle_1_value, throttle_2_value or 0)
+    vars.throttle_value = throttle_value
 
     if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):
       _stop_motors()

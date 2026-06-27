@@ -50,7 +50,10 @@ _OPTIONAL_DEFAULTS = {
   "brake_tail_blink_enable": False,
   "brake_tail_on_ms": 400,
   "brake_tail_off_ms": 100,
+  "motion_detection_threshold": 16,
+  "motion_detection_rate_hz": 25,
   "boot_timing_debug": False,
+  # Automatic lights schedule is optional; configs may ignore these values.
   "auto_lights_schedule_enabled": False,
   "auto_lights_schedule_enabled_at_boot_only": False,
   "auto_lights_on_hour": 19,

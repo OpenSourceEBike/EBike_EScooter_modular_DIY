@@ -30,6 +30,7 @@ boot_log("First framebuffer flush")
 import network
 import uasyncio as asyncio
 import machine
+import esp32
 from machine import WDT
 from common.utils import map_range
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
@@ -57,6 +58,8 @@ BACKLIGHT_ON_BRIGHTNESS = 0.5
 backlight_is_on = True
 _rtc_datetime_class = None
 _wifi_ntp_sync = None
+NVS_NAMESPACE = "diy_display"
+NVS_KEY_RTC_NTP_OK = "rtc_ntp_ok"
 
 def get_rtc_datetime_class():
   global _rtc_datetime_class
@@ -71,6 +74,32 @@ async def sync_rtc_time_from_wifi_ntp_async_lazy(*args, **kwargs):
     from wifi_time_sync import sync_rtc_time_from_wifi_ntp_async
     _wifi_ntp_sync = sync_rtc_time_from_wifi_ntp_async
   return await _wifi_ntp_sync(*args, **kwargs)
+
+def _open_nvs():
+  try:
+    return esp32.NVS(NVS_NAMESPACE)
+  except Exception:
+    return None
+
+def load_rtc_ntp_sync_valid():
+  nvs = _open_nvs()
+  if nvs is None:
+    return False
+  try:
+    return bool(nvs.get_i32(NVS_KEY_RTC_NTP_OK))
+  except Exception:
+    return False
+
+def save_rtc_ntp_sync_valid(value):
+  nvs = _open_nvs()
+  if nvs is None:
+    return False
+  try:
+    nvs.set_i32(NVS_KEY_RTC_NTP_OK, 1 if value else 0)
+    nvs.commit()
+  except Exception:
+    return False
+  return True
 
 # Hardware watchdog: reset the board if not fed within 30 seconds
 wdt = WDT(timeout=30000) # timeout in milliseconds
@@ -118,6 +147,9 @@ def update_auto_lights_state(vars):
   if not cfg.enable_rtc_time or not getattr(cfg, 'auto_lights_schedule_enabled', False):
     return
 
+  if not getattr(vars, 'rtc_ntp_sync_valid', False):
+    return
+
   try:
     dt = vars.rtc.date_time()
     now_minutes = (int(dt[3]) * 60) + int(dt[4])
@@ -148,15 +180,30 @@ def set_backlight_enabled(enabled):
   backlight_is_on = enabled
   lcd.backlight_pwm(BACKLIGHT_ON_BRIGHTNESS if enabled else 0.0)
 
+def power_button_is_active():
+  return bool(vars.buttons[button_POWER].buttonActive)
+
 if cfg.enable_rtc_time:
+  rtc_has_external = vars.rtc.has_external_rtc()
+  rtc_ntp_sync_valid_stored = load_rtc_ntp_sync_valid()
   vars.rtc_time_valid = bool(vars.rtc.update_internal_rtc_from_external())
+  vars.rtc_ntp_sync_valid = bool(
+    rtc_has_external and
+    rtc_ntp_sync_valid_stored and
+    vars.rtc_time_valid
+  )
   update_time_string(vars)
   update_auto_lights_state(vars)
   boot_log("RTC initial sync complete")
 
 def encode_power_switch_message():
   turn_off_relay = 1 if vars.turn_off_relay else 0
-  return f"{COMMAND_ID_POWER_SWITCH_1} {turn_off_relay}".encode("ascii")
+  motion_threshold = cfg.motion_detection_threshold
+  motion_rate_hz = cfg.motion_detection_rate_hz
+  return (
+    f"{COMMAND_ID_POWER_SWITCH_1} {turn_off_relay} "
+    f"{motion_threshold} {motion_rate_hz}"
+  ).encode("ascii")
 
 def encode_display_message():
   motor_enable_state = 1 if vars.motor_enable_state else 0
@@ -275,9 +322,10 @@ async def power_off_forever(backlight_timeout_ms):
     now = time.ticks_ms()
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 1) or
+      power_button_is_active() or
       vars.motor_current_x10 > 10 or
-      vars.wheel_speed_x10 != 0
+      vars.wheel_speed_x10 != 0 or
+      vars.throttle_is_active
     )
 
     if wake_backlight:
@@ -322,13 +370,20 @@ async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
   vars.comms_paused = True
   try:
-    vars.rtc_time_valid = bool(await sync_rtc_time_from_wifi_ntp_async_lazy(
+    previous_rtc_ntp_sync_valid = bool(vars.rtc_ntp_sync_valid)
+    rtc_ntp_sync_valid, rtc_time_valid = await sync_rtc_time_from_wifi_ntp_async_lazy(
       vars.rtc,
       wifi_timeout_s=cfg.rtc_wifi_timeout_s,
       ntp_timeout_s=cfg.rtc_ntp_timeout_s,
-    ))
+    )
+    vars.rtc_ntp_sync_valid = bool(rtc_ntp_sync_valid)
+    if vars.rtc.has_external_rtc() and previous_rtc_ntp_sync_valid:
+      vars.rtc_ntp_sync_valid = True
+    vars.rtc_time_valid = bool(rtc_time_valid)
+    if vars.rtc.has_external_rtc():
+      save_rtc_ntp_sync_valid(vars.rtc_ntp_sync_valid)
     update_time_string(vars)
-    if not getattr(cfg, 'auto_lights_schedule_enabled_at_boot_only', False):
+    if vars.rtc_ntp_sync_valid:
       update_auto_lights_state(vars)
   except Exception as ex:
     print(ex)
@@ -407,9 +462,10 @@ async def main_task(vars):
     )
     wake_backlight = (
       vars.brakes_are_active or
-      bool(vars.buttons_state & 1) or
+      power_button_is_active() or
       vars.motor_current_x10 > 10 or
-      vars.wheel_speed_x10 != 0
+      vars.wheel_speed_x10 != 0 or
+      vars.throttle_is_active
     )
     main_screen_active = (
       wake_backlight or
@@ -488,6 +544,7 @@ async def motor_rx_task(vars):
       vars.battery_is_charging     = bool(flags & (1 << 2))
       vars.mode = (flags >> 3) & 0x07
       vars.cruise_control_is_active = bool(flags & (1 << 6))
+      vars.throttle_is_active = bool(flags & (1 << 7))
       vars.rear_vesc_temperature_x10 = msg[7]
       vars.front_vesc_temperature_x10 = msg[8]
       vars.rear_motor_temperature_x10 = msg[9]

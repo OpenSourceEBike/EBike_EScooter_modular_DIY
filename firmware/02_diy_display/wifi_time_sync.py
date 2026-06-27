@@ -251,7 +251,7 @@ def sync_rtc_time_from_wifi_ntp(
     ssid, password = _load_wifi_credentials(ssid, password)
   except Exception:
     print("Missing or invalid secrets.py!")
-    return rtc.update_internal_rtc_from_external()
+    return False, bool(rtc.update_internal_rtc_from_external())
 
   previous_socket_timeout = None
   try:
@@ -278,7 +278,7 @@ def sync_rtc_time_from_wifi_ntp(
       print("External RTC stored in UTC:", rtc.external_utc_now())
 
     _reset_wifi_radio()
-    return True
+    return True, True
 
   except Exception as e:
     if _is_wifi_connect_error(e):
@@ -289,7 +289,7 @@ def sync_rtc_time_from_wifi_ntp(
       _reset_wifi_radio()
     except Exception as reset_ex:
       print("Radio reset failed:", reset_ex)
-    return rtc.update_internal_rtc_from_external()
+    return False, bool(rtc.update_internal_rtc_from_external())
 
   finally:
     _restore_socket_timeout(previous_socket_timeout)
@@ -307,7 +307,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
     ssid, password = _load_wifi_credentials(ssid, password)
   except Exception:
     print("Missing or invalid secrets.py!")
-    return rtc.update_internal_rtc_from_external()
+    return False, bool(rtc.update_internal_rtc_from_external())
 
   previous_socket_timeout = None
   try:
@@ -334,7 +334,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
       print("External RTC stored in UTC:", rtc.external_utc_now())
 
     await _reset_wifi_radio_async()
-    return True
+    return True, True
 
   except Exception as e:
     if _is_wifi_connect_error(e):
@@ -345,7 +345,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
       await _reset_wifi_radio_async()
     except Exception as reset_ex:
       print("Radio reset failed:", reset_ex)
-    return rtc.update_internal_rtc_from_external()
+    return False, bool(rtc.update_internal_rtc_from_external())
 
   finally:
     _restore_socket_timeout(previous_socket_timeout)
