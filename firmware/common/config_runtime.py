@@ -1,5 +1,8 @@
-# Centralized config loader. Loads the single config_*.py at the root
-# and exposes config values plus helper names.
+# Centralized config loader.
+# Deployment convention: exactly one config_*.py must be present at the
+# device root at boot time. Keep extra configs in the source checkout, but
+# copy only the target config to the board before flashing/booting.
+# The loader exposes config values plus helper names.
 
 import uos
 import time
@@ -34,6 +37,12 @@ _config_files = _list_root_configs()
 _discovery_done_ms = time.ticks_ms()
 
 if len(_config_files) != 1:
+  if len(_config_files) > 1:
+    print(
+      "ERROR: multiple config_*.py files found at the root; boot aborted: {}".format(
+        ", ".join(_config_files)
+      )
+    )
   raise ValueError(
     "Exactly one config_*.py must exist at the root; found: {}".format(
       ", ".join(_config_files) if _config_files else "none"
@@ -43,15 +52,28 @@ if len(_config_files) != 1:
 _config_module_name = _config_files[0][:-3]
 _cfg = __import__(_config_module_name)
 _import_done_ms = time.ticks_ms()
+_cfg_obj = getattr(_cfg, "cfg", None)
 
-# Optional lights settings used by 03_diy_lights_board.
+# Merge cfg-object fields early so optional defaults cannot shadow them.
+if _cfg_obj is not None:
+  for _name in dir(_cfg_obj):
+    if _name.startswith("_"):
+      continue
+    if not hasattr(_cfg, _name):
+      setattr(_cfg, _name, getattr(_cfg_obj, _name))
+
+# Optional display / lights / power settings used by the runtime boards.
 _OPTIONAL_DEFAULTS = {
   "tail_always_enabled": False,
   "brake_tail_blink_enable": False,
   "brake_tail_on_ms": 400,
   "brake_tail_off_ms": 100,
+  "bms_debug": False,
   "motion_detection_threshold": 16,
   "motion_detection_rate_hz": 25,
+  "motion_detection_ac_mode": True,
+  "timeout_no_motion_seconds_to_disable_relay": 300,
+  "seconds_to_wait_before_movement_detection": 20,
   "boot_timing_debug": False,
   # Automatic lights schedule is optional; configs may ignore these values.
   "auto_lights_schedule_enabled": False,
@@ -65,6 +87,7 @@ _OPTIONAL_DEFAULTS = {
 for _name, _value in _OPTIONAL_DEFAULTS.items():
   if not hasattr(_cfg, _name):
     setattr(_cfg, _name, _value)
+
 
 boot_timing_debug = _cfg.boot_timing_debug
 if boot_timing_debug:
@@ -94,8 +117,7 @@ _boot_log("module globals exported")
 type_name = TYPE_NAME.get(vehicle_type, "unknown")
 
 # Back-compat: attach MAC addresses to cfg object if present.
-if "cfg" in globals():
-  _cfg_obj = globals()["cfg"]
+if _cfg_obj is not None:
   for _name in dir(_cfg):
     if _name.startswith("mac_address_"):
       setattr(_cfg_obj, _name, getattr(_cfg, _name))

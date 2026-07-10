@@ -1,5 +1,5 @@
 import espnow as ESPNow
-from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_MOTOR_1
+from common.espnow_protocol import BOARD_DISPLAY, BOARD_MOTOR
 
 class Display(object):
   """Display"""
@@ -10,6 +10,8 @@ class Display(object):
     self._espnow.peers.append(self._peer)
     self._vars = vars
     self._motor_data = motor_data
+    self._rx_error_active = False
+    self._tx_error_active = False
 
   def receive_process_data(self):
     try:
@@ -24,18 +26,21 @@ class Display(object):
           data = rx_data
       
       # process the package, if available
-      if data is not None:
-        data_list = [int(n) for n in data.msg.split()]
+        if data is not None:
+          data_list = [int(n) for n in data.msg.split()]
         
         # only process packages for us
         # must have 4 elements: message_id + 3 variables
-        if int(data_list[0]) == COMMAND_ID_MOTOR_1 and len(data_list) == 4:
+        if int(data_list[0]) == BOARD_MOTOR and len(data_list) == 4:
           self._vars.motors_enable_state = True if data_list[1] != 0 else False
           self._vars.buttons_state = data_list[2]
           self._vars.assist_level = data_list[3]
+      self._rx_error_active = False
     
     except Exception as e:
-      print(f"Display rx error: {e}")
+      if not self._rx_error_active:
+        print(f"Display rx error: {e}")
+      self._rx_error_active = True
 
   def send_data(self):
     if self._espnow is not None:
@@ -50,7 +55,7 @@ class Display(object):
         
         # Assuming battery voltage and wheel speed are the same for both motors
         self._espnow.send(
-                    f"{COMMAND_ID_DISPLAY_1} \
+                    f"{BOARD_DISPLAY} \
           {int(self._motor_data.battery_voltage_x10)} \
           {battery_current_x10} \
           {int(self._rear_motor_data.battery_soc_x1000)} \
@@ -59,6 +64,9 @@ class Display(object):
           {int(vesc_temperature_x10)} \
           {int(motor_temperature_x10)}",
           self._peer)
+        self._tx_error_active = False
       
       except Exception as e:
-        print(f"Display tx error: {e}")
+        if not self._tx_error_active:
+          print(f"Display tx error: {e}")
+        self._tx_error_active = True

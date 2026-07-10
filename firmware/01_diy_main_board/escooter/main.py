@@ -10,12 +10,25 @@ from motor import MotorData, Motor
 from brake import Brake
 from throttle import Throttle
 from common.utils import map_range
-from common.espnow import espnow_init, ESPNowComms
-from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_LIGHTS_1
+from common.espnow import espnow_init, ESPNowComms, espnow_recv_last
+from common.espnow_protocol import (
+  BOARD_DISPLAY,
+  BOARD_LIGHTS,
+  BOARD_MOTOR,
+  MSG_COMMAND,
+  MSG_STATUS,
+  HEALTH_MOTOR_LIGHTS_TX_OK,
+  build_command,
+  build_status,
+  parse_frame,
+)
 from common.lights_bits import REAR_BRAKE_BIT
 from mode import Mode
 
 TEMPERATURE_NOT_AVAILABLE_X10 = -2550
+DISPLAY_MOTORS_ENABLE_TIMEOUT_MS = 2000
+DISPLAY_MOTORS_ENABLE_BOOT_GRACE_MS = 20000
+system_boot_ms = time.ticks_ms()
 
 try:
   import neopixel
@@ -58,17 +71,20 @@ if brake_sensor.value:
 
 # Object that holds various runtime variables
 vars = Vars()
+display_motors_enable_last_seen_ms = None
 
 # ESPNow wireless communications  
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board)
 
-def decode_display_message(msg):
-  parts = [int(s) for s in msg.decode("ascii").split()]
-  if len(parts) == 3 and parts[0] == COMMAND_ID_DISPLAY_1:
+def decode_display_command(msg):
+  parts = parse_frame(msg)
+  if parts is None:
+    return None
+  if len(parts) == 7 and parts[0] == MSG_COMMAND and parts[1] == BOARD_DISPLAY and parts[2] == BOARD_MOTOR:
     return parts
   return None
 
-def encode_display_message(vars, rear_motor_data, front_motor_data=None):
+def encode_display_status(vars, rear_motor_data, front_motor_data=None):
   brakes_are_active = 1 if vars.brakes_are_active else 0
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
   battery_is_charging = 1 if vars.battery_is_charging else 0
@@ -98,24 +114,36 @@ def encode_display_message(vars, rear_motor_data, front_motor_data=None):
           ((throttle_right_fault & 1) << 8) | \
           ((throttle_left_fault & 1) << 9)
 
-  return (
-    f"{COMMAND_ID_DISPLAY_1} {int(rear_motor_data.battery_voltage_x10)} "
-    f"{battery_current_x10} {int(rear_motor_data.battery_soc_x1000)} "
-    f"{motor_current_x10} {int(rear_motor_data.wheel_speed * 10)} {int(flags)} "
-    f"{int(rear_motor_data.vesc_temperature_x10)} {front_vesc_temperature_x10} "
-    f"{int(rear_motor_data.motor_temperature_x10)} {front_motor_temperature_x10}"
-  ).encode("ascii")
+  health_bitmap = HEALTH_MOTOR_LIGHTS_TX_OK if vars.lights_comm_ok else 0
+
+  return build_status(
+    BOARD_MOTOR,
+    BOARD_DISPLAY,
+    health_bitmap,
+    int(rear_motor_data.battery_voltage_x10),
+    battery_current_x10,
+    int(rear_motor_data.battery_soc_x1000),
+    motor_current_x10,
+    int(rear_motor_data.wheel_speed * 10),
+    int(flags),
+    int(rear_motor_data.vesc_temperature_x10),
+    front_vesc_temperature_x10,
+    int(rear_motor_data.motor_temperature_x10),
+    front_motor_temperature_x10,
+  )
 
 def encode_lights_message(mask, state):
-  return (
-    f"{COMMAND_ID_LIGHTS_1} {int(mask)} {int(state)}"
-  ).encode("ascii")
+  return build_command(
+    BOARD_MOTOR,
+    BOARD_LIGHTS,
+    int(mask),
+    int(state),
+  )
 
-display_comms = ESPNowComms(
+display_status_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_display),
-  decoder=decode_display_message,
-  encoder=encode_display_message,
+  encoder=encode_display_status,
 )
 
 lights_tx_comms = ESPNowComms(
@@ -142,19 +170,20 @@ for _motor_data in motor_data:
   _motor_data.battery_target_current_limit_max = _motor_data.cfg.battery_max_current_limit_max
   _motor_data.battery_target_current_limit_min = _motor_data.cfg.battery_max_current_limit_min
 
-# Optional BMS support (BLE) — BLE activation is deferred to bms.start()
+# Optional BMS support (BLE). The client may activate BLE when created;
+# scanning is deferred to bms.start().
 if cfg.has_jbd_bms:
   import bluetooth
   from bms_jbd import JbdBmsClient
 
-  # Create a single BLE instance; don't call active(True) here.
+  # Create a single BLE instance. Only BLE scanning is delayed below.
   ble = bluetooth.BLE()
   bms = JbdBmsClient(
     ble=ble,
     target_name=cfg.jbd_bms_bluetooth_name,
     query_period_ms=1000,
     interleave_cells=True,
-    debug=True,
+    debug=getattr(cfg, "bms_debug", False),
   )
 
   async def bms_task(bms: JbdBmsClient):
@@ -163,11 +192,11 @@ if cfg.has_jbd_bms:
     - drain BLE notifications
     - schedule 0x03/0x04 polls
     - keep reconnect logic responsive
-    NOTE: we start BLE only after ESP-NOW is up and we've paused briefly.
+    NOTE: BLE scanning starts only after ESP-NOW is up and we've paused briefly.
     """
-    # Give Wi-Fi/ESP-NOW a moment to settle before starting BLE (coex-friendly)
+    # Give Wi-Fi/ESP-NOW a moment to settle before starting BLE scanning.
     await asyncio.sleep_ms(300)
-    bms.start(scan_ms=8000)  # start() will activate BLE with small retries
+    bms.start(scan_ms=8000)
     while True:
       bms.tick()
       await asyncio.sleep_ms(50)  # ~20 Hz tick
@@ -214,38 +243,49 @@ async def task_motors_refresh_data():
     await asyncio.sleep(0.05)
 
 async def task_display_send_data():
+  period_ms = 250
+  next_wake = time.ticks_ms()
   while True:
     if front_motor_data is None:
-      display_comms.send_data(vars, rear_motor_data)
+      vars.display_comm_ok = display_status_comms.send_data(vars, rear_motor_data)
     else:
-      display_comms.send_data(vars, rear_motor_data, front_motor_data)
+      vars.display_comm_ok = display_status_comms.send_data(vars, rear_motor_data, front_motor_data)
     
     gc.collect()
-    await asyncio.sleep(0.25)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    if remaining > 0:
+      await asyncio.sleep_ms(remaining)
+    else:
+      await asyncio.sleep_ms(0)
 
 async def task_lights_send_data():
   while True:
-    # Tail-blink on brake is only valid while riding on the main screen.
-    # When charging or with motors disabled, the rear lights must stay off.
-    if (
-      vars.motors_enable_state and
-      not vars.battery_is_charging and
-      (vars.brakes_are_active or vars.regen_braking_is_active)
-    ):
+    if vars.brakes_are_active or vars.regen_braking_is_active:
       brake_bit = REAR_BRAKE_BIT
     else:
       brake_bit = 0
 
-    lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+    vars.lights_comm_ok = lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+
     gc.collect()
     await asyncio.sleep(0.1)
 
-async def task_display_receive_process_data():
+async def task_espnow_receive_process_data():
+  global display_motors_enable_last_seen_ms
+
   while True:
-    msg = display_comms.get_data()
-    if msg is not None:
-      vars.motors_enable_state = (msg[1] != 0)
-      vars.buttons_state = msg[2]
+    packet = espnow_recv_last(esp)
+    if packet is not None:
+      host, msg = packet
+      parts = parse_frame(msg)
+      if parts is not None and len(parts) == 7 and parts[0] == MSG_COMMAND and parts[1] == BOARD_DISPLAY and parts[2] == BOARD_MOTOR:
+        vars.display_comm_ok = True
+        vars.motors_enable_state = bool(parts[3])
+        display_motors_enable_last_seen_ms = time.ticks_ms()
+        vars.buttons_state = parts[4]
+        vars.turn_off_relay = bool(parts[6])
+
     gc.collect()
     await asyncio.sleep(0.1)
 
@@ -309,6 +349,7 @@ def _stop_motors():
 
 async def task_control_motor(wdt):
   global throttle_1_disabled, throttle_2_disabled
+  global display_motors_enable_last_seen_ms
   _release_condition_since_ms = None
 
   # Hall-effect throttle supply can spike above over-max threshold at power-on;
@@ -401,6 +442,18 @@ async def task_control_motor(wdt):
 
     # Brakes
     vars.brakes_are_active = True if brake_sensor.value else False
+
+    # Fail safe: if the display stops refreshing the enable command, drop to disabled state.
+    # Give the display a startup grace window so Wi-Fi/NTP sync can pause ESP-NOW
+    # without forcing the motor off immediately.
+    if (
+      vars.motors_enable_state and
+      display_motors_enable_last_seen_ms is not None and
+      time.ticks_diff(time.ticks_ms(), display_motors_enable_last_seen_ms) >= DISPLAY_MOTORS_ENABLE_TIMEOUT_MS and
+      time.ticks_diff(time.ticks_ms(), system_boot_ms) >= DISPLAY_MOTORS_ENABLE_BOOT_GRACE_MS
+    ):
+        vars.motors_enable_state = False
+        vars.display_comm_ok = False
 
     # Consider less then 10 negative amps of motor current for regen_brakes_are_active = True
     motor_current = sum(motor.data.motor_current_x10 for motor in motors) // 10
@@ -501,7 +554,7 @@ def _led_blink():
 
 async def task_various():
   wheel_speed_previous_motor_speed_erpm = 0
-  charge_seen_ms = False
+  charge_seen_ms = None
   global mode
 
   while True:
@@ -553,7 +606,7 @@ async def main():
     asyncio.create_task(task_control_motor(wdt)),
     asyncio.create_task(task_display_send_data()),
     asyncio.create_task(task_lights_send_data()),
-    asyncio.create_task(task_display_receive_process_data()),
+    asyncio.create_task(task_espnow_receive_process_data()),
     asyncio.create_task(task_various()),
   ]
 

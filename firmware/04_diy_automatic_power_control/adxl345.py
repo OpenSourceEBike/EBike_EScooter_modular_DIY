@@ -3,9 +3,12 @@ from machine import I2C, Pin
 
 class ADXL345:
     _ADDR = 0x53
+    _ADDR_ALT = 0x1D
+    _REG_DEVID = 0x00
     _REG_BW_RATE = 0x2C
     _REG_POWER_CTL = 0x2D
     _REG_INT_ENABLE = 0x2E
+    _REG_INT_MAP = 0x2F
     _REG_INT_SOURCE = 0x30
     _REG_DATA_FORMAT = 0x31
     _REG_THRESH_ACT = 0x24
@@ -32,6 +35,14 @@ class ADXL345:
         self._i2c = i2c
         self._addr = address
         self._int_pin = Pin(int_pin, Pin.IN)
+        self._last_int_state = 0
+        self._motion_latched = False
+        self.events = _ADXL345Events(self)
+        dev_id = self._read8(self._REG_DEVID)
+        if dev_id != 0xE5:
+            raise RuntimeError(
+                f"ADXL345 not found at {hex(self._addr)}, DEVID={hex(dev_id)}"
+            )
 
     def _write8(self, reg, val):
         self._i2c.writeto_mem(self._addr, reg, bytes([val & 0xFF]))
@@ -58,15 +69,19 @@ class ADXL345:
             key=lambda supported: abs(supported - rate_hz),
         )
 
-    def setup_motion_detection(
+    def enable_motion_detection(
         self,
-        threshold: int = 8,
+        threshold: int = 18,
         rate_hz: int = 100,
-        ac_mode: bool = True,
+        ac_mode: bool = False,
     ):
         threshold = self.normalize_motion_threshold(threshold)
         supported_rate = self.normalize_motion_rate_hz(rate_hz)
         rate_code = self._RATE_CODES[supported_rate]
+
+        # Put device in standby while reconfiguring.
+        self._write8(self._REG_POWER_CTL, 0x00)
+        self._write8(self._REG_INT_ENABLE, 0x00)
 
         # Output data rate
         self._write8(self._REG_BW_RATE, rate_code)
@@ -74,15 +89,23 @@ class ADXL345:
         # Full resolution, +/-2g
         self._write8(self._REG_DATA_FORMAT, 0x08)
 
+        # Activity on X/Y/Z, matching the CircuitPython driver by default.
+        # Bit 7 selects AC-coupled activity detection. Keeping it configurable
+        # lets the power board preserve the requested mode from config.
+        act_inact_ctl = 0x70
+        if ac_mode:
+            act_inact_ctl |= 0x80
+        self._write8(self._REG_ACT_INACT_CTL, act_inact_ctl)
+
         # Activity threshold
         self._write8(self._REG_THRESH_ACT, threshold & 0xFF)
 
-        # Activity on X/Y/Z
-        # DC mode: 0x70
-        # AC mode: 0xF0
-        self._write8(self._REG_ACT_INACT_CTL, 0xF0 if ac_mode else 0x70)
+        # Route activity to INT1 explicitly so wake detection matches the wired pin.
+        int_map = self._read8(self._REG_INT_MAP)
+        int_map &= ~self._INT_ACTIVITY
+        self._write8(self._REG_INT_MAP, int_map)
 
-        # Enable only activity interrupt
+        # This firmware only uses the activity interrupt.
         self._write8(self._REG_INT_ENABLE, self._INT_ACTIVITY)
 
         # Measure mode
@@ -90,10 +113,46 @@ class ADXL345:
 
         # Clear pending interrupts once
         self._read8(self._REG_INT_SOURCE)
+        self._last_int_state = 0
+        self._motion_latched = False
 
-    def motion_detected(self) -> bool:
-        if not self._int_pin.value():
+    def _motion_event(self) -> bool:
+        current_int_state = 1 if self._int_pin.value() else 0
+        if not current_int_state:
+            self._last_int_state = 0
+            self._motion_latched = False
             return False
 
         src = self._read8(self._REG_INT_SOURCE)
-        return bool(src & self._INT_ACTIVITY)
+        active = bool(src & self._INT_ACTIVITY)
+        if not active:
+            self._motion_latched = False
+            return False
+
+        if self._last_int_state and self._motion_latched:
+            return False
+
+        self._last_int_state = 1
+        self._motion_latched = True
+        return True
+
+    def setup_motion_detection(self, threshold: int = 18, rate_hz: int = 100, ac_mode: bool = False):
+        # Compatibility wrapper for the existing power-board code.
+        self.enable_motion_detection(
+            threshold=threshold,
+            rate_hz=rate_hz,
+            ac_mode=ac_mode,
+        )
+
+    def motion_detected(self) -> bool:
+        return self._motion_event()
+
+
+class _ADXL345Events:
+    def __init__(self, sensor: ADXL345):
+        self._sensor = sensor
+
+    def get(self, name):
+        if name == "motion":
+            return self._sensor._motion_event()
+        raise KeyError(name)

@@ -1,4 +1,8 @@
-# Bafang M500 config (display + main board + lights + APC)
+# Bafang M500 config (legacy / not maintained).
+#
+# The e-bike firmware path is kept as historical reference only. It is not
+# aligned with the current MicroPython ESP-NOW protocol, shared config loader,
+# or active scooter board topology.
 
 from common.model_constants import (
   TYPE_EBIKE,
@@ -20,6 +24,7 @@ type = {
 # (All values used by 01_diy_main_board live in this section)
 # ===================================================================
 # TODO: fill in main board configs for Bafang M500
+bms_debug = False
 
 # ===================================================================
 # DISPLAY / LIGHTS / APC CONFIGS
@@ -64,11 +69,20 @@ brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
 
-# Automatic Power Control board motion detection defaults.
+# Automatic Power Control board defaults.
 # This board/feature is optional and can be ignored. In that case,
-# keep the default values below: motion_detection_threshold = 16
-# and motion_detection_rate_hz = 25.
+# motion_detection_threshold: 0..255
+#   16 = fairly sensitive, common starting point
+#   32 = moderate
+#   64 = hard to trigger
+#   127 = very hard to trigger
+#   255 = maximum threshold, hardest to trigger
+# motion_detection_rate_hz: 3, 6, 12, 25, 50, 100, 200, 400, 800, 1600, 3200
+#   default 25; unsupported values are rounded to the nearest supported rate
 motion_detection_threshold = 16
 motion_detection_rate_hz = 25
+motion_detection_ac_mode = True
+timeout_no_motion_seconds_to_disable_relay = 300
+seconds_to_wait_before_movement_detection = 20
 
 # TODO: fill in ESP-NOW MACs and motor power scaling

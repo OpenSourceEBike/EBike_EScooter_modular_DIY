@@ -122,22 +122,25 @@ class ScreenManager:
         self.force(ScreenID.BOOT)
         return
 
-    # Click: Boot -> Main
+    # Click transitions
     if self._button_power_click_previous != button_power_click:
       self._button_power_click_previous = button_power_click
 
-      # We are in Boot scren, so go to Main screen
+      # Boot click: if stopped with brakes on, enter Charging first.
       if self.current_is(ScreenID.BOOT):
+        if wheel_stopped and brakes_on:
+          self._charging_entry_is_auto = False
+          vars.motor_enable_state = False
+          self.force(ScreenID.CHARGING)
+          return
+
         self._charging_entry_is_auto = False
         vars.motor_enable_state = True
         self.force(ScreenID.MAIN)
         return
-      
+
       # Go to Charging
-      if (self.current_is(ScreenID.BOOT) or \
-        self.current_is(ScreenID.MAIN)) and \
-        wheel_stopped and \
-        brakes_on:
+      if self.current_is(ScreenID.MAIN) and wheel_stopped and brakes_on:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)

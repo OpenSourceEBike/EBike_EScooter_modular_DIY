@@ -8,6 +8,7 @@ class Cfg(object):
     self.throttle_2_adc_over_max_error = 0
     self.has_jbd_bms = False
     self.jbd_bms_bluetooth_name = ''
+    self.bms_debug = False
     self.charge_current_threshold_a_x100 = 0
     self.charge_detect_hold_ms = 0
     self.save_mode_to_nvs = False
@@ -50,7 +51,6 @@ class CruiseControl(object):
 
 class Vars(object):
   def __init__(self):
-    self.motor_current_x100 = 0
     self.motor_power = 0
     self.motor_temperature_sensor_x10 = 0
     self.brakes_are_active = True
@@ -61,11 +61,13 @@ class Vars(object):
     self.throttle_value = 0
     self.throttle_right_fault = False
     self.throttle_left_fault = False
-    self.brakes_value = 0
     self.motors_enable_state = False
     self.buttons_state = 0
     self.cruise_control = CruiseControl()
     self.bms_battery_current_x100 = None
     self.battery_is_charging = False
     self.mode = 0
+    self.turn_off_relay = False
+    self.display_comm_ok = False
+    self.lights_comm_ok = False
     
