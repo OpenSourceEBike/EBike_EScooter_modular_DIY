@@ -1,6 +1,6 @@
 #############################################
 #
-# Choose the EBike/EScooter type on common/espnow_commands.py:
+# Choose the EBike/EScooter type in the selected root config_*.py:
 import common.config_runtime as cfg
 from common.model_constants import TYPE_EBIKE, TYPE_ESCOOTER
 

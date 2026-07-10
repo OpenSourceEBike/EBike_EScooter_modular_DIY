@@ -1,11 +1,17 @@
-# main.py - MicroPython version for ESP32-C3 (with hardware watchdog)
+# main.py - MicroPython version for ESP32-C3
 
 import time
 import gc
-from machine import Pin, WDT
+from machine import Pin
 
 from common.espnow import espnow_init, ESPNowComms
-from common.espnow_commands import COMMAND_ID_LIGHTS_1
+from common.espnow_protocol import (
+  BOARD_DISPLAY,
+  BOARD_LIGHTS,
+  BOARD_MOTOR,
+  MSG_COMMAND,
+  parse_frame,
+)
 from common.lights_bits import (
   REAR_TAIL_BIT,
   REAR_BRAKE_BIT,
@@ -23,6 +29,7 @@ from common import config_runtime as cfg
 # NOTE: On the ESP32-C3 the Wi-Fi STA has its own MAC. Here we intentionally
 # force a fixed MAC. Make sure this makes sense for your ESP-NOW network.
 my_mac_address = cfg.mac_address_lights
+LIGHTS_DEBUG = False
 
 
 ################################################################
@@ -54,8 +61,9 @@ if vehicle_type not in (cfg.TYPE_EBIKE, cfg.TYPE_ESCOOTER):
 #   bit7 -> rear turn right  (GPIO9)
 #
 # Incoming ESP-NOW messages are expected as:
-#   "<command_id> <mask> <state>"
-# where mask/state are full 8-bit values for the unified board.
+#   MSG_COMMAND, src, dst, mask, state
+# where src may be display or motor, dst is this lights board, and
+# mask/state are full 8-bit values for the unified board.
 ################################################################
 
 # GPIO mapping per schematic:
@@ -80,19 +88,18 @@ for index, pin_num in enumerate(switch_pins_numbers):
 _sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_lights)
 
 def decode_lights_message(msg):
-  parts = [int(s) for s in msg.decode("ascii").split()]
-  if len(parts) == 3 and parts[0] == COMMAND_ID_LIGHTS_1:
+  parts = parse_frame(msg)
+  if parts is None:
+    return None
+  if len(parts) == 5 and parts[0] == MSG_COMMAND and parts[2] == BOARD_LIGHTS and parts[1] in (BOARD_DISPLAY, BOARD_MOTOR):
     return parts
   return None
 
 espnow_comms = ESPNowComms(
   esp,
-  bytes(cfg.mac_address_display),
+  bytes(cfg.mac_address_motor_board),
   decoder=decode_lights_message,
 )
-
-# Hardware watchdog: reset the board if not fed within 10 seconds
-wdt = WDT(timeout=10000)  # timeout in milliseconds
 
 DISPLAY_TIMEOUT_MS = 20000
 MOTOR_TIMEOUT_MS = 2000
@@ -106,6 +113,7 @@ motor_brake_state = 0
 display_timeout_ms = time.ticks_add(time.ticks_ms(), DISPLAY_TIMEOUT_MS)
 motor_timeout_ms = time.ticks_add(time.ticks_ms(), MOTOR_TIMEOUT_MS)
 last_gc_ms = time.ticks_add(time.ticks_ms(), 1000)
+lights_debug_next_ms = time.ticks_add(time.ticks_ms(), 1000)
 
 turn_lights_blink_counter = 0
 turn_lights_blink_state = False
@@ -141,20 +149,17 @@ while True:
   loop_start_ms = time.ticks_ms()
   now = loop_start_ms
 
-  # Feed the hardware watchdog at the beginning of each loop
-  wdt.feed()
-
   # Check if new ESP-NOW data was received
   msg = espnow_comms.get_data()
   if msg is not None:
-    command_id, mask, state = msg
-    if command_id == COMMAND_ID_LIGHTS_1:
+    command_id, src_id, dst_id, mask, state = msg
+    if command_id == MSG_COMMAND:
       if mask & REAR_BRAKE_BIT:
-        # Motor main board controls brake light only
+        # Motor board controls brake light only
         motor_brake_state = REAR_BRAKE_BIT if (state & REAR_BRAKE_BIT) else 0
         motor_timeout_ms = time.ticks_add(now, MOTOR_TIMEOUT_MS)
       else:
-        # Display does not control brake light
+        # Motor board does not control brake light
         mask &= DISPLAY_MASK
         masked_state = state & mask & DISPLAY_MASK
         display_pins_target = (display_pins_target & (~mask & DISPLAY_MASK)) | masked_state
@@ -214,6 +219,16 @@ while True:
   if io_pins_target != io_pins_target_previous:
     io_pins_target_previous = io_pins_target
     set_io_pins(io_pins_target)
+
+  if LIGHTS_DEBUG and time.ticks_diff(now, lights_debug_next_ms) >= 0:
+    lights_debug_next_ms = time.ticks_add(lights_debug_next_ms, 1000)
+    print(
+      "lights bits: display=0x{:02X}, motor=0x{:02X}, out=0x{:02X}".format(
+        int(display_pins_target),
+        int(motor_brake_state),
+        int(io_pins_target),
+      )
+    )
 
   # Blink turn_lights_blink_state
   #

@@ -150,6 +150,10 @@ class MainScreen(BaseScreen):
 
   def render(self, vars):
     now = time.ticks_ms()
+    boot_comm_grace_ms = getattr(cfg, "boot_comm_grace_ms", 3000)
+    in_startup_grace = time.ticks_diff(now, getattr(cfg, "system_boot_ms", 0)) < boot_comm_grace_ms
+    comms_paused = bool(getattr(vars, "comms_paused", False))
+    suppress_remote_warnings = in_startup_grace or comms_paused
     # Motor power
     if self._motor_power_previous != vars.motor_power_percent:
       self._motor_power_previous = vars.motor_power_percent
@@ -178,6 +182,26 @@ class MainScreen(BaseScreen):
       self._lights_state_previous = lights_active
       lights = 'L' if lights_active else ''
       self._lights_widget.update(lights)
+
+    # Remote board errors, derived from health bits / comm booleans.
+    if suppress_remote_warnings:
+      self._suppress_warning("m TX!")
+      self._suppress_warning("m RX!")
+      self._suppress_warning("mlTX!")
+      self._suppress_warning("l TX!")
+      self._suppress_warning("p TX!")
+    elif not vars.motor_board_tx_ok:
+      self._enqueue_warning("m TX!")
+      self._suppress_warning("mlTX!")
+    if not suppress_remote_warnings and not vars.motor_board_rx_ok:
+      self._enqueue_warning("m RX!")
+      self._suppress_warning("mlTX!")
+    if not suppress_remote_warnings and vars.motor_board_rx_ok and vars.motor_board_tx_ok and not vars.motor_lights_tx_ok:
+      self._enqueue_warning("mlTX!")
+    if not suppress_remote_warnings and not vars.lights_board_comm_ok:
+      self._enqueue_warning("l TX!")
+    if not suppress_remote_warnings and not vars.power_switch_board_comm_ok:
+      self._enqueue_warning("p TX!")
       
     # Slow tick (about 1 Hz)
     if time.ticks_diff(now, self._one_second) >= 0:
@@ -272,6 +296,16 @@ class MainScreen(BaseScreen):
       item for item in self._warning_queue
       if not (item[0] == kind and item[1] == payload)
     ]
+
+  def _suppress_warning(self, text):
+    self._remove_queue_items("text", text)
+    if self._warning_current == ("text", text):
+      self._warning_current = None
+      self._warning_start_ms = 0
+      self._warning_showing_progress_bar = False
+      self._warning_bar_kind = None
+      self._warning_text_previous = ''
+      self._warning_widget.update('')
 
   def _bar_percent(self, kind):
     return self._temp_bar_percents.get(kind, 0)

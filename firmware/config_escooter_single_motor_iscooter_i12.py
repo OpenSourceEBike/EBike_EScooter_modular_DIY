@@ -46,6 +46,7 @@ cfg.throttle_1_adc_over_max_error = 54500
 # JBD BMS
 cfg.has_jbd_bms = False
 cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
+cfg.bms_debug = False
 
 # Motors
 rear_motor_cfg.poles_pair = 15
@@ -155,9 +156,18 @@ brake_tail_blink_enable = True
 brake_tail_on_ms = 400
 brake_tail_off_ms = 100
 
-# Automatic Power Control board motion detection defaults.
+# Automatic Power Control board defaults.
 # This board/feature is optional and can be ignored. In that case,
-# keep the default values below: motion_detection_threshold = 16
-# and motion_detection_rate_hz = 25.
+# motion_detection_threshold: 0..255
+#   16 = fairly sensitive, common starting point
+#   32 = moderate
+#   64 = hard to trigger
+#   127 = very hard to trigger
+#   255 = maximum threshold, hardest to trigger
+# motion_detection_rate_hz: 3, 6, 12, 25, 50, 100, 200, 400, 800, 1600, 3200
+#   default 25; unsupported values are rounded to the nearest supported rate
 motion_detection_threshold = 16
 motion_detection_rate_hz = 25
+motion_detection_ac_mode = False
+timeout_no_motion_seconds_to_disable_relay = 300
+seconds_to_wait_before_movement_detection = 20

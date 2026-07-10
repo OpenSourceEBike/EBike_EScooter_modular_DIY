@@ -23,6 +23,9 @@ boot_log("LCD initialized")
 fb = lcd.display
 lcd.backlight_pwm(0.5)
 system_boot_ms = time.ticks_ms()
+boot_comm_grace_ms = 3000
+cfg.system_boot_ms = system_boot_ms
+cfg.boot_comm_grace_ms = boot_comm_grace_ms
 fb.fill(1)
 fb.show()
 boot_log("First framebuffer flush")
@@ -35,13 +38,240 @@ from machine import WDT
 from common.utils import map_range
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
 import vars as Vars
-from common.espnow_commands import COMMAND_ID_DISPLAY_1, COMMAND_ID_POWER_SWITCH_1
+from common.espnow_protocol import (
+  BOARD_DISPLAY,
+  BOARD_LIGHTS,
+  BOARD_MOTOR,
+  BOARD_POWER_SWITCH,
+  HEALTH_MOTOR_LIGHTS_TX_OK,
+  MSG_COMMAND,
+  MSG_STATUS,
+  POWER_CONFIG_CMD,
+  POWER_SWITCH_CMD,
+  build_command,
+  parse_frame,
+)
 from screen_manager import ScreenManager, ScreenID
 from common.thisbutton import thisButton
-from common.espnow import espnow_init, ESPNowComms
+from common.espnow import espnow_init, ESPNowComms, espnow_recv_all
 
 vars = Vars.Vars()
 boot_log("Vars initialized")
+
+my_mac_address = cfg.mac_address_display
+mac_address_motor_board = cfg.mac_address_motor_board
+mac_address_lights = cfg.mac_address_lights
+mac_address_power_switch = cfg.mac_address_power_switch
+
+_sta, _esp = espnow_init(channel=1, local_mac=my_mac_address)
+
+DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
+MOTOR_BOARD_COMM_TIMEOUT_MS = 1500
+POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
+POWER_SWITCH_HEARTBEAT_MS = 500
+POWER_CONFIG_RETRY_MS = 2000
+_power_peer = bytes(mac_address_power_switch)
+_power_peer_added = False
+_power_tx_had_failure = False
+_power_tx_had_success = False
+_last_power_switch_sent = None
+_last_power_switch_tx_attempt_ms = 0
+_last_power_switch_tx_ok_ms = 0
+_last_power_config_sent = None
+_pending_power_config_snapshot = None
+_pending_power_config_attempt_ms = 0
+
+def _motor_command_signature():
+  return (
+    int(vars.motor_enable_state),
+    int(vars.buttons_state),
+    int(vars.lights_state),
+    int(vars.turn_off_relay),
+  )
+
+def encode_motor_command():
+  return build_command(
+    BOARD_DISPLAY,
+    BOARD_MOTOR,
+    *(_motor_command_signature()),
+  )
+
+def decode_motor_status(msg):
+  parts = parse_frame(msg)
+  if parts is None:
+    return None
+  if len(parts) >= 14 and parts[0] == MSG_STATUS and parts[1] == BOARD_MOTOR and parts[2] == BOARD_DISPLAY:
+    return parts
+  return None
+
+def _display_lights_state():
+  lights_requested = bool(vars.lights_state)
+  tail_enabled = (lights_requested or cfg.tail_always_enabled) and not vars.battery_is_charging
+  front_low_enabled = lights_requested
+
+  state = 0
+  if front_low_enabled:
+    state |= FRONT_LOW_BIT
+  if tail_enabled:
+    state |= REAR_TAIL_BIT
+  return state
+
+def encode_lights_command():
+  return build_command(
+    BOARD_DISPLAY,
+    BOARD_LIGHTS,
+    DISPLAY_LIGHTS_MASK,
+    _display_lights_state(),
+  )
+
+def decode_power_switch_status(msg):
+  parts = parse_frame(msg)
+  if parts is None:
+    return None
+  if len(parts) == 9 and parts[0] == MSG_STATUS and parts[1] == BOARD_POWER_SWITCH and parts[2] == BOARD_DISPLAY:
+    return parts
+  return None
+
+def _ensure_power_peer():
+  global _power_peer_added
+  if _power_peer_added:
+    return True
+  try:
+    _esp.add_peer(_power_peer)
+    _power_peer_added = True
+    return True
+  except OSError as e:
+    if e.args and e.args[0] == -12395:
+      _power_peer_added = True
+      return True
+    print("ESP-NOW add_peer error:", e)
+  except Exception as ex:
+    print("ESP-NOW add_peer error:", ex)
+  return False
+
+def _send_power_packet(payload):
+  global _power_tx_had_failure, _power_tx_had_success
+  if not _ensure_power_peer():
+    return False
+  try:
+    ok = _esp.send(_power_peer, payload)
+    if ok is False:
+      time.sleep_ms(10)
+      ok = _esp.send(_power_peer, payload)
+    if ok is False:
+      if not _power_tx_had_failure:
+        print("ESP-NOW tx error to peer {}".format(_power_peer))
+        _power_tx_had_failure = True
+        _power_tx_had_success = False
+      return False
+    _power_tx_had_failure = False
+    if not _power_tx_had_success:
+      print("ESP-NOW tx ok to peer {}".format(_power_peer))
+      _power_tx_had_success = True
+    return True
+  except OSError as e:
+    if not (e.args and e.args[0] == 116):
+      print("ESP-NOW tx error:", e)
+    return False
+  except Exception as e:
+    print("ESP-NOW tx error:", e)
+    return False
+
+motor_board = ESPNowComms(
+  _esp,
+  bytes(mac_address_motor_board),
+  decoder=decode_motor_status,
+  encoder=encode_motor_command,
+)
+
+lights_board = ESPNowComms(
+  _esp,
+  bytes(mac_address_lights),
+  encoder=encode_lights_command,
+)
+
+def _power_config_snapshot():
+  return (
+    int(cfg.motion_detection_threshold),
+    int(cfg.motion_detection_rate_hz),
+    int(getattr(cfg, "motion_detection_ac_mode", True)),
+    int(cfg.timeout_no_motion_seconds_to_disable_relay),
+    int(getattr(cfg, "seconds_to_wait_before_movement_detection", 20)),
+  )
+
+def _power_config_payload():
+  return " ".join((
+    str(int(MSG_COMMAND)),
+    str(int(BOARD_DISPLAY)),
+    str(int(BOARD_POWER_SWITCH)),
+    str(int(POWER_CONFIG_CMD)),
+    str(int(cfg.motion_detection_threshold)),
+    str(int(cfg.motion_detection_rate_hz)),
+    str(int(getattr(cfg, "motion_detection_ac_mode", True))),
+    str(int(cfg.timeout_no_motion_seconds_to_disable_relay)),
+    str(int(getattr(cfg, "seconds_to_wait_before_movement_detection", 20))),
+  )).encode("ascii")
+
+def _send_power_config_if_needed(now, current_power_config):
+  global _last_power_config_sent
+  global _pending_power_config_snapshot
+  global _pending_power_config_attempt_ms
+
+  if current_power_config == _last_power_config_sent:
+    _pending_power_config_snapshot = None
+    _pending_power_config_attempt_ms = 0
+    return True
+
+  if current_power_config != _pending_power_config_snapshot:
+    _pending_power_config_snapshot = current_power_config
+    _pending_power_config_attempt_ms = 0
+
+  if (
+    _pending_power_config_attempt_ms != 0 and
+    time.ticks_diff(now, _pending_power_config_attempt_ms) < POWER_CONFIG_RETRY_MS
+  ):
+    return False
+
+  ok = _send_power_packet(_power_config_payload())
+  _pending_power_config_attempt_ms = now
+  if ok:
+    _last_power_config_sent = current_power_config
+    _pending_power_config_snapshot = None
+    _pending_power_config_attempt_ms = 0
+  return ok
+
+def _rebuild_espnow_stack():
+  global _sta, _esp
+  global motor_board, lights_board
+  global _power_peer_added, _power_tx_had_failure, _power_tx_had_success
+  global _last_power_switch_sent, _last_power_switch_tx_attempt_ms, _last_power_switch_tx_ok_ms
+  global _last_power_config_sent
+  global _pending_power_config_snapshot, _pending_power_config_attempt_ms
+
+  _sta, _esp = espnow_init(channel=1, local_mac=my_mac_address)
+
+  motor_board = ESPNowComms(
+    _esp,
+    bytes(mac_address_motor_board),
+    decoder=decode_motor_status,
+    encoder=encode_motor_command,
+  )
+
+  lights_board = ESPNowComms(
+    _esp,
+    bytes(mac_address_lights),
+    encoder=encode_lights_command,
+  )
+
+  _power_peer_added = False
+  _power_tx_had_failure = False
+  _power_tx_had_success = False
+  _last_power_switch_sent = None
+  _last_power_switch_tx_attempt_ms = 0
+  _last_power_switch_tx_ok_ms = 0
+  _last_power_config_sent = None
+  _pending_power_config_snapshot = None
+  _pending_power_config_attempt_ms = 0
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
@@ -196,59 +426,7 @@ if cfg.enable_rtc_time:
   update_auto_lights_state(vars)
   boot_log("RTC initial sync complete")
 
-def encode_power_switch_message():
-  turn_off_relay = 1 if vars.turn_off_relay else 0
-  motion_threshold = cfg.motion_detection_threshold
-  motion_rate_hz = cfg.motion_detection_rate_hz
-  return (
-    f"{COMMAND_ID_POWER_SWITCH_1} {turn_off_relay} "
-    f"{motion_threshold} {motion_rate_hz}"
-  ).encode("ascii")
-
-def encode_display_message():
-  motor_enable_state = 1 if vars.motor_enable_state else 0
-  return f"{COMMAND_ID_DISPLAY_1} {motor_enable_state} {vars.buttons_state}".encode("ascii")
-
-def decode_display_message(msg):
-  parts = [int(s) for s in msg.decode("ascii").split()]
-  if len(parts) == 11 and parts[0] == COMMAND_ID_DISPLAY_1:
-    return parts
-  return None
-
-def encode_lights_message():
-  pins_state = int(vars.lights_board_pins_state)
-  mask = IO_BITS_MASK & ~REAR_BRAKE_BIT
-  return f"{COMMAND_ID_DISPLAY_1} {mask} {pins_state}".encode("ascii")
-
-def init_espnow_stack():
-  global sta, ap, esp
-  global power_switch_tx_comms, motor_rx_comms, motor_tx_comms, lights_tx_comms
-
-  sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_display)
-  ap = network.WLAN(network.AP_IF)
-
-  power_switch_tx_comms = ESPNowComms(
-    esp,
-    bytes(cfg.mac_address_power_switch),
-    encoder=encode_power_switch_message)
-
-  motor_rx_comms = ESPNowComms(
-    esp,
-    bytes(cfg.mac_address_motor_board),
-    decoder=decode_display_message)
-
-  motor_tx_comms = ESPNowComms(
-    esp,
-    bytes(cfg.mac_address_motor_board),
-    encoder=encode_display_message)
-
-  lights_tx_comms = ESPNowComms(
-    esp,
-    bytes(cfg.mac_address_lights),
-    encoder=encode_lights_message)
-
 # ESPNow wireless communications
-init_espnow_stack()
 boot_log("ESP-NOW stack initialized")
 
 # --- button callbacks ---
@@ -287,11 +465,21 @@ buttons_callbacks = {
   },
 }
 
+def _positive_cfg_int(name, default):
+  try:
+    value = int(getattr(cfg, name, default))
+  except Exception:
+    return default
+  return value if value > 0 else default
+
+button_debounce_ms = _positive_cfg_int("debounce_ms", 50)
+power_button_long_ms = _positive_cfg_int("power_btn_long_ms", 1500)
+
 vars.buttons = [None]*nr_buttons
 for i, pin in enumerate(BUTTON_PINS):
   btn = thisButton(pin, True)
-  btn.setDebounceThreshold(50)
-  btn.setLongPressThreshold(1500)
+  btn.setDebounceThreshold(button_debounce_ms)
+  btn.setLongPressThreshold(power_button_long_ms)
   if 'click_start' in buttons_callbacks[i]:
     btn.assignClickStart(buttons_callbacks[i]['click_start'])
   if 'click_release' in buttons_callbacks[i]:
@@ -335,12 +523,19 @@ async def power_off_forever(backlight_timeout_ms):
       set_backlight_enabled(False)
 
     try:
-      # Ensure desired OFF states are in vars before calling this
-      motor_tx_comms.send_data()
-      power_switch_tx_comms.send_data()
-      lights_tx_comms.send_data()
+      motor_board.send_data()
+      lights_board.send_data()
+      power_ok = _send_power_packet(" ".join((
+        str(int(MSG_COMMAND)),
+        str(int(BOARD_DISPLAY)),
+        str(int(BOARD_POWER_SWITCH)),
+        str(int(POWER_SWITCH_CMD)),
+        str(int(vars.turn_off_relay)),
+      )).encode("ascii"))
+      vars.power_switch_board_comm_ok = bool(power_ok)
     except Exception as ex:
-      print("send_all_off_once err:", ex)
+      print("send_off_once err:", ex)
+      vars.power_switch_board_comm_ok = False
 
     # Keep the watchdog alive while staying in the OFF state
     wdt.feed()
@@ -388,8 +583,8 @@ async def rtc_sync_task(vars, delay_ms=2000):
   except Exception as ex:
     print(ex)
   finally:
-    init_espnow_stack()
     await asyncio.sleep_ms(300)
+    _rebuild_espnow_stack()
     vars.comms_paused = False
 
 
@@ -517,108 +712,82 @@ async def main_task(vars):
     # Feed the hardware watchdog regularly
     wdt.feed()
 
-async def motor_rx_task(vars):
+async def motor_comms_task(vars):
+  global _last_power_config_sent, _last_power_switch_sent
+  global _last_power_switch_tx_attempt_ms, _last_power_switch_tx_ok_ms
   period_ms = 50
   next_wake = time.ticks_ms()
-  
   while True:
-    if vars.comms_paused:
-      next_wake = time.ticks_add(next_wake, period_ms)
-      remaining = time.ticks_diff(next_wake, time.ticks_ms())
-      if remaining > 0:
-        await asyncio.sleep_ms(remaining)
-      else:
-        await asyncio.sleep_ms(0)
-      continue
+    now = time.ticks_ms()
 
-    msg = motor_rx_comms.get_data()
-    if msg is not None and len(msg) == 11 and msg[0] == COMMAND_ID_DISPLAY_1:
-      vars.battery_voltage_x10   = msg[1]
-      vars.battery_current_x10   = msg[2]
-      vars.battery_soc_x1000     = msg[3]
-      vars.motor_current_x10     = msg[4]
-      vars.wheel_speed_x10       = msg[5]
-      flags = msg[6]
-      vars.brakes_are_active       = bool(flags & (1 << 0))
-      vars.regen_braking_is_active = bool(flags & (1 << 1))
-      vars.battery_is_charging     = bool(flags & (1 << 2))
-      vars.mode = (flags >> 3) & 0x07
-      vars.cruise_control_is_active = bool(flags & (1 << 6))
-      vars.throttle_is_active       = bool(flags & (1 << 7))
-      vars.throttle_right_fault     = bool(flags & (1 << 8))
-      vars.throttle_left_fault      = bool(flags & (1 << 9))
-      vars.rear_vesc_temperature_x10 = msg[7]
-      vars.front_vesc_temperature_x10 = msg[8]
-      vars.rear_motor_temperature_x10 = msg[9]
-      vars.front_motor_temperature_x10 = msg[10]
-    
-    next_wake = time.ticks_add(next_wake, period_ms)
-    remaining = time.ticks_diff(next_wake, time.ticks_ms())
-    if remaining > 0:
-      await asyncio.sleep_ms(remaining)
-    else:
-      await asyncio.sleep_ms(0)
+    motor_ok = motor_board.send_data()
+    lights_ok = lights_board.send_data()
+    current_power_switch = bool(vars.turn_off_relay)
+    power_switch_ok = time.ticks_diff(now, _last_power_switch_tx_ok_ms) < POWER_SWITCH_BOARD_COMM_TIMEOUT_MS
+    if (
+      current_power_switch != _last_power_switch_sent or
+      time.ticks_diff(now, _last_power_switch_tx_attempt_ms) >= POWER_SWITCH_HEARTBEAT_MS
+    ):
+      power_switch_ok = _send_power_packet(" ".join((
+        str(int(MSG_COMMAND)),
+        str(int(BOARD_DISPLAY)),
+        str(int(BOARD_POWER_SWITCH)),
+        str(int(POWER_SWITCH_CMD)),
+        str(int(vars.turn_off_relay)),
+      )).encode("ascii"))
+      _last_power_switch_tx_attempt_ms = now
+      if power_switch_ok:
+        _last_power_switch_tx_ok_ms = now
+      _last_power_switch_sent = current_power_switch
+    current_power_config = _power_config_snapshot()
+    _send_power_config_if_needed(now, current_power_config)
 
-async def motor_tx_task(vars):
-  period_ms = 100
-  next_wake = time.ticks_ms()
-  while True:
-    if vars.comms_paused:
-      next_wake = time.ticks_add(next_wake, period_ms)
-      remaining = time.ticks_diff(next_wake, time.ticks_ms())
-      if remaining > 0:
-        await asyncio.sleep_ms(remaining)
-      else:
-        await asyncio.sleep_ms(0)
-      continue
+    if motor_ok:
+      vars.motor_board_tx_last_ok_ms = now
+    vars.motor_board_tx_ok = time.ticks_diff(now, vars.motor_board_tx_last_ok_ms) < MOTOR_BOARD_COMM_TIMEOUT_MS
+    vars.lights_board_comm_ok = bool(lights_ok)
+    vars.power_switch_board_comm_ok = bool(power_switch_ok)
 
-    motor_tx_comms.send_data()
-    
-    # Control loop time
-    next_wake = time.ticks_add(next_wake, period_ms)
-    remaining = time.ticks_diff(next_wake, time.ticks_ms())
-    if remaining > 0:
-      await asyncio.sleep_ms(remaining)
-    else:
-      await asyncio.sleep_ms(0)
+    for host, packet in espnow_recv_all(_esp):
+      if packet is None:
+        continue
 
-async def lights_task(vars):
-  global screen_manager
-  period_ms = 50
-  next_wake = time.ticks_ms()
-  
-  while True:
-    if vars.comms_paused:
-      next_wake = time.ticks_add(next_wake, period_ms)
-      remaining = time.ticks_diff(next_wake, time.ticks_ms())
-      if remaining > 0:
-        await asyncio.sleep_ms(remaining)
-      else:
-        await asyncio.sleep_ms(0)
-      continue
+      parts = parse_frame(packet)
+      if parts is None:
+        continue
 
-    if screen_manager.current_is(ScreenID.MAIN):
-      # The display decides the requested head/tail state; the lights board only applies it.
-      lights_requested = effective_lights_state(vars)
-      tail_enabled = (lights_requested or cfg.tail_always_enabled) and vars.motor_enable_state and not vars.battery_is_charging
-      head_enabled = lights_requested and vars.motor_enable_state
+      if len(parts) >= 14 and parts[0] == MSG_STATUS and parts[1] == BOARD_MOTOR and parts[2] == BOARD_DISPLAY:
+        vars.motor_board_rx_last_ok_ms = now
+        health_bitmap = parts[3]
+        vars.motor_lights_tx_ok = bool(health_bitmap & HEALTH_MOTOR_LIGHTS_TX_OK)
 
-      if head_enabled:
-        vars.lights_board_pins_state |= FRONT_LOW_BIT
-      else:
-        vars.lights_board_pins_state &= ~FRONT_LOW_BIT
+        vars.battery_voltage_x10 = parts[4]
+        vars.battery_current_x10 = parts[5]
+        vars.battery_soc_x1000 = parts[6]
+        vars.motor_current_x10 = parts[7]
+        vars.wheel_speed_x10 = parts[8]
+        flags = parts[9]
+        vars.brakes_are_active = bool(flags & (1 << 0))
+        vars.regen_braking_is_active = bool(flags & (1 << 1))
+        vars.battery_is_charging = bool(flags & (1 << 2))
+        vars.mode = (flags >> 3) & 0x07
+        vars.cruise_control_is_active = bool(flags & (1 << 6))
+        vars.throttle_is_active = bool(flags & (1 << 7))
+        vars.throttle_right_fault = bool(flags & (1 << 8))
+        vars.throttle_left_fault = bool(flags & (1 << 9))
+        vars.rear_vesc_temperature_x10 = parts[10]
+        vars.front_vesc_temperature_x10 = parts[11]
+        vars.rear_motor_temperature_x10 = parts[12]
+        vars.front_motor_temperature_x10 = parts[13]
+        continue
 
-      if tail_enabled:
-        vars.lights_board_pins_state |= REAR_TAIL_BIT
-      else:
-        vars.lights_board_pins_state &= ~REAR_TAIL_BIT
+      power_status = decode_power_switch_status(packet)
+      if power_status is not None:
+        vars.power_switch_board_comm_ok = True
 
-      # Brake light is controlled by the motor main board
-      vars.lights_board_pins_state &= ~REAR_BRAKE_BIT
-    else:
-      vars.lights_board_pins_state = 0
-
-    lights_tx_comms.send_data()
+    vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_COMM_TIMEOUT_MS
+    if not vars.motor_board_rx_ok:
+      vars.motor_lights_tx_ok = False
 
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)
@@ -635,9 +804,7 @@ async def main():
     tasks.append(asyncio.create_task(ui_task(fb, lcd, vars)))
     await asyncio.sleep_ms(0)
     tasks.append(asyncio.create_task(preload_screens_task()))
-    tasks.append(asyncio.create_task(motor_rx_task(vars)))
-    tasks.append(asyncio.create_task(motor_tx_task(vars)))
-    tasks.append(asyncio.create_task(lights_task(vars)))
+    tasks.append(asyncio.create_task(motor_comms_task(vars)))
     tasks.append(asyncio.create_task(main_task(vars)))
     boot_log("Main tasks started")
 

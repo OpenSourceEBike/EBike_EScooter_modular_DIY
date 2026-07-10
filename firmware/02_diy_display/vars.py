@@ -14,7 +14,6 @@ class Vars:
     self.vesc_fault_code = 0
     self.battery_voltage_x10 = 0
     self.battery_current_x10 = 0
-    self.bms_battery_current_x10 = 0
     self.battery_soc_x1000 = -1 # -1 means value is invalid
     self.battery_is_charging = False
     self.motor_power_percent = 0
@@ -41,6 +40,13 @@ class Vars:
     self.lights_state = False
     self.auto_lights_state = False
     self.lights_board_pins_state = 0
+    self.motor_board_rx_ok = False
+    self.motor_board_tx_ok = False
+    self.motor_lights_tx_ok = False
+    self.lights_board_comm_ok = False
+    self.power_switch_board_comm_ok = False
+    self.motor_board_tx_last_ok_ms = 0
+    self.motor_board_rx_last_ok_ms = 0
     self.buttons_state = 0
     self.shutdown_request = False
     self.buttons = None

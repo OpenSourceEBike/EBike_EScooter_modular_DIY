@@ -8,6 +8,7 @@ class Cfg(object):
     self.throttle_2_adc_over_max_error = 0
     self.has_jbd_bms = False
     self.jbd_bms_bluetooth_name = ''
+    self.bms_debug = False
     self.charge_current_threshold_a_x100 = 0
     self.charge_detect_hold_ms = 0
     self.save_mode_to_nvs = False
