@@ -85,7 +85,8 @@ for index, pin_num in enumerate(switch_pins_numbers):
 ################################################################
 # ESPNow wireless communications
 
-_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_lights)
+ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
+_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_lights, debug=ESPNOW_DEBUG)
 
 def decode_lights_message(msg):
   parts = parse_frame(msg)
@@ -99,9 +100,11 @@ espnow_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_motor_board),
   decoder=decode_lights_message,
+  debug=ESPNOW_DEBUG,
 )
 
 DISPLAY_TIMEOUT_MS = 20000
+# Keep the established two-second motor heartbeat timeout.
 MOTOR_TIMEOUT_MS = 2000
 
 # Target state for IO pins (bitmask)
@@ -174,7 +177,7 @@ while True:
     display_pins_target = 0
     display_pins_previous = 0
 
-  # After ~2 seconds with no motor messages, clear brake light
+  # After the motor heartbeat timeout, clear the motor-owned brake output.
   if time.ticks_diff(now, motor_timeout_ms) >= 0:
     motor_brake_state = 0
 

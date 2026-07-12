@@ -63,13 +63,15 @@ mac_address_motor_board = cfg.mac_address_motor_board
 mac_address_lights = cfg.mac_address_lights
 mac_address_power_switch = cfg.mac_address_power_switch
 
-_sta, _esp = espnow_init(channel=1, local_mac=my_mac_address)
+ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
+_sta, _esp = espnow_init(channel=1, local_mac=my_mac_address, debug=ESPNOW_DEBUG)
 
 DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
 MOTOR_BOARD_COMM_TIMEOUT_MS = 1500
 POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
 POWER_SWITCH_HEARTBEAT_MS = 500
 POWER_CONFIG_RETRY_MS = 2000
+RTC_SYNC_DELAY_MS = 2000
 _power_peer = bytes(mac_address_power_switch)
 _power_peer_added = False
 _power_tx_had_failure = False
@@ -85,7 +87,7 @@ def _motor_command_signature():
   return (
     int(vars.motor_enable_state),
     int(vars.buttons_state),
-    int(vars.lights_state),
+    int(effective_lights_state(vars)),
     int(vars.turn_off_relay),
   )
 
@@ -105,6 +107,15 @@ def decode_motor_status(msg):
   return None
 
 def _display_lights_state():
+  # Rider/automatic lights are only allowed while the display is in MAIN and
+  # the motor enable command is active. The physical lights board receives
+  # zero whenever either safety condition is false.
+  if (
+    not screen_manager.current_is(ScreenID.MAIN) or
+    not vars.motor_enable_state
+  ):
+    return 0
+
   lights_requested = bool(vars.lights_state)
   tail_enabled = (lights_requested or cfg.tail_always_enabled) and not vars.battery_is_charging
   front_low_enabled = lights_requested
@@ -144,9 +155,11 @@ def _ensure_power_peer():
     if e.args and e.args[0] == -12395:
       _power_peer_added = True
       return True
-    print("ESP-NOW add_peer error:", e)
+    if ESPNOW_DEBUG:
+      print("ESP-NOW add_peer error:", e)
   except Exception as ex:
-    print("ESP-NOW add_peer error:", ex)
+    if ESPNOW_DEBUG:
+      print("ESP-NOW add_peer error:", ex)
   return False
 
 def _send_power_packet(payload):
@@ -160,21 +173,25 @@ def _send_power_packet(payload):
       ok = _esp.send(_power_peer, payload)
     if ok is False:
       if not _power_tx_had_failure:
-        print("ESP-NOW tx error to peer {}".format(_power_peer))
+        if ESPNOW_DEBUG:
+          print("ESP-NOW tx error to peer {}".format(_power_peer))
         _power_tx_had_failure = True
         _power_tx_had_success = False
       return False
     _power_tx_had_failure = False
     if not _power_tx_had_success:
-      print("ESP-NOW tx ok to peer {}".format(_power_peer))
+      if ESPNOW_DEBUG:
+        print("ESP-NOW tx ok to peer {}".format(_power_peer))
       _power_tx_had_success = True
     return True
   except OSError as e:
     if not (e.args and e.args[0] == 116):
-      print("ESP-NOW tx error:", e)
+      if ESPNOW_DEBUG:
+        print("ESP-NOW tx error:", e)
     return False
   except Exception as e:
-    print("ESP-NOW tx error:", e)
+    if ESPNOW_DEBUG:
+      print("ESP-NOW tx error:", e)
     return False
 
 motor_board = ESPNowComms(
@@ -182,12 +199,14 @@ motor_board = ESPNowComms(
   bytes(mac_address_motor_board),
   decoder=decode_motor_status,
   encoder=encode_motor_command,
+  debug=ESPNOW_DEBUG,
 )
 
 lights_board = ESPNowComms(
   _esp,
   bytes(mac_address_lights),
   encoder=encode_lights_command,
+  debug=ESPNOW_DEBUG,
 )
 
 def _power_config_snapshot():
@@ -248,20 +267,39 @@ def _rebuild_espnow_stack():
   global _last_power_config_sent
   global _pending_power_config_snapshot, _pending_power_config_attempt_ms
 
-  _sta, _esp = espnow_init(channel=1, local_mac=my_mac_address)
+  now = time.ticks_ms()
+  vars.motor_board_tx_ok = False
+  vars.motor_board_rx_ok = False
+  vars.motor_lights_tx_ok = False
+  vars.lights_board_comm_ok = False
+  vars.power_switch_board_comm_ok = False
+  vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_COMM_TIMEOUT_MS)
+  vars.motor_board_rx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_COMM_TIMEOUT_MS)
+
+  _sta, _esp = espnow_init(
+    channel=1,
+    local_mac=my_mac_address,
+    debug=ESPNOW_DEBUG,
+    strict=True,
+  )
 
   motor_board = ESPNowComms(
     _esp,
     bytes(mac_address_motor_board),
     decoder=decode_motor_status,
     encoder=encode_motor_command,
+    debug=ESPNOW_DEBUG,
   )
 
   lights_board = ESPNowComms(
     _esp,
     bytes(mac_address_lights),
     encoder=encode_lights_command,
+    debug=ESPNOW_DEBUG,
   )
+
+  if not motor_board.peer_ready or not lights_board.peer_ready:
+    raise RuntimeError("ESP-NOW peer setup incomplete")
 
   _power_peer_added = False
   _power_tx_had_failure = False
@@ -272,6 +310,9 @@ def _rebuild_espnow_stack():
   _last_power_config_sent = None
   _pending_power_config_snapshot = None
   _pending_power_config_attempt_ms = 0
+
+  if not _ensure_power_peer():
+    raise RuntimeError("ESP-NOW power peer setup incomplete")
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
@@ -400,7 +441,11 @@ def update_auto_lights_state(vars):
     vars.lights_state = vars.auto_lights_state
 
 def effective_lights_state(vars):
-  return bool(vars.lights_state)
+  return (
+    bool(vars.lights_state) and
+    bool(vars.motor_enable_state) and
+    screen_manager.current_is(ScreenID.MAIN)
+  )
 
 def set_backlight_enabled(enabled):
   global backlight_is_on
@@ -563,6 +608,12 @@ async def ui_task(fb, lcd, vars):
 
 async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
+  vars.rtc_sync_pending = False
+  # The sync belongs to the charging session that scheduled it.  If the
+  # rider left before the delay expired, do not consume the one-shot latch.
+  if not screen_manager.current_is(ScreenID.CHARGING):
+    return
+  vars.rtc_sync_started = True
   vars.comms_paused = True
   try:
     previous_rtc_ntp_sync_valid = bool(vars.rtc_ntp_sync_valid)
@@ -584,8 +635,15 @@ async def rtc_sync_task(vars, delay_ms=2000):
     print(ex)
   finally:
     await asyncio.sleep_ms(300)
-    _rebuild_espnow_stack()
-    vars.comms_paused = False
+    try:
+      _rebuild_espnow_stack()
+    except Exception as ex:
+      if ESPNOW_DEBUG:
+        print("ESP-NOW rebuild failed:", ex)
+      vars.comms_paused = False
+      machine.reset()
+    else:
+      vars.comms_paused = False
 
 
 async def preload_screens_task(delay_ms=0):
@@ -612,8 +670,7 @@ async def main_task(vars):
   global screen_manager
   
   motor_power_previous = 0
-  rtc_sync_started = False
-  was_in_main_screen = screen_manager.current_is(ScreenID.MAIN)
+  was_in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
   backlight_timeout_ms = getattr(cfg, 'backlight_timeout_ms', 1000)
   backlight_idle_since = system_boot_ms
@@ -626,11 +683,18 @@ async def main_task(vars):
   while True:
     now = time.ticks_ms()
     in_main_screen = screen_manager.current_is(ScreenID.MAIN)
+    in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
 
-    if cfg.enable_rtc_time and in_main_screen and not was_in_main_screen and not rtc_sync_started:
-      rtc_sync_started = True
-      asyncio.create_task(rtc_sync_task(vars, delay_ms=cfg.rtc_sync_delay_ms))
-    was_in_main_screen = in_main_screen
+    if (
+      cfg.enable_rtc_time and
+      in_charging_screen and
+      not was_in_charging_screen and
+      not vars.rtc_sync_started and
+      not vars.rtc_sync_pending
+    ):
+      vars.rtc_sync_pending = True
+      asyncio.create_task(rtc_sync_task(vars, delay_ms=RTC_SYNC_DELAY_MS))
+    was_in_charging_screen = in_charging_screen
     
     # Motor power
     motor_power = int((vars.battery_voltage_x10 * vars.battery_current_x10) / 100.0)
@@ -720,6 +784,10 @@ async def motor_comms_task(vars):
   while True:
     now = time.ticks_ms()
 
+    if vars.comms_paused:
+      await asyncio.sleep_ms(50)
+      continue
+
     motor_ok = motor_board.send_data()
     lights_ok = lights_board.send_data()
     current_power_switch = bool(vars.turn_off_relay)
@@ -748,7 +816,7 @@ async def motor_comms_task(vars):
     vars.lights_board_comm_ok = bool(lights_ok)
     vars.power_switch_board_comm_ok = bool(power_switch_ok)
 
-    for host, packet in espnow_recv_all(_esp):
+    for host, packet in espnow_recv_all(_esp, debug=ESPNOW_DEBUG):
       if packet is None:
         continue
 

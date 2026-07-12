@@ -94,6 +94,20 @@ class ScreenManager:
     self._current.on_enter()
 
   def update(self, vars):
+
+    # Keep the display in CHARGING while the delayed Wi-Fi/NTP sync is
+    # pending or active.  This also turns a button attempt to leave into the
+    # user-visible sync message rendered by ChargingScreen.
+    sync_lock = bool(
+      getattr(vars, "rtc_sync_pending", False) or
+      getattr(vars, "comms_paused", False)
+    )
+    if sync_lock:
+      if not self.current_is(ScreenID.CHARGING):
+        self._charging_entry_is_auto = False
+        vars.motor_enable_state = False
+        self.force(ScreenID.CHARGING)
+      return
     
     button_power_click = bool(vars.buttons_state & 0x0100)
     button_power_long_click = bool(vars.buttons_state & 0x0200)

@@ -23,17 +23,19 @@ Typical display features include:
 
 ## Communication responsibilities
 
-In the target architecture:
+In the active scooter firmware:
 
-- the display sends commands to the motor board only
-- the motor board forwards requests to lights and power-switch boards
-- the display receives a summarized health/state view back from the motor board
+- the display sends motor, rider-light, and power-switch commands directly
+- the display receives motor status and tracks each remote link separately
+- the display schedules the one-shot charging NTP sync after boot
 
 ## Important notes
 
 - The display should not own remote hardware state directly.
 - It should rely on communication health coming back from the motor board.
 - If a board stops replying, the display is the place where the error becomes visible to the rider.
+- During NTP sync, `comms_paused` stops all display ESP-NOW traffic until the
+  stack has been rebuilt.
 
 ## Code areas
 

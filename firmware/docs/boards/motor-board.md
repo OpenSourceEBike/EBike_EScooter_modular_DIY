@@ -2,14 +2,13 @@
 
 ## Role
 
-The motor board is the system coordinator for drive-related logic and the ESP-NOW hub in the target design.
+The motor board is the drive controller and owns motor safety.
 
 It is responsible for:
 
 - receiving rider commands from the display
 - controlling the motor drive behavior
-- tracking board health for remote devices
-- forwarding requests to lights and power-switch boards
+- sending the motor-owned rear-brake light bit to the lights board
 - reporting system status back to the display
 
 ## What it does
@@ -24,17 +23,19 @@ Typical motor-board duties include:
 
 ## Communication responsibilities
 
-In the target architecture:
+In the active scooter firmware:
 
-- the display talks only to the motor board
-- the motor board talks to the lights board and power-switch board
-- the motor board owns retries, receive confirmations, and timeouts for those links
+- the display sends motor commands directly
+- the motor board sends only `REAR_BRAKE_BIT` to the lights board
+- the motor board drops drive enable after 2000 ms without a display command
 
 ## Important notes
 
 - The motor board should be the authority for remote-board comms health.
 - It should keep last known communication state separately from pending requests.
 - It should forward a compact health summary to the display instead of exposing raw link detail unless needed.
+- After each disabled-to-enabled transition, throttle release to zero is
+  required before a motor target can be applied.
 
 ## Code areas
 

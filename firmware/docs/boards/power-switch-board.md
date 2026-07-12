@@ -21,11 +21,11 @@ Typical power-switch duties include:
 
 ## Communication responsibilities
 
-In the target architecture:
+In the active scooter firmware:
 
-- the motor board sends power-switch requests
-- the power-switch board confirms receipt of the request
-- the motor board reports failures or timeouts to the display
+- the display sends relay and configuration requests directly
+- the power-switch board echoes accepted configuration values
+- the display tracks the power-switch link and reports `p TX!` on failure
 
 ## Important notes
 

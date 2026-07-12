@@ -53,6 +53,11 @@ class ChargingScreen(BaseScreen):
 
   def render(self, vars):
 
+    if getattr(vars, 'rtc_sync_pending', False) or getattr(vars, 'comms_paused', False):
+      self._title.update('wifi time sync')
+    else:
+      self._title.update('Charging')
+
     battery_soc_x1000 = max(vars.battery_soc_x1000, 0)
     self._battery_soc_widget.update(battery_soc_x1000//10)
     self._battery_soc.update(f"{battery_soc_x1000 / 10:.0f} %")

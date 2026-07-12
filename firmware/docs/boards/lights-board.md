@@ -21,10 +21,10 @@ Typical lights-board behavior includes:
 
 ## Communication responsibilities
 
-In the target architecture:
+In the active scooter firmware:
 
-- the motor board sends light requests to the lights board
-- the lights board confirms receipt of the request
+- the display sends rider-light bits directly
+- the motor board sends only the `REAR_BRAKE_BIT`
 - the lights board should be able to fail safe if comms stop arriving
 
 ## Important notes
@@ -32,6 +32,8 @@ In the target architecture:
 - The lights board should not be a passive sink.
 - It should confirm that it received the request.
 - If the display stops driving light updates through the motor board, the lights board should fall back to safe outputs.
+- The motor-owned brake output is cleared after 2000 ms without a motor
+  heartbeat; display-owned outputs use their own timeout.
 
 ## Code areas
 

@@ -1,5 +1,8 @@
 import espnow as ESPNow
+from common import config_runtime as cfg
 from common.espnow_protocol import BOARD_DISPLAY, BOARD_MOTOR
+
+DEBUG = bool(getattr(cfg, "espnow_debug", False))
 
 class Display(object):
   """Display"""
@@ -39,7 +42,8 @@ class Display(object):
     
     except Exception as e:
       if not self._rx_error_active:
-        print(f"Display rx error: {e}")
+        if DEBUG:
+          print(f"Display rx error: {e}")
       self._rx_error_active = True
 
   def send_data(self):
@@ -68,5 +72,6 @@ class Display(object):
       
       except Exception as e:
         if not self._tx_error_active:
-          print(f"Display tx error: {e}")
+          if DEBUG:
+            print(f"Display tx error: {e}")
         self._tx_error_active = True

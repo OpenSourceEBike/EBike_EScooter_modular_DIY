@@ -27,7 +27,6 @@ from mode import Mode
 
 TEMPERATURE_NOT_AVAILABLE_X10 = -2550
 DISPLAY_MOTORS_ENABLE_TIMEOUT_MS = 2000
-DISPLAY_MOTORS_ENABLE_BOOT_GRACE_MS = 20000
 system_boot_ms = time.ticks_ms()
 
 try:
@@ -72,9 +71,11 @@ if brake_sensor.value:
 # Object that holds various runtime variables
 vars = Vars()
 display_motors_enable_last_seen_ms = None
+last_display_enable_command = False
 
 # ESPNow wireless communications  
-sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board)
+ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
+sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board, debug=ESPNOW_DEBUG)
 
 def decode_display_command(msg):
   parts = parse_frame(msg)
@@ -144,12 +145,14 @@ display_status_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_display),
   encoder=encode_display_status,
+  debug=ESPNOW_DEBUG,
 )
 
 lights_tx_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_lights),
-  encoder=encode_lights_message)
+  encoder=encode_lights_message,
+  debug=ESPNOW_DEBUG)
 
 motor_cfgs = [cfg.rear_motor_cfg]
 if cfg.front_motor_cfg is not None:
@@ -229,6 +232,7 @@ else:
 
 throttle_1_disabled = False
 throttle_2_disabled = throttle_2 is None
+throttle_rearm_required = False
 
 mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_mode_to_nvs)
 
@@ -261,7 +265,12 @@ async def task_display_send_data():
 
 async def task_lights_send_data():
   while True:
-    if vars.brakes_are_active or vars.regen_braking_is_active:
+    # A disabled motor state is also a hard lights-off command.  This keeps
+    # the motor-board path consistent with the display-board light command.
+    if (
+      vars.motors_enable_state and
+      (vars.brakes_are_active or vars.regen_braking_is_active)
+    ):
       brake_bit = REAR_BRAKE_BIT
     else:
       brake_bit = 0
@@ -272,16 +281,23 @@ async def task_lights_send_data():
     await asyncio.sleep(0.1)
 
 async def task_espnow_receive_process_data():
-  global display_motors_enable_last_seen_ms
+  global display_motors_enable_last_seen_ms, last_display_enable_command
+  global throttle_rearm_required
 
   while True:
-    packet = espnow_recv_last(esp)
+    packet = espnow_recv_last(esp, debug=ESPNOW_DEBUG)
     if packet is not None:
       host, msg = packet
       parts = parse_frame(msg)
       if parts is not None and len(parts) == 7 and parts[0] == MSG_COMMAND and parts[1] == BOARD_DISPLAY and parts[2] == BOARD_MOTOR:
         vars.display_comm_ok = True
-        vars.motors_enable_state = bool(parts[3])
+        new_enable_state = bool(parts[3])
+        if new_enable_state and not last_display_enable_command:
+          throttle_rearm_required = True
+        elif not new_enable_state:
+          throttle_rearm_required = False
+        last_display_enable_command = new_enable_state
+        vars.motors_enable_state = new_enable_state
         display_motors_enable_last_seen_ms = time.ticks_ms()
         vars.buttons_state = parts[4]
         vars.turn_off_relay = bool(parts[6])
@@ -348,8 +364,8 @@ def _stop_motors():
       motor.set_motor_current_amps(0)
 
 async def task_control_motor(wdt):
-  global throttle_1_disabled, throttle_2_disabled
-  global display_motors_enable_last_seen_ms
+  global throttle_1_disabled, throttle_2_disabled, throttle_rearm_required
+  global display_motors_enable_last_seen_ms, last_display_enable_command
   _release_condition_since_ms = None
 
   # Hall-effect throttle supply can spike above over-max threshold at power-on;
@@ -394,6 +410,14 @@ async def task_control_motor(wdt):
     vars.throttle_value = throttle_value
     vars.throttle_right_fault = throttle_1_disabled
     vars.throttle_left_fault = throttle_2_disabled and throttle_2 is not None
+
+    # Re-arm protection: after every disabled -> enabled transition, the
+    # rider must release the throttle to the existing zero/deadband before
+    # any motor target can be applied.
+    if not vars.motors_enable_state:
+      throttle_rearm_required = False
+    if throttle_rearm_required and throttle_value == 0:
+      throttle_rearm_required = False
 
     if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):
       _stop_motors()
@@ -443,16 +467,16 @@ async def task_control_motor(wdt):
     # Brakes
     vars.brakes_are_active = True if brake_sensor.value else False
 
-    # Fail safe: if the display stops refreshing the enable command, drop to disabled state.
-    # Give the display a startup grace window so Wi-Fi/NTP sync can pause ESP-NOW
-    # without forcing the motor off immediately.
+    # Fail safe: if the display stops refreshing the enable command, drop to
+    # disabled state after the normal communication timeout.
     if (
       vars.motors_enable_state and
       display_motors_enable_last_seen_ms is not None and
-      time.ticks_diff(time.ticks_ms(), display_motors_enable_last_seen_ms) >= DISPLAY_MOTORS_ENABLE_TIMEOUT_MS and
-      time.ticks_diff(time.ticks_ms(), system_boot_ms) >= DISPLAY_MOTORS_ENABLE_BOOT_GRACE_MS
+      time.ticks_diff(time.ticks_ms(), display_motors_enable_last_seen_ms) >= DISPLAY_MOTORS_ENABLE_TIMEOUT_MS
     ):
         vars.motors_enable_state = False
+        last_display_enable_command = False
+        throttle_rearm_required = False
         vars.display_comm_ok = False
 
     # Consider less then 10 negative amps of motor current for regen_brakes_are_active = True
@@ -460,7 +484,7 @@ async def task_control_motor(wdt):
     vars.regen_braking_is_active = True if motor_current < -10 else False
 
     # Command motor(s)
-    if vars.motors_enable_state is False:
+    if vars.motors_enable_state is False or throttle_rearm_required:
       vars.cruise_control.target_motor_speed = 0.0
       vars.cruise_control.manual_cancel_ready = False
       vars.cruise_control.state = 1
