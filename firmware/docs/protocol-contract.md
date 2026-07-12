@@ -65,13 +65,17 @@ Display or motor to lights command:
 MSG_COMMAND src dst=BOARD_LIGHTS mask state
 ```
 
-Display or motor to power-switch relay command:
+The display owns the rider-light bits and the motor board sends only
+`REAR_BRAKE_BIT`. During Wi-Fi time sync, the display light state is not part
+of the sync/recovery contract.
+
+Display to power-switch relay command:
 
 ```text
 MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_SWITCH_CMD turn_off
 ```
 
-Display or motor to power-switch config command:
+Display to power-switch config command:
 
 ```text
 MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_rate_hz motion_ac_mode timeout_seconds wait_seconds
@@ -89,12 +93,22 @@ Power-switch to sender config echo/status:
 MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz motion_ac_mode timeout_seconds wait_seconds
 ```
 
-## Status And Echo Rules
+## Runtime and safety rules
 
 1. Motor status frames carry the motor-to-lights health bit for display warnings.
 2. Power-switch config changes are echoed back as status frames containing the validated values the board accepted.
 3. The power-switch board sends the config echo repeatedly after a config change so the sender has multiple chances to receive it.
 4. Periodic switch commands can be sent for continuity, while power config commands should be sent only when config values change.
+5. The display pauses all ESP-NOW traffic during the charging NTP sync and rebuilds the stack before resuming.
+6. The motor board disables drive after a 2000 ms display-command timeout and requires throttle release after re-enable.
+7. The lights board clears the motor-owned brake output after 2000 ms without a motor heartbeat.
+
+## Diagnostics
+
+ESP-NOW diagnostics are controlled by the optional `espnow_debug` runtime
+configuration flag, which defaults to `False`. Persistent transport errors are
+therefore quiet in normal operation; enable the flag during board-local
+diagnosis.
 
 ## Health Rules
 

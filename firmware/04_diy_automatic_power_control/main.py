@@ -180,7 +180,8 @@ def save_power_settings_to_nvs(threshold, rate_hz, ac_mode, timeout_seconds, wai
   return True
 
 # ESPNow wireless communications
-_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_power_switch)
+ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
+_sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_power_switch, debug=ESPNOW_DEBUG)
 
 def decode_power_switch_message(msg):
   parts = parse_frame(msg)
@@ -217,7 +218,8 @@ def _queue_power_settings_echo(host, dst_id):
   except OSError:
     pass
   except Exception as ex:
-    print("ESP-NOW add_peer error:", ex)
+    if ESPNOW_DEBUG:
+      print("ESP-NOW add_peer error:", ex)
 
   _pending_power_settings_echo_host = host
   _pending_power_settings_echo_dst_id = dst_id
@@ -254,9 +256,11 @@ def _process_pending_power_settings_echo():
     esp.send(host, payload)
   except OSError as ex:
     if not (ex.args and ex.args[0] == 116):
-      print("ESP-NOW tx error:", ex)
+      if ESPNOW_DEBUG:
+        print("ESP-NOW tx error:", ex)
   except Exception as ex:
-    print("ESP-NOW tx error:", ex)
+    if ESPNOW_DEBUG:
+      print("ESP-NOW tx error:", ex)
 
   _pending_power_settings_echo_count -= 1
   if _pending_power_settings_echo_count > 0:
@@ -269,6 +273,7 @@ espnow_comms = ESPNowComms(
   esp,
   bytes(cfg.mac_address_motor_board),
   decoder=decode_power_switch_message,
+  debug=ESPNOW_DEBUG,
 )
 
 # ADXL345 pins (adjust if needed)

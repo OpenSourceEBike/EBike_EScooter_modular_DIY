@@ -115,9 +115,9 @@ rtc_timezone = "Europe/Lisbon"
 rtc_debug = False
 # Print boot timing checkpoints on the display board startup.
 boot_timing_debug = False
+espnow_debug = False
 
-# Delayed RTC WiFi/NTP sync timing and per-step timeouts.
-rtc_sync_delay_ms = 3000
+# RTC WiFi/NTP sync per-step timeouts. Sync starts 2 s after charging entry.
 rtc_wifi_timeout_s = 10
 rtc_ntp_timeout_s = 3
 

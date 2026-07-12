@@ -54,4 +54,7 @@ class Vars:
     self.time_string = ''
     self.rtc_time_valid = False
     self.rtc_ntp_sync_valid = False
+    # Wi-Fi/NTP sync is scheduled on the first charging entry after boot.
+    self.rtc_sync_pending = False
+    self.rtc_sync_started = False
     self.comms_paused = False

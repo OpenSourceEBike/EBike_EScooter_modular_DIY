@@ -5,7 +5,7 @@ _ESPNOW_MAX_PENDING_PACKETS = 5
 _ESPNOW_PENDING_BY_ESP_ID = {}
 
 
-def espnow_init(channel: int, local_mac):
+def espnow_init(channel: int, local_mac, debug=False, strict=False):
   """
   Initialize Wi-Fi STA/AP and ESP-NOW and return (sta, esp).
   """
@@ -18,8 +18,11 @@ def espnow_init(channel: int, local_mac):
     except Exception:
       pass
     sta.config(channel=channel)
-  except Exception:
-    pass
+  except Exception as ex:
+    if debug:
+      print("ESP-NOW channel setup error:", ex)
+    if strict:
+      raise
   try:
     ap = network.WLAN(network.AP_IF)
     if ap.active():
@@ -31,14 +34,15 @@ def espnow_init(channel: int, local_mac):
     try:
       sta.config(mac=bytes(local_mac))
     except Exception as ex:
-      print("Warning: couldn't fix local MAC:", ex)
+      if debug:
+        print("Warning: couldn't fix local MAC:", ex)
 
   esp = espnow.ESPNow()
   esp.active(True)
   return sta, esp
 
 
-def espnow_recv_last(esp):
+def espnow_recv_last(esp, debug=False):
   """Drain the ESP-NOW queue and return the oldest packet among the latest five."""
   pending = _ESPNOW_PENDING_BY_ESP_ID.get(id(esp))
   if pending is None:
@@ -56,7 +60,8 @@ def espnow_recv_last(esp):
   except OSError:
     pass
   except Exception as ex:
-    print("ESP-NOW recv error:", ex)
+    if debug:
+      print("ESP-NOW recv error:", ex)
     return None
 
   if not pending:
@@ -65,7 +70,7 @@ def espnow_recv_last(esp):
   return pending.pop(0)
 
 
-def espnow_recv_all(esp):
+def espnow_recv_all(esp, debug=False):
   """Drain the ESP-NOW queue and return all (host, msg) packets seen."""
   packets = []
   try:
@@ -77,16 +82,18 @@ def espnow_recv_all(esp):
   except OSError:
     pass
   except Exception as ex:
-    print("ESP-NOW recv error:", ex)
+    if debug:
+      print("ESP-NOW recv error:", ex)
     return []
   return packets
 
 
 class ESPNowComms:
-  def __init__(self, espnow_inst, peer, decoder=None, encoder=None):
+  def __init__(self, espnow_inst, peer, decoder=None, encoder=None, debug=False):
     self._esp = espnow_inst
     self._decoder = decoder
     self._encoder = encoder
+    self._debug = bool(debug)
     if peer is None:
       raise ValueError("ESPNowComms requires a peer MAC")
     self._peer = peer
@@ -100,8 +107,12 @@ class ESPNowComms:
     except OSError as e:
       if e.args and e.args[0] == -12395:
         self._peer_added = True
-      else:
+      elif self._debug:
         print("ESP-NOW add_peer error:", e)
+
+  @property
+  def peer_ready(self):
+    return self._peer_added
 
   def get_data(self):
     packet = self.get_data_with_host()
@@ -122,7 +133,8 @@ class ESPNowComms:
     except OSError:
       pass
     except Exception as ex:
-      print("ESP-NOW recv error:", ex)
+      if self._debug:
+        print("ESP-NOW recv error:", ex)
       return None
 
     while self._pending_packets:
@@ -136,7 +148,8 @@ class ESPNowComms:
       try:
         decoded = self._decoder(last_msg)
       except Exception as ex:
-        print("ESP-NOW decode error:", ex)
+        if self._debug:
+          print("ESP-NOW decode error:", ex)
         return None
 
       if decoded is None:
@@ -163,19 +176,22 @@ class ESPNowComms:
       ok = _send_once()
       if ok is False:
         if not self._had_send_failure:
-          print("ESP-NOW tx error to peer {}".format(self._peer))
+          if self._debug:
+            print("ESP-NOW tx error to peer {}".format(self._peer))
           self._had_send_failure = True
           self._had_send_success = False
         return False
       self._had_send_failure = False
       if not self._had_send_success:
-        print("ESP-NOW tx ok to peer {}".format(self._peer))
+        if self._debug:
+          print("ESP-NOW tx ok to peer {}".format(self._peer))
         self._had_send_success = True
       return True
     except OSError as e:
-      if not (e.args and e.args[0] == 116):
+      if self._debug and not (e.args and e.args[0] == 116):
         print("ESP-NOW tx error:", e)
       return False
     except Exception as e:
-      print("ESP-NOW tx error:", e)
+      if self._debug:
+        print("ESP-NOW tx error:", e)
       return False

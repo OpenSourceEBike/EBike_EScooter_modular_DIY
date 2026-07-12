@@ -75,6 +75,7 @@ _OPTIONAL_DEFAULTS = {
   "timeout_no_motion_seconds_to_disable_relay": 300,
   "seconds_to_wait_before_movement_detection": 20,
   "boot_timing_debug": False,
+  "espnow_debug": False,
   # Automatic lights schedule is optional; configs may ignore these values.
   "auto_lights_schedule_enabled": False,
   "auto_lights_schedule_enabled_at_boot_only": False,

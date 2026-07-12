@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This document defines the intended ESPNOW communication architecture for the firmware before any code changes are made.
+This document describes the ESPNOW communication architecture implemented by the firmware.
 
 The goal is to make board-to-board communication easier to reason about, easier to monitor, and able to report failures back to the display UI.
 
@@ -22,19 +22,22 @@ The motor board also talks directly to the lights board in the scooter firmware.
 
 This creates overlapping ownership for some remote states, especially lights and power control.
 
-## Target Topology
+## Active Topology
 
-The target design is a hub-and-spoke model:
+The scooter firmware currently uses direct links:
 
 - Display board is the UI and user input source.
-- Motor board is the ESPNOW coordinator.
-- Lights board and power-switch board are managed through the motor board.
+- Display sends motor commands to the motor board, rider-light commands to the
+  lights board, and relay/config commands to the power-switch board.
+- Motor board sends its brake-light bit to the lights board and status to the
+  display.
 
-Target communication rules:
+Active communication rules:
 
-- Display talks only to the motor board.
-- Motor board talks to the lights board and power-switch board.
-- Motor board forwards a summarized health/state view to the display.
+- Display talks directly to the motor, lights, and power-switch boards.
+- Motor board sends only `REAR_BRAKE_BIT` to the lights board.
+- Display owns the rider-light bits; the lights board combines those with the
+  motor-owned brake bit.
 
 ## Board Responsibilities
 
@@ -47,8 +50,8 @@ Target communication rules:
 
 ### Motor board
 
-- Owns ESPNOW routing for all non-display boards.
-- Translates display intent into board-specific requests.
+- Controls the motors and receives the display enable/throttle intent.
+- Sends only the motor-owned brake-light bit to the lights board.
 - Tracks send results, received status frames, and timeouts.
 - Maintains last known communication state for each remote board.
 - Reports a compact system health summary back to the display.
@@ -109,6 +112,10 @@ Display or motor to lights command:
 MSG_COMMAND src dst=BOARD_LIGHTS mask state
 ```
 
+The display owns the rider-light bits and the motor board sends only
+`REAR_BRAKE_BIT`. During Wi-Fi time sync, the display light state is outside
+the sync/recovery contract.
+
 Display or motor to power-switch relay command:
 
 ```text
@@ -161,9 +168,34 @@ Each remote state should have exactly one owner.
 
 Expected ownership:
 
-- Lights state: motor board owns the request flow and health tracking; lights board owns the output pins.
-- Power-off state: motor board owns the request flow and health tracking; power-switch board owns the relay state.
-- Motor/display link: motor board owns the state relay and health summary for the display.
+- Rider/automatic light request: display owns the request and sends its bits
+  directly; lights board owns the output pins.
+- Brake light: motor board owns `REAR_BRAKE_BIT`; lights board owns the output.
+- Power-off state: display owns the request flow; power-switch board owns the
+  relay state.
+- Motor/display link: motor board owns motor safety and reports status to the
+  display.
+
+## Charging Wi-Fi time sync
+
+When enabled, the display schedules one NTP sync on the first transition into
+`CHARGING` after boot. The delay is 2000 ms. If charging is exited before the
+delay expires, the pending one-shot is cancelled and can be retried on a later
+charging entry.
+
+During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop
+and the charging screen shows `Wifi time sync`. The display rebuilds the
+ESP-NOW stack before resuming communications; a rebuild failure releases the
+pause and resets the display board.
+
+## Timing and safety defaults
+
+- Display motor/power communication timeout: 1500 ms.
+- Lights-board motor heartbeat timeout: 2000 ms.
+- Power-switch heartbeat: 500 ms.
+- Motor-board display-enable timeout: 2000 ms.
+- After every disabled-to-enabled transition, the motor board requires the
+  throttle to return to zero before applying a motor target.
 
 This avoids conflicting writes from multiple firmware modules.
 

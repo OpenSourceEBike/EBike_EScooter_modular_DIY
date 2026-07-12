@@ -190,18 +190,33 @@ class MainScreen(BaseScreen):
       self._suppress_warning("mlTX!")
       self._suppress_warning("l TX!")
       self._suppress_warning("p TX!")
-    elif not vars.motor_board_tx_ok:
-      self._enqueue_warning("m TX!")
-      self._suppress_warning("mlTX!")
-    if not suppress_remote_warnings and not vars.motor_board_rx_ok:
-      self._enqueue_warning("m RX!")
-      self._suppress_warning("mlTX!")
-    if not suppress_remote_warnings and vars.motor_board_rx_ok and vars.motor_board_tx_ok and not vars.motor_lights_tx_ok:
-      self._enqueue_warning("mlTX!")
-    if not suppress_remote_warnings and not vars.lights_board_comm_ok:
-      self._enqueue_warning("l TX!")
-    if not suppress_remote_warnings and not vars.power_switch_board_comm_ok:
-      self._enqueue_warning("p TX!")
+    else:
+      if not vars.motor_board_tx_ok:
+        self._enqueue_warning("m TX!")
+        self._suppress_warning("mlTX!")
+      else:
+        self._suppress_warning("m TX!")
+
+      if not vars.motor_board_rx_ok:
+        self._enqueue_warning("m RX!")
+        self._suppress_warning("mlTX!")
+      else:
+        self._suppress_warning("m RX!")
+
+      if vars.motor_board_rx_ok and vars.motor_board_tx_ok and not vars.motor_lights_tx_ok:
+        self._enqueue_warning("mlTX!")
+      else:
+        self._suppress_warning("mlTX!")
+
+      if not vars.lights_board_comm_ok:
+        self._enqueue_warning("l TX!")
+      else:
+        self._suppress_warning("l TX!")
+
+      if not vars.power_switch_board_comm_ok:
+        self._enqueue_warning("p TX!")
+      else:
+        self._suppress_warning("p TX!")
       
     # Slow tick (about 1 Hz)
     if time.ticks_diff(now, self._one_second) >= 0:
