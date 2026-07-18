@@ -34,7 +34,6 @@ import network
 import uasyncio as asyncio
 import machine
 import esp32
-from machine import WDT
 from common.utils import map_range
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
 import vars as Vars
@@ -53,7 +52,13 @@ from common.espnow_protocol import (
 )
 from screen_manager import ScreenManager, ScreenID
 from common.thisbutton import thisButton
-from common.espnow import espnow_init, ESPNowComms, espnow_recv_all
+from common.espnow import (
+  espnow_init,
+  ESPNowComms,
+  espnow_recv_all,
+  espnow_jittered_period_ms,
+  configure_wifi_radio,
+)
 
 vars = Vars.Vars()
 boot_log("Vars initialized")
@@ -65,11 +70,13 @@ mac_address_power_switch = cfg.mac_address_power_switch
 
 ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
 _sta, _esp = espnow_init(channel=1, local_mac=my_mac_address, debug=ESPNOW_DEBUG)
+configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display")
 
 DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
-MOTOR_BOARD_COMM_TIMEOUT_MS = 1500
+MOTOR_BOARD_TX_COMM_TIMEOUT_MS = 1500
+MOTOR_BOARD_RX_COMM_TIMEOUT_MS = 2000
 POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
-POWER_SWITCH_HEARTBEAT_MS = 500
+POWER_SWITCH_HEARTBEAT_MS = 250
 POWER_CONFIG_RETRY_MS = 2000
 RTC_SYNC_DELAY_MS = 2000
 _power_peer = bytes(mac_address_power_switch)
@@ -78,11 +85,11 @@ _power_tx_had_failure = False
 _power_tx_had_success = False
 _last_power_switch_sent = None
 _last_power_switch_tx_attempt_ms = 0
+_next_power_switch_tx_ms = 0
 _last_power_switch_tx_ok_ms = 0
 _last_power_config_sent = None
 _pending_power_config_snapshot = None
 _pending_power_config_attempt_ms = 0
-
 def _motor_command_signature():
   return (
     int(vars.motor_enable_state),
@@ -208,6 +215,8 @@ lights_board = ESPNowComms(
   encoder=encode_lights_command,
   debug=ESPNOW_DEBUG,
 )
+print("ESP-NOW lights peer MAC:", bytes(mac_address_lights))
+print("ESP-NOW lights peer ready:", lights_board.peer_ready)
 
 def _power_config_snapshot():
   return (
@@ -264,6 +273,7 @@ def _rebuild_espnow_stack():
   global motor_board, lights_board
   global _power_peer_added, _power_tx_had_failure, _power_tx_had_success
   global _last_power_switch_sent, _last_power_switch_tx_attempt_ms, _last_power_switch_tx_ok_ms
+  global _next_power_switch_tx_ms
   global _last_power_config_sent
   global _pending_power_config_snapshot, _pending_power_config_attempt_ms
 
@@ -273,8 +283,8 @@ def _rebuild_espnow_stack():
   vars.motor_lights_tx_ok = False
   vars.lights_board_comm_ok = False
   vars.power_switch_board_comm_ok = False
-  vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_COMM_TIMEOUT_MS)
-  vars.motor_board_rx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_COMM_TIMEOUT_MS)
+  vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_TX_COMM_TIMEOUT_MS)
+  vars.motor_board_rx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_RX_COMM_TIMEOUT_MS)
 
   _sta, _esp = espnow_init(
     channel=1,
@@ -282,6 +292,7 @@ def _rebuild_espnow_stack():
     debug=ESPNOW_DEBUG,
     strict=True,
   )
+  configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display")
 
   motor_board = ESPNowComms(
     _esp,
@@ -307,6 +318,7 @@ def _rebuild_espnow_stack():
   _last_power_switch_sent = None
   _last_power_switch_tx_attempt_ms = 0
   _last_power_switch_tx_ok_ms = 0
+  _next_power_switch_tx_ms = 0
   _last_power_config_sent = None
   _pending_power_config_snapshot = None
   _pending_power_config_attempt_ms = 0
@@ -371,9 +383,6 @@ def save_rtc_ntp_sync_valid(value):
   except Exception:
     return False
   return True
-
-# Hardware watchdog: reset the board if not fed within 30 seconds
-wdt = WDT(timeout=30000) # timeout in milliseconds
 
 if cfg.enable_rtc_time:
   vars.rtc = get_rtc_datetime_class()(
@@ -543,6 +552,8 @@ async def power_off_forever(backlight_timeout_ms):
   """
   buttons_state_previous = bool(vars.buttons_state & 0x0100)
   backlight_idle_since = time.ticks_ms()
+  period_ms = 100
+  next_wake = time.ticks_ms()
   while True:
     # Keep button state fresh so the same wake conditions still apply while powering off.
     for i in range(len(vars.buttons)):
@@ -582,10 +593,9 @@ async def power_off_forever(backlight_timeout_ms):
       print("send_off_once err:", ex)
       vars.power_switch_board_comm_ok = False
 
-    # Keep the watchdog alive while staying in the OFF state
-    wdt.feed()
-
-    await asyncio.sleep_ms(100)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 async def ui_task(fb, lcd, vars):
   global screen_manager
@@ -610,14 +620,19 @@ async def rtc_sync_task(vars, delay_ms=2000):
   await asyncio.sleep_ms(delay_ms)
   vars.rtc_sync_pending = False
   # The sync belongs to the charging session that scheduled it.  If the
-  # rider left before the delay expired, do not consume the one-shot latch.
+  # rider left before the delay expired, leave the session available to retry.
   if not screen_manager.current_is(ScreenID.CHARGING):
+    vars.rtc_sync_result = 'idle'
     return
   vars.rtc_sync_started = True
+  vars.rtc_sync_result = 'pending'
   vars.comms_paused = True
   try:
+    # Release the ESP-NOW radio/channel before scanning for the WiFi router.
+    # The ESP-NOW stack is rebuilt on channel 1 after the sync completes.
+    _esp.active(False)
     previous_rtc_ntp_sync_valid = bool(vars.rtc_ntp_sync_valid)
-    rtc_ntp_sync_valid, rtc_time_valid = await sync_rtc_time_from_wifi_ntp_async_lazy(
+    rtc_ntp_sync_valid, rtc_time_valid, rtc_sync_error = await sync_rtc_time_from_wifi_ntp_async_lazy(
       vars.rtc,
       wifi_timeout_s=cfg.rtc_wifi_timeout_s,
       ntp_timeout_s=cfg.rtc_ntp_timeout_s,
@@ -626,12 +641,19 @@ async def rtc_sync_task(vars, delay_ms=2000):
     if vars.rtc.has_external_rtc() and previous_rtc_ntp_sync_valid:
       vars.rtc_ntp_sync_valid = True
     vars.rtc_time_valid = bool(rtc_time_valid)
+    if rtc_sync_error is not None:
+      vars.rtc_sync_result = rtc_sync_error
+    elif rtc_ntp_sync_valid:
+      vars.rtc_sync_result = 'success'
+    else:
+      vars.rtc_sync_result = 'idle'
     if vars.rtc.has_external_rtc():
       save_rtc_ntp_sync_valid(vars.rtc_ntp_sync_valid)
     update_time_string(vars)
     if vars.rtc_ntp_sync_valid:
       update_auto_lights_state(vars)
   except Exception as ex:
+    vars.rtc_sync_result = 'general_fail'
     print(ex)
   finally:
     await asyncio.sleep_ms(300)
@@ -644,6 +666,8 @@ async def rtc_sync_task(vars, delay_ms=2000):
       machine.reset()
     else:
       vars.comms_paused = False
+    # Allow a fresh sync when the next charging session starts.
+    vars.rtc_sync_started = False
 
 
 async def preload_screens_task(delay_ms=0):
@@ -685,14 +709,20 @@ async def main_task(vars):
     in_main_screen = screen_manager.current_is(ScreenID.MAIN)
     in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
 
+    if was_in_charging_screen and not in_charging_screen:
+      if vars.rtc_sync_result in (
+        'ssid_missing', 'password_wrong', 'general_fail'
+      ):
+        vars.rtc_sync_result = 'idle'
+
     if (
       cfg.enable_rtc_time and
       in_charging_screen and
       not was_in_charging_screen and
-      not vars.rtc_sync_started and
       not vars.rtc_sync_pending
     ):
       vars.rtc_sync_pending = True
+      vars.rtc_sync_result = 'pending'
       asyncio.create_task(rtc_sync_task(vars, delay_ms=RTC_SYNC_DELAY_MS))
     was_in_charging_screen = in_charging_screen
     
@@ -773,14 +803,15 @@ async def main_task(vars):
     else:
       await asyncio.sleep_ms(0)
 
-    # Feed the hardware watchdog regularly
-    wdt.feed()
-
 async def motor_comms_task(vars):
   global _last_power_config_sent, _last_power_switch_sent
   global _last_power_switch_tx_attempt_ms, _last_power_switch_tx_ok_ms
+  global _next_power_switch_tx_ms
   period_ms = 50
   next_wake = time.ticks_ms()
+  next_motor_command_ms = next_wake
+  next_lights_command_ms = next_wake
+  next_motor_status_receive_ms = next_wake
   while True:
     now = time.ticks_ms()
 
@@ -788,13 +819,25 @@ async def motor_comms_task(vars):
       await asyncio.sleep_ms(50)
       continue
 
-    motor_ok = motor_board.send_data()
-    lights_ok = lights_board.send_data()
+    if time.ticks_diff(now, next_motor_command_ms) >= 0:
+      motor_ok = motor_board.send_data()
+      next_motor_command_ms = time.ticks_add(
+        now, espnow_jittered_period_ms(100)
+      )
+    else:
+      motor_ok = False
+    if time.ticks_diff(now, next_lights_command_ms) >= 0:
+      lights_ok = lights_board.send_data()
+      next_lights_command_ms = time.ticks_add(
+        now, 50
+      )
+    else:
+      lights_ok = None
     current_power_switch = bool(vars.turn_off_relay)
     power_switch_ok = time.ticks_diff(now, _last_power_switch_tx_ok_ms) < POWER_SWITCH_BOARD_COMM_TIMEOUT_MS
     if (
       current_power_switch != _last_power_switch_sent or
-      time.ticks_diff(now, _last_power_switch_tx_attempt_ms) >= POWER_SWITCH_HEARTBEAT_MS
+      time.ticks_diff(now, _next_power_switch_tx_ms) >= 0
     ):
       power_switch_ok = _send_power_packet(" ".join((
         str(int(MSG_COMMAND)),
@@ -804,6 +847,9 @@ async def motor_comms_task(vars):
         str(int(vars.turn_off_relay)),
       )).encode("ascii"))
       _last_power_switch_tx_attempt_ms = now
+      _next_power_switch_tx_ms = time.ticks_add(
+        now, espnow_jittered_period_ms(POWER_SWITCH_HEARTBEAT_MS)
+      )
       if power_switch_ok:
         _last_power_switch_tx_ok_ms = now
       _last_power_switch_sent = current_power_switch
@@ -812,19 +858,32 @@ async def motor_comms_task(vars):
 
     if motor_ok:
       vars.motor_board_tx_last_ok_ms = now
-    vars.motor_board_tx_ok = time.ticks_diff(now, vars.motor_board_tx_last_ok_ms) < MOTOR_BOARD_COMM_TIMEOUT_MS
-    vars.lights_board_comm_ok = bool(lights_ok)
+    vars.motor_board_tx_ok = time.ticks_diff(now, vars.motor_board_tx_last_ok_ms) < MOTOR_BOARD_TX_COMM_TIMEOUT_MS
+    if lights_ok is not None:
+      vars.lights_board_comm_ok = bool(lights_ok)
     vars.power_switch_board_comm_ok = bool(power_switch_ok)
 
-    for host, packet in espnow_recv_all(_esp, debug=ESPNOW_DEBUG):
-      if packet is None:
-        continue
+    if time.ticks_diff(now, next_motor_status_receive_ms) >= 0:
+      next_motor_status_receive_ms = time.ticks_add(now, 250)
+      latest_motor_status = None
+      for host, packet in espnow_recv_all(_esp, debug=ESPNOW_DEBUG):
+        if packet is None:
+          continue
 
-      parts = parse_frame(packet)
-      if parts is None:
-        continue
+        parts = parse_frame(packet)
+        if parts is None:
+          continue
 
-      if len(parts) >= 14 and parts[0] == MSG_STATUS and parts[1] == BOARD_MOTOR and parts[2] == BOARD_DISPLAY:
+        if len(parts) >= 14 and parts[0] == MSG_STATUS and parts[1] == BOARD_MOTOR and parts[2] == BOARD_DISPLAY:
+          latest_motor_status = parts
+          continue
+
+        power_status = decode_power_switch_status(packet)
+        if power_status is not None:
+          vars.power_switch_board_comm_ok = True
+
+      if latest_motor_status is not None:
+        parts = latest_motor_status
         vars.motor_board_rx_last_ok_ms = now
         health_bitmap = parts[3]
         vars.motor_lights_tx_ok = bool(health_bitmap & HEALTH_MOTOR_LIGHTS_TX_OK)
@@ -847,13 +906,8 @@ async def motor_comms_task(vars):
         vars.front_vesc_temperature_x10 = parts[11]
         vars.rear_motor_temperature_x10 = parts[12]
         vars.front_motor_temperature_x10 = parts[13]
-        continue
 
-      power_status = decode_power_switch_status(packet)
-      if power_status is not None:
-        vars.power_switch_board_comm_ok = True
-
-    vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_COMM_TIMEOUT_MS
+    vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_RX_COMM_TIMEOUT_MS
     if not vars.motor_board_rx_ok:
       vars.motor_lights_tx_ok = False
 

@@ -4,13 +4,12 @@ import uasyncio as asyncio
 
 import common.config_runtime as cfg
 
-from machine import WDT
 from vars import Vars
 from motor import MotorData, Motor
 from brake import Brake
 from throttle import Throttle
 from common.utils import map_range
-from common.espnow import espnow_init, ESPNowComms, espnow_recv_last
+from common.espnow import espnow_init, ESPNowComms, espnow_recv_all, espnow_jittered_period_ms
 from common.espnow_protocol import (
   BOARD_DISPLAY,
   BOARD_LIGHTS,
@@ -76,6 +75,23 @@ last_display_enable_command = False
 # ESPNow wireless communications  
 ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
 sta, esp = espnow_init(channel=1, local_mac=cfg.mac_address_motor_board, debug=ESPNOW_DEBUG)
+
+motor_board_tx_power = cfg.wifi_tx_power_dbm["motor_board"]
+try:
+  print("WiFi TX power before (motor_board): {} dBm".format(sta.config("txpower")))
+except (AttributeError, OSError, ValueError):
+  print("WiFi TX power before (motor_board): unavailable")
+try:
+  print("WiFi TX power config (motor_board): {} dBm".format(motor_board_tx_power))
+  sta.config(txpower=motor_board_tx_power)
+  print("WiFi TX power applied (motor_board): {} dBm".format(sta.config("txpower")))
+except (AttributeError, OSError, ValueError):
+  print("WiFi TX power configuration not supported (motor_board)")
+
+try:
+  sta.config(pm=sta.PM_NONE)
+except (AttributeError, OSError, ValueError):
+  pass
 
 def decode_display_command(msg):
   parts = parse_frame(msg)
@@ -197,21 +213,29 @@ if cfg.has_jbd_bms:
     - keep reconnect logic responsive
     NOTE: BLE scanning starts only after ESP-NOW is up and we've paused briefly.
     """
+    period_ms = 50
+    next_wake = time.ticks_ms()
     # Give Wi-Fi/ESP-NOW a moment to settle before starting BLE scanning.
     await asyncio.sleep_ms(300)
     bms.start(scan_ms=8000)
     while True:
       bms.tick()
-      await asyncio.sleep_ms(50)  # ~20 Hz tick
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
   async def bms_read_task(bms: JbdBmsClient):
     """
     Periodically read cached data. No blocking, no BLE calls here.
     """
+    period_ms = 1000
+    next_wake = time.ticks_ms()
     while True:
       if bms.is_connected() and bms.is_fresh(3000):
         vars.bms_battery_current_x100 = bms.get_current_a_x100()
-      await asyncio.sleep_ms(1000)  # read cadence
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 # Throttles
 throttle_1 = Throttle(
@@ -237,17 +261,20 @@ throttle_rearm_required = False
 mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
+  period_ms = 50
+  next_wake = time.ticks_ms()
   # Refresh latest VESC data (call once; it fills both via CAN)
   while True:
     if front_motor is None:
       rear_motor.update_motor_data(rear_motor, None)
     else:
       rear_motor.update_motor_data(rear_motor, front_motor)
-    gc.collect()
-    await asyncio.sleep(0.05)
+    next_wake = time.ticks_add(next_wake, espnow_jittered_period_ms(period_ms))
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 async def task_display_send_data():
-  period_ms = 250
+  period_ms = 100
   next_wake = time.ticks_ms()
   while True:
     if front_motor_data is None:
@@ -255,7 +282,6 @@ async def task_display_send_data():
     else:
       vars.display_comm_ok = display_status_comms.send_data(vars, rear_motor_data, front_motor_data)
     
-    gc.collect()
     next_wake = time.ticks_add(next_wake, period_ms)
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
     if remaining > 0:
@@ -264,6 +290,10 @@ async def task_display_send_data():
       await asyncio.sleep_ms(0)
 
 async def task_lights_send_data():
+  period_ms = 250
+  next_wake = time.ticks_ms()
+  next_send_ms = time.ticks_ms()
+  last_brake_bit = None
   while True:
     # A disabled motor state is also a hard lights-off command.  This keeps
     # the motor-board path consistent with the display-board light command.
@@ -275,35 +305,55 @@ async def task_lights_send_data():
     else:
       brake_bit = 0
 
-    vars.lights_comm_ok = lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+    now = time.ticks_ms()
+    if (
+      brake_bit != last_brake_bit or
+      time.ticks_diff(now, next_send_ms) >= 0
+    ):
+      vars.lights_comm_ok = lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+      last_brake_bit = brake_bit
+      next_send_ms = time.ticks_add(
+        now, espnow_jittered_period_ms(250)
+      )
 
-    gc.collect()
-    await asyncio.sleep(0.1)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 async def task_espnow_receive_process_data():
   global display_motors_enable_last_seen_ms, last_display_enable_command
   global throttle_rearm_required
 
+  period_ms = 250
+  next_wake = time.ticks_ms()
   while True:
-    packet = espnow_recv_last(esp, debug=ESPNOW_DEBUG)
-    if packet is not None:
-      host, msg = packet
+    latest_packet = None
+    for host, msg in espnow_recv_all(esp, debug=ESPNOW_DEBUG):
       parts = parse_frame(msg)
-      if parts is not None and len(parts) == 7 and parts[0] == MSG_COMMAND and parts[1] == BOARD_DISPLAY and parts[2] == BOARD_MOTOR:
-        vars.display_comm_ok = True
-        new_enable_state = bool(parts[3])
-        if new_enable_state and not last_display_enable_command:
-          throttle_rearm_required = True
-        elif not new_enable_state:
-          throttle_rearm_required = False
-        last_display_enable_command = new_enable_state
-        vars.motors_enable_state = new_enable_state
-        display_motors_enable_last_seen_ms = time.ticks_ms()
-        vars.buttons_state = parts[4]
-        vars.turn_off_relay = bool(parts[6])
+      if parts is None or len(parts) != 7:
+        continue
+      if parts[0] != MSG_COMMAND or parts[1] != BOARD_DISPLAY or parts[2] != BOARD_MOTOR:
+        continue
 
-    gc.collect()
-    await asyncio.sleep(0.1)
+      latest_packet = parts
+
+    if latest_packet is not None:
+      parts = latest_packet
+      vars.display_comm_ok = True
+      new_enable_state = bool(parts[3])
+      if new_enable_state and not last_display_enable_command:
+        throttle_rearm_required = True
+      elif not new_enable_state:
+        throttle_rearm_required = False
+      last_display_enable_command = new_enable_state
+      vars.motors_enable_state = new_enable_state
+      display_motors_enable_last_seen_ms = time.ticks_ms()
+      vars.buttons_state = parts[4]
+      vars.turn_off_relay = bool(parts[6])
+
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 def cruise_control(vars, wheel_speed, requested_motor_target_speed):
   button_long_press_state = vars.buttons_state & 0x0200
@@ -363,7 +413,7 @@ def _stop_motors():
     for motor in motors:
       motor.set_motor_current_amps(0)
 
-async def task_control_motor(wdt):
+async def task_control_motor():
   global throttle_1_disabled, throttle_2_disabled, throttle_rearm_required
   global display_motors_enable_last_seen_ms, last_display_enable_command
   _release_condition_since_ms = None
@@ -371,6 +421,8 @@ async def task_control_motor(wdt):
   # Hall-effect throttle supply can spike above over-max threshold at power-on;
   # a single bad reading permanently sets throttle_1_disabled with no recovery path.
   await asyncio.sleep_ms(500)
+  period_ms = 20
+  next_wake = time.ticks_ms()
 
   while True:
     motor_erpm_max_speed_limits = [
@@ -514,13 +566,13 @@ async def task_control_motor(wdt):
           else:
             motor.set_motor_speed_erpm(motor.data.motor_target_speed)
 
-    if wdt is not None:
-      wdt.feed()
-
-    gc.collect()
-    await asyncio.sleep(0.02)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 async def task_control_motor_limit_current():
+  period_ms = 100
+  next_wake = time.ticks_ms()
   while True:
     # Always use rear wheel speed
     wheel_speed = rear_motor.data.wheel_speed
@@ -558,8 +610,9 @@ async def task_control_motor_limit_current():
         _motor_data.cfg.battery_current_limit_min_min,
         clamp=True)
 
-    gc.collect()
-    await asyncio.sleep(0.1)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
 _led_blink_state = False
 
@@ -577,6 +630,8 @@ def _led_blink():
   _led.write()
 
 async def task_various():
+  period_ms = 100
+  next_wake = time.ticks_ms()
   wheel_speed_previous_motor_speed_erpm = 0
   charge_seen_ms = None
   global mode
@@ -616,22 +671,51 @@ async def task_various():
 
     _led_blink()
 
-    gc.collect()
-    await asyncio.sleep(0.1)
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
+
+async def task_gc_maintenance():
+  """Keep full garbage collections out of the control and communications paths.
+
+  ``gc.collect()`` stops this cooperative scheduler while it runs.  Calling it
+  from the 20 ms motor-control loop (or from CAN/ESP-NOW tasks) therefore adds
+  unpredictable latency to motor commands and safety-state propagation.
+
+  Let MicroPython's automatic GC handle allocation pressure normally, while
+  this low-priority task reclaims memory proactively only when free heap falls
+  below a conservative reserve.  The reserve is 20% of the free heap measured
+  just after startup, never less than 8 KiB.  A two-second check interval keeps
+  the collection rate low without waiting for allocation failure.
+  """
+  # Establish the reference after all board objects and asyncio tasks exist.
+  # The initial collection runs once during startup, outside time-critical work.
+  gc.collect()
+  baseline_free_bytes = gc.mem_free()
+  low_watermark_bytes = max(8192, baseline_free_bytes // 5)
+
+  period_ms = 2000
+  next_wake = time.ticks_ms()
+  while True:
+    # Do not force a complete collection on every check: if the reserve remains
+    # available, avoid a scheduler pause and leave the heap untouched.
+    next_wake = time.ticks_add(next_wake, period_ms)
+    remaining = time.ticks_diff(next_wake, time.ticks_ms())
+    await asyncio.sleep_ms(remaining if remaining > 0 else 0)
+    if gc.mem_free() < low_watermark_bytes:
+      gc.collect()
 
 async def main():
-  # Watchdog task_control_motor() feeds it continuously.
-  wdt = WDT(timeout=30000)
-
   # Build the task list
   tasks = [
     asyncio.create_task(task_motors_refresh_data()),
     asyncio.create_task(task_control_motor_limit_current()),
-    asyncio.create_task(task_control_motor(wdt)),
+    asyncio.create_task(task_control_motor()),
     asyncio.create_task(task_display_send_data()),
     asyncio.create_task(task_lights_send_data()),
     asyncio.create_task(task_espnow_receive_process_data()),
     asyncio.create_task(task_various()),
+    asyncio.create_task(task_gc_maintenance()),
   ]
 
   # Add BMS tasks only if enabled in config

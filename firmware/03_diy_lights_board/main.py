@@ -115,8 +115,19 @@ display_pins_previous = 0
 motor_brake_state = 0
 display_timeout_ms = time.ticks_add(time.ticks_ms(), DISPLAY_TIMEOUT_MS)
 motor_timeout_ms = time.ticks_add(time.ticks_ms(), MOTOR_TIMEOUT_MS)
-last_gc_ms = time.ticks_add(time.ticks_ms(), 1000)
 lights_debug_next_ms = time.ticks_add(time.ticks_ms(), 1000)
+
+# A full collection pauses this single, time-sensitive loop.  Do not run it on
+# every iteration: let MicroPython collect automatically under allocation
+# pressure, then reclaim proactively only from this low-frequency maintenance
+# check.  The reserve is 20% of post-startup free heap, never less than 8 KiB.
+GC_MAINTENANCE_INTERVAL_MS = 2000
+gc.collect()
+gc_baseline_free_bytes = gc.mem_free()
+gc_low_watermark_bytes = max(8192, gc_baseline_free_bytes // 5)
+next_gc_maintenance_ms = time.ticks_add(
+  time.ticks_ms(), GC_MAINTENANCE_INTERVAL_MS
+)
 
 turn_lights_blink_counter = 0
 turn_lights_blink_state = False
@@ -153,8 +164,8 @@ while True:
   now = loop_start_ms
 
   # Check if new ESP-NOW data was received
-  msg = espnow_comms.get_data()
-  if msg is not None:
+  messages_by_source = espnow_comms.get_latest_data_by_source()
+  for host, msg in messages_by_source.values():
     command_id, src_id, dst_id, mask, state = msg
     if command_id == MSG_COMMAND:
       if mask & REAR_BRAKE_BIT:
@@ -168,7 +179,8 @@ while True:
         display_pins_target = (display_pins_target & (~mask & DISPLAY_MASK)) | masked_state
         display_pins_previous = display_pins_target
         display_timeout_ms = time.ticks_add(now, DISPLAY_TIMEOUT_MS)
-  else:
+
+  if not messages_by_source:
     # Reuse previous value if nothing new was received
     display_pins_target = display_pins_previous
 
@@ -241,10 +253,12 @@ while True:
     last_blink_toggle_ms = time.ticks_add(last_blink_toggle_ms, 375)
     turn_lights_blink_state = not turn_lights_blink_state
 
-  # Periodic garbage collection
-  if time.ticks_diff(now, last_gc_ms) >= 0:
-    last_gc_ms = time.ticks_add(last_gc_ms, 1000)
-    gc.collect()
+  # Keep complete GC pauses out of the 25 ms lights/ESP-NOW path whenever the
+  # configured free-memory reserve is still available.
+  if time.ticks_diff(now, next_gc_maintenance_ms) >= 0:
+    next_gc_maintenance_ms = time.ticks_add(now, GC_MAINTENANCE_INTERVAL_MS)
+    if gc.mem_free() < gc_low_watermark_bytes:
+      gc.collect()
 
   # Try to maintain a 25 ms loop time
   next_loop_ms = time.ticks_add(loop_start_ms, LOOP_INTERVAL_MS)
