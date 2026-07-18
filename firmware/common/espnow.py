@@ -1,8 +1,33 @@
 import network
 import espnow
+import urandom
 
-_ESPNOW_MAX_PENDING_PACKETS = 5
-_ESPNOW_PENDING_BY_ESP_ID = {}
+def espnow_jittered_period_ms(period_ms, jitter_ms=20):
+  """Return a bounded random period for periodic ESP-NOW transmissions."""
+  if jitter_ms <= 0:
+    return period_ms
+  offset = (urandom.getrandbits(8) % (2 * jitter_ms + 1)) - jitter_ms
+  return max(1, period_ms + offset)
+
+
+def configure_wifi_radio(sta, tx_power_dbm, label):
+  """Apply and report WiFi radio settings for a board."""
+  try:
+    print("WiFi TX power before ({}): {} dBm".format(label, sta.config("txpower")))
+  except (AttributeError, OSError, ValueError):
+    print("WiFi TX power before ({}): unavailable".format(label))
+
+  try:
+    print("WiFi TX power config ({}): {} dBm".format(label, tx_power_dbm))
+    sta.config(txpower=tx_power_dbm)
+    print("WiFi TX power applied ({}): {} dBm".format(label, sta.config("txpower")))
+  except (AttributeError, OSError, ValueError):
+    print("WiFi TX power configuration not supported ({})".format(label))
+
+  try:
+    sta.config(pm=sta.PM_NONE)
+  except (AttributeError, OSError, ValueError):
+    pass
 
 
 def espnow_init(channel: int, local_mac, debug=False, strict=False):
@@ -42,34 +67,6 @@ def espnow_init(channel: int, local_mac, debug=False, strict=False):
   return sta, esp
 
 
-def espnow_recv_last(esp, debug=False):
-  """Drain the ESP-NOW queue and return the oldest packet among the latest five."""
-  pending = _ESPNOW_PENDING_BY_ESP_ID.get(id(esp))
-  if pending is None:
-    pending = []
-    _ESPNOW_PENDING_BY_ESP_ID[id(esp)] = pending
-
-  try:
-    while True:
-      host, msg = esp.recv(0)
-      if not msg:
-        break
-      pending.append((host, msg))
-      while len(pending) > _ESPNOW_MAX_PENDING_PACKETS:
-        pending.pop(0)
-  except OSError:
-    pass
-  except Exception as ex:
-    if debug:
-      print("ESP-NOW recv error:", ex)
-    return None
-
-  if not pending:
-    return None
-
-  return pending.pop(0)
-
-
 def espnow_recv_all(esp, debug=False):
   """Drain the ESP-NOW queue and return all (host, msg) packets seen."""
   packets = []
@@ -100,7 +97,6 @@ class ESPNowComms:
     self._peer_added = False
     self._had_send_failure = False
     self._had_send_success = False
-    self._pending_packets = []
     try:
       self._esp.add_peer(peer)
       self._peer_added = True
@@ -114,56 +110,97 @@ class ESPNowComms:
   def peer_ready(self):
     return self._peer_added
 
-  def get_data(self):
-    packet = self.get_data_with_host()
-    if packet is None:
-      return None
-    _, decoded = packet
-    return decoded
+  def _ensure_peer(self):
+    if self._peer_added:
+      return True
+    try:
+      self._esp.add_peer(self._peer)
+      self._peer_added = True
+      if self._debug:
+        print("ESP-NOW peer added:", self._peer)
+    except OSError as e:
+      if e.args and e.args[0] == -12395:
+        self._peer_added = True
+      elif self._debug:
+        print("ESP-NOW add_peer error for {}: {}".format(self._peer, e))
+    except Exception as e:
+      if self._debug:
+        print("ESP-NOW add_peer error for {}: {}".format(self._peer, e))
+    return self._peer_added
 
-  def get_data_with_host(self):
+  def get_latest_data_by_source(self):
+    """Drain the receive queue and keep only the latest packet per source."""
+    latest_by_source = {}
+
     try:
       while True:
         host, msg = self._esp.recv(0)
         if not msg:
           break
-        self._pending_packets.append((host, msg))
-        while len(self._pending_packets) > _ESPNOW_MAX_PENDING_PACKETS:
-          self._pending_packets.pop(0)
+
+        if self._decoder is None:
+          continue
+
+        try:
+          decoded = self._decoder(msg)
+        except Exception as ex:
+          if self._debug:
+            print("ESP-NOW decode error:", ex)
+          continue
+
+        if decoded is None:
+          continue
+
+        # The unified protocol stores the source board at index 1.
+        try:
+          source = decoded[1]
+        except (IndexError, TypeError):
+          continue
+        latest_by_source[source] = (host, decoded)
     except OSError:
       pass
     except Exception as ex:
       if self._debug:
         print("ESP-NOW recv error:", ex)
-      return None
+      return latest_by_source
 
-    while self._pending_packets:
-      host, last_msg = self._pending_packets.pop(0)
-      if not last_msg:
-        continue
+    return latest_by_source
 
-      if self._decoder is None:
-        return (host, None)
+  def get_latest_data_with_host(self):
+    """Drain the receive queue and return only the latest valid decoded packet."""
+    latest_packet = None
 
-      try:
-        decoded = self._decoder(last_msg)
-      except Exception as ex:
-        if self._debug:
-          print("ESP-NOW decode error:", ex)
-        return None
+    try:
+      while True:
+        host, msg = self._esp.recv(0)
+        if not msg:
+          break
 
-      if decoded is None:
-        continue
+        if self._decoder is None:
+          continue
 
-      return (host, decoded)
+        try:
+          decoded = self._decoder(msg)
+        except Exception as ex:
+          if self._debug:
+            print("ESP-NOW decode error:", ex)
+          continue
 
-    return None
+        if decoded is not None:
+          latest_packet = (host, decoded)
+    except OSError:
+      pass
+    except Exception as ex:
+      if self._debug:
+        print("ESP-NOW recv error:", ex)
+
+    return latest_packet
 
   def send_data(self, *args):
     payload = self._encoder(*args)
 
     def _send_once():
-      if not self._peer_added:
+      if not self._ensure_peer():
         return False
       try:
         return self._esp.send(self._peer, payload)

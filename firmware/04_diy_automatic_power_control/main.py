@@ -20,7 +20,7 @@ from adxl345 import ADXL345
 ################################################################
 # CONFIGURATIONS
 
-debug_enable = True
+debug_enable = False
 
 ################################################################
 
@@ -339,10 +339,25 @@ if debug_enable:
   motion_counter = 0
   timeout_counter_previous = 0
 
+# A full collection pauses this loop, which is responsible for ESP-NOW relay
+# commands and motion processing.  Let MicroPython collect automatically under
+# allocation pressure and run a proactive collection only if free heap drops
+# below a reserve of 20% of the post-startup value (at least 8 KiB).
+GC_MAINTENANCE_INTERVAL_MS = 2000
+gc.collect()
+gc_baseline_free_bytes = gc.mem_free()
+gc_low_watermark_bytes = max(8192, gc_baseline_free_bytes // 5)
+next_gc_maintenance_ms = time.ticks_add(
+  time.ticks_ms(), GC_MAINTENANCE_INTERVAL_MS
+)
+
+period_ms = 20
+next_wake = time.ticks_ms()
+
 while True:
 
   # process any data received by ESPNow
-  packet = espnow_comms.get_data_with_host()
+  packet = espnow_comms.get_latest_data_with_host()
   if packet is None:
     host = None
     msg = None
@@ -441,11 +456,17 @@ while True:
       timeout_counter_previous = timeout_counter
       print(f"Timeout remaining seconds: {timeout_counter}")
 
-  # do memory clean
-  gc.collect()
+  # Avoid a complete GC pause in every ~20 ms iteration.  Check infrequently
+  # and collect only when memory has crossed the configured reserve.
+  now = time.ticks_ms()
+  if time.ticks_diff(now, next_gc_maintenance_ms) >= 0:
+    next_gc_maintenance_ms = time.ticks_add(now, GC_MAINTENANCE_INTERVAL_MS)
+    if gc.mem_free() < gc_low_watermark_bytes:
+      gc.collect()
 
-  # sleep some very little time
-  time.sleep(0.02)
+  next_wake = time.ticks_add(next_wake, period_ms)
+  remaining = time.ticks_diff(next_wake, time.ticks_ms())
+  time.sleep_ms(remaining if remaining > 0 else 0)
 
 
 if debug_enable:

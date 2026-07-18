@@ -116,6 +116,11 @@ rtc_debug = False
 # Print boot timing checkpoints on the display board startup.
 boot_timing_debug = False
 espnow_debug = False
+# Display and motor board ESP32-S3: 20.0 dBm verified as the maximum WiFi power.
+wifi_tx_power_dbm = {
+  "display": 20.0,
+  "motor_board": 20.0,
+}
 
 # RTC WiFi/NTP sync per-step timeouts. Sync starts 2 s after charging entry.
 rtc_wifi_timeout_s = 10

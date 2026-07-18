@@ -39,8 +39,9 @@ def _log_wifi_scan(sta, target_ssid):
 
     if not matches:
       print("WiFi scan: target SSID not found:", target_ssid)
-      return
+      return None
 
+    selected = None
     for entry in matches:
       ssid, bssid, channel, rssi, authmode, hidden = entry[:6]
       try:
@@ -52,8 +53,29 @@ def _log_wifi_scan(sta, target_ssid):
           ssid, channel, rssi, authmode, hidden
         )
       )
+      if selected is None or rssi > selected[2]:
+        selected = (bssid, channel, rssi)
+    return selected
   except Exception as e:
     print("WiFi scan failed:", e)
+    return None
+
+
+def _configure_wifi_target(sta, scan_target):
+  if scan_target is None:
+    return
+
+  bssid, channel, _rssi = scan_target
+  print("WiFi target channel from scan:", channel)
+  print("WiFi target BSSID from scan:", bssid)
+
+  # BSSID pinning is optional because some MicroPython ports do not expose
+  # this station configuration key.
+  try:
+    sta.config(bssid=bssid)
+    print("WiFi target BSSID applied:", bssid)
+  except (AttributeError, OSError, ValueError):
+    pass
 
 
 def _set_socket_timeout(timeout_s):
@@ -99,6 +121,15 @@ def _is_wifi_connect_error(error):
   if message == "WiFi connect timeout":
     return True
   return message.startswith("WiFi connect failed:")
+
+
+def _wifi_sync_error_result(error):
+  message = str(error)
+  if "STAT_NO_AP_FOUND" in message:
+    return "ssid_missing"
+  if "STAT_WRONG_PASSWORD" in message:
+    return "password_wrong"
+  return None
 
 
 def _load_wifi_credentials(ssid, password):
@@ -155,13 +186,16 @@ def _prepare_wifi_station(sta):
 
   if sta.active():
     _disconnect_wifi(sta)
-  else:
-    sta.active(True)
+    sta.active(False)
+    time.sleep_ms(200)
+  sta.active(True)
 
 
 def _connect_wifi_attempt(sta, ssid, password, timeout_s):
   _prepare_wifi_station(sta)
-  _log_wifi_scan(sta, ssid)
+  scan_target = _log_wifi_scan(sta, ssid)
+  _configure_wifi_target(sta, scan_target)
+  print("WiFi password:", repr(password))
 
   if sta.isconnected():
     return sta
@@ -190,7 +224,9 @@ async def _connect_wifi_attempt_async(sta, ssid, password, timeout_s):
   import uasyncio as asyncio
 
   _prepare_wifi_station(sta)
-  _log_wifi_scan(sta, ssid)
+  scan_target = _log_wifi_scan(sta, ssid)
+  _configure_wifi_target(sta, scan_target)
+  print("WiFi password:", repr(password))
 
   if sta.isconnected():
     return sta
@@ -251,7 +287,7 @@ def sync_rtc_time_from_wifi_ntp(
     ssid, password = _load_wifi_credentials(ssid, password)
   except Exception:
     print("Missing or invalid secrets.py!")
-    return False, bool(rtc.update_internal_rtc_from_external())
+    return False, bool(rtc.update_internal_rtc_from_external()), "general_fail"
 
   previous_socket_timeout = None
   try:
@@ -278,7 +314,7 @@ def sync_rtc_time_from_wifi_ntp(
       print("External RTC stored in UTC:", rtc.external_utc_now())
 
     _reset_wifi_radio()
-    return True, True
+    return True, True, None
 
   except Exception as e:
     if _is_wifi_connect_error(e):
@@ -289,7 +325,7 @@ def sync_rtc_time_from_wifi_ntp(
       _reset_wifi_radio()
     except Exception as reset_ex:
       print("Radio reset failed:", reset_ex)
-    return False, bool(rtc.update_internal_rtc_from_external())
+    return False, bool(rtc.update_internal_rtc_from_external()), _wifi_sync_error_result(e) or "general_fail"
 
   finally:
     _restore_socket_timeout(previous_socket_timeout)
@@ -307,7 +343,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
     ssid, password = _load_wifi_credentials(ssid, password)
   except Exception:
     print("Missing or invalid secrets.py!")
-    return False, bool(rtc.update_internal_rtc_from_external())
+    return False, bool(rtc.update_internal_rtc_from_external()), "general_fail"
 
   previous_socket_timeout = None
   try:
@@ -334,7 +370,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
       print("External RTC stored in UTC:", rtc.external_utc_now())
 
     await _reset_wifi_radio_async()
-    return True, True
+    return True, True, None
 
   except Exception as e:
     if _is_wifi_connect_error(e):
@@ -345,7 +381,7 @@ async def sync_rtc_time_from_wifi_ntp_async(
       await _reset_wifi_radio_async()
     except Exception as reset_ex:
       print("Radio reset failed:", reset_ex)
-    return False, bool(rtc.update_internal_rtc_from_external())
+    return False, bool(rtc.update_internal_rtc_from_external()), _wifi_sync_error_result(e) or "general_fail"
 
   finally:
     _restore_socket_timeout(previous_socket_timeout)

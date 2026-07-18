@@ -1,33 +1,154 @@
 # Firmware Issues Review
 
-Review date: 2026-07-09.
+Review date: 2026-07-17.
 
 Scope: active MicroPython firmware in this checkout, with focus on the maintained escooter display, motor, lights, automatic power control board, shared ESP-NOW helpers, and config runtime. The e-bike path is documented as legacy/not maintained and is not part of the active maintained firmware scope.
 
 Validation done:
 
-- CPython syntax-only `compile()` passed on 79 Python files.
+- CPython syntax-only `py_compile` passed for the active entry points and
+  critical shared modules.
 - `pyflakes` and `ruff` are not installed in this environment, so no external static linter pass was run.
 - `mpy-cross` is not installed in this environment, so no MicroPython parser/compiler pass was run.
 - No hardware test was done in this review.
 
-This file tracks currently open findings. Older findings already marked implemented were intentionally removed from the active list. There is currently one open finding.
-Resolved since the last pass: the root config deployment convention is documented, the legacy minutes compatibility path was removed, the charging hold sentinel was fixed, the ADXL345 INT1 routing is explicit, the ADXL345 setup now enables only the activity interrupt, the ESP-NOW protocol docs now match the no-sequence frame shapes, the display now throttles power-config retries instead of sending them every comm loop, the Boot click now evaluates the stopped/brakes-on Charging transition before the Boot-to-Main transition, `cfg` object fields are merged before optional defaults in the config loader, power config `ac_mode` validation is strict, the lights board inline ESP-NOW message comment now matches the current frame shape, the power-board relay pin map was moved off the ADXL345 I2C pins, the power board clears stale ADXL345 motion interrupts before arming deep-sleep wake, the active display button timing now uses config values, BMS debug logging is now config-driven and disabled by default, BMS comments now correctly state that only BLE scanning is deferred, and the e-bike path was marked legacy/not maintained.
+This file tracks currently open findings. Older findings already marked implemented are intentionally removed from the active list.
+
+Resolved since the previous review: the power-board production logging default is now disabled (`debug_enable = False`), and forced GC calls were removed from the high-frequency motor, lights, and power-control loops in favour of low-frequency memory maintenance checks.
 
 ## Review Summary
 
-- Low: power board debug logging is enabled by default.
+| Severity | Open findings |
+| --- | --- |
+| High | ESP-NOW command frames are not authenticated; active critical tasks have no supervisor. |
+| Medium | Relay state has no application acknowledgement; motor-cycle timing is unmeasured; NTP remains blocking. |
 
 ## Findings
 
-### Low - power board debug logging is enabled by default
+### High - ESP-NOW command frames are not authenticated
 
-`debug_enable` is currently `True` on the automatic power control board.
+**Status:** Open.
 
-Reference:
+The shared protocol is plain ASCII and carries only numeric source/destination
+board IDs. The active receivers validate those fields but do not validate the
+received peer MAC address or authenticate the payload.
 
-- `04_diy_automatic_power_control/main.py:23`
+**References:**
 
-Impact: the board prints startup, timeout, motion, and sleep messages in normal operation. This is useful during tuning, but noisy for production and can slow the loop slightly.
+- `common/espnow_protocol.py:14-30`
+- `01_diy_main_board/escooter/main.py:298-309`
+- `03_diy_lights_board/main.py:166-180`
+- `04_diy_automatic_power_control/main.py:186-195`
 
-Suggested fix: set `debug_enable = False` for the normal firmware image, or move it into config.
+**Impact:** a radio sender able to forge a valid frame can request motor state,
+lights, relay shutdown, or power configuration changes.
+
+**Recommended action:** validate the peer MAC against the expected board for
+each link, configure encrypted ESP-NOW peers, and add a replay-resistant
+counter/nonce if the platform supports it.
+
+### High - active critical tasks have no supervisor or watchdog recovery
+
+**Status:** Open.
+
+The active scooter firmware no longer creates or feeds a hardware watchdog.
+The power board asserts relay outputs at startup and its normal timeout-based
+power-off logic only runs while the main loop continues executing. The motor
+and display applications also have no task supervisor to recover an
+unexpectedly terminated critical task.
+
+**References:**
+
+- `01_diy_main_board/escooter/main.py:708-724`
+- `02_diy_display/escooter/main.py:921-928`
+- `04_diy_automatic_power_control/main.py:354-465`
+
+**Impact:** a firmware or peripheral lock-up can leave the power path asserted
+until an external reset or power intervention. An uncaught exception can also
+stop motor or display tasks while the remaining firmware continues running.
+
+**Recommended action:** add an explicit supervisor that places actuators in a
+safe state and restarts promptly after a critical task failure. If a hardware
+watchdog is reintroduced, feed it only after the complete critical cycle and
+test the relay state after watchdog reset on target hardware.
+
+### Medium - relay command delivery is not application-acknowledged
+
+**Status:** Open.
+
+The Display treats a successful ESP-NOW send as power-board communication
+health. The power board emits configuration echoes, but does not send its
+actual relay state or an acknowledgement tied to each `turn_off` command.
+
+**References:**
+
+- `02_diy_display/escooter/main.py:804-829`
+- `04_diy_automatic_power_control/main.py:364-367`
+
+**Impact:** the Display can report communication as healthy even if the relay
+command was received but could not be applied by the power board.
+
+**Recommended action:** add a power-board status frame containing relay state,
+last command identifier, and power-off reason; make Display health depend on a
+fresh matching acknowledgement.
+
+### Medium - motor control timing has blocking work in the 20 ms loop
+
+**Status:** Open; requires hardware measurement.
+
+The motor-control coroutine targets 20 ms but can make multiple CAN sends per
+iteration. Each successful send calls `time.sleep_ms(3)`. CAN telemetry drain
+also reserves up to 10 ms in a separate cooperative task.
+
+**References:**
+
+- `01_diy_main_board/escooter/main.py:375-526`
+- `01_diy_main_board/motor.py:75-77`
+- `01_diy_main_board/motor.py:111-116`
+
+**Impact:** with two motors, real control and ESP-NOW latency can exceed the
+nominal cadence, particularly under CAN traffic.
+
+**Recommended action:** instrument worst-case task duration on the board,
+review the 3 ms post-send delay, and bound the CAN work performed per cycle.
+
+### Medium - task exceptions are not recovered explicitly
+
+**Status:** Open.
+
+Both active asynchronous applications use `asyncio.gather()` without a task
+supervisor. An uncaught exception terminates the affected task and there is no
+active hardware watchdog to provide recovery.
+
+**References:**
+
+- `01_diy_main_board/escooter/main.py:708-724`
+- `02_diy_display/escooter/main.py:921-928`
+
+**Impact:** a software fault can leave the firmware degraded indefinitely. The
+safe behaviour of attached motor controllers during that interval is not
+guaranteed by this firmware.
+
+**Recommended action:** add a top-level supervisor that logs the failing task,
+applies a software-safe state when possible, and resets promptly; validate with
+fault injection on hardware.
+
+### Medium - asynchronous NTP sync still contains a blocking operation
+
+**Status:** Open; requires target-network measurement.
+
+`sync_rtc_time_from_wifi_ntp_async()` calls the synchronous
+`ntptime.settime()`. During this period the Display pauses ESP-NOW, and the
+event loop cannot schedule normal UI and communication work.
+
+**References:**
+
+- `02_diy_display/wifi_time_sync.py:303-351`
+- `02_diy_display/escooter/main.py:613-641`
+
+**Impact:** slow DNS/NTP behaviour can freeze the Display longer than expected
+and delay recovery of normal communication.
+
+**Recommended action:** measure the worst case with the deployed network. If
+it is unacceptable, use a bounded NTP implementation or isolate the operation
+so normal UI and communication tasks remain responsive.

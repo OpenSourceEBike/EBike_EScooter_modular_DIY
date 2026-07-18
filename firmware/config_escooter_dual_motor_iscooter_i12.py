@@ -157,10 +157,15 @@ rtc_sda_pin = 7
 # Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
-rtc_debug = False
+rtc_debug = True
 # Print boot timing checkpoints on the display board startup.
 boot_timing_debug = False
 espnow_debug = False
+# Display and motor board ESP32-S3: 20.0 dBm verified as the maximum WiFi power.
+wifi_tx_power_dbm = {
+  "display": 20.0,
+  "motor_board": 20.0,
+}
 
 # RTC WiFi/NTP sync per-step timeouts. Sync starts 2 s after charging entry.
 rtc_wifi_timeout_s = 10
@@ -216,8 +221,8 @@ brake_tail_off_ms = 100
 #   255 = maximum threshold, hardest to trigger
 # motion_detection_rate_hz: 3, 6, 12, 25, 50, 100, 200, 400, 800, 1600, 3200
 #   default 25; unsupported values are rounded to the nearest supported rate
-motion_detection_threshold = 32
-motion_detection_rate_hz = 6
-motion_detection_ac_mode = False
+motion_detection_threshold = 16
+motion_detection_rate_hz = 25
+motion_detection_ac_mode = True
 timeout_no_motion_seconds_to_disable_relay = 300
 seconds_to_wait_before_movement_detection = 20

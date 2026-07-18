@@ -102,13 +102,16 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
 5. The display pauses all ESP-NOW traffic during the charging NTP sync and rebuilds the stack before resuming.
 6. The motor board disables drive after a 2000 ms display-command timeout and requires throttle release after re-enable.
 7. The lights board clears the motor-owned brake output after 2000 ms without a motor heartbeat.
+8. Receivers drain their ESP-NOW queue during each receive cycle and apply only
+   the most recent valid command or status for each relevant source. Older
+   queued packets are discarded.
 
 ## Diagnostics
 
 ESP-NOW diagnostics are controlled by the optional `espnow_debug` runtime
-configuration flag, which defaults to `False`. Persistent transport errors are
-therefore quiet in normal operation; enable the flag during board-local
-diagnosis.
+configuration flag, which defaults to `False` in the runtime defaults and all
+production board configurations. Persistent transport errors are therefore
+quiet in normal operation; enable the flag only during board-local diagnosis.
 
 ## Health Rules
 

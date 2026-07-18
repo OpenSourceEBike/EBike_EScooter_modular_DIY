@@ -53,8 +53,17 @@ class ChargingScreen(BaseScreen):
 
   def render(self, vars):
 
+    sync_result = getattr(vars, 'rtc_sync_result', 'idle')
     if getattr(vars, 'rtc_sync_pending', False) or getattr(vars, 'comms_paused', False):
       self._title.update('wifi time sync')
+    elif sync_result == 'success':
+      self._title.update('time sync ok')
+    elif sync_result == 'ssid_missing':
+      self._title.update('SSID missing')
+    elif sync_result == 'password_wrong':
+      self._title.update('err WiFi pass')
+    elif sync_result == 'general_fail':
+      self._title.update('WiFi sync fail')
     else:
       self._title.update('Charging')
 
