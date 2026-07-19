@@ -157,7 +157,7 @@ rtc_sda_pin = 7
 # Required timezone name used to select UTC offset and DST rules.
 rtc_timezone = "Europe/Lisbon"
 # Verbose RTC initialization and WiFi/NTP sync logging.
-rtc_debug = True
+rtc_debug = False
 # Print boot timing checkpoints on the display board startup.
 boot_timing_debug = False
 espnow_debug = False

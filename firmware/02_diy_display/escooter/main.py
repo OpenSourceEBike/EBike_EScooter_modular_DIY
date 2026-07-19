@@ -70,7 +70,7 @@ mac_address_power_switch = cfg.mac_address_power_switch
 
 ESPNOW_DEBUG = bool(getattr(cfg, "espnow_debug", False))
 _sta, _esp = espnow_init(channel=1, local_mac=my_mac_address, debug=ESPNOW_DEBUG)
-configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display")
+configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display", debug=ESPNOW_DEBUG)
 
 DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
 MOTOR_BOARD_TX_COMM_TIMEOUT_MS = 1500
@@ -90,6 +90,7 @@ _last_power_switch_tx_ok_ms = 0
 _last_power_config_sent = None
 _pending_power_config_snapshot = None
 _pending_power_config_attempt_ms = 0
+_last_power_config_feedback = None
 def _motor_command_signature():
   return (
     int(vars.motor_enable_state),
@@ -215,8 +216,9 @@ lights_board = ESPNowComms(
   encoder=encode_lights_command,
   debug=ESPNOW_DEBUG,
 )
-print("ESP-NOW lights peer MAC:", bytes(mac_address_lights))
-print("ESP-NOW lights peer ready:", lights_board.peer_ready)
+if ESPNOW_DEBUG:
+  print("ESP-NOW lights peer MAC:", bytes(mac_address_lights))
+  print("ESP-NOW lights peer ready:", lights_board.peer_ready)
 
 def _power_config_snapshot():
   return (
@@ -292,7 +294,7 @@ def _rebuild_espnow_stack():
     debug=ESPNOW_DEBUG,
     strict=True,
   )
-  configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display")
+  configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display", debug=ESPNOW_DEBUG)
 
   motor_board = ESPNowComms(
     _esp,
@@ -320,6 +322,7 @@ def _rebuild_espnow_stack():
   _last_power_switch_tx_ok_ms = 0
   _next_power_switch_tx_ms = 0
   _last_power_config_sent = None
+  _last_power_config_feedback = None
   _pending_power_config_snapshot = None
   _pending_power_config_attempt_ms = 0
 
@@ -805,6 +808,7 @@ async def main_task(vars):
 
 async def motor_comms_task(vars):
   global _last_power_config_sent, _last_power_switch_sent
+  global _last_power_config_feedback
   global _last_power_switch_tx_attempt_ms, _last_power_switch_tx_ok_ms
   global _next_power_switch_tx_ms
   period_ms = 50
@@ -881,6 +885,16 @@ async def motor_comms_task(vars):
         power_status = decode_power_switch_status(packet)
         if power_status is not None:
           vars.power_switch_board_comm_ok = True
+          received_config = tuple(int(value) for value in power_status[4:9])
+          if received_config != _last_power_config_feedback:
+            expected_config = _last_power_config_sent
+            if expected_config is None:
+              print("Power board config feedback:", received_config, "expected: none")
+            elif received_config == expected_config:
+              print("Power board config applied:", received_config)
+            else:
+              print("Power board config mismatch; rx:", received_config, "tx:", expected_config)
+            _last_power_config_feedback = received_config
 
       if latest_motor_status is not None:
         parts = latest_motor_status
