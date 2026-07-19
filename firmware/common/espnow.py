@@ -10,8 +10,15 @@ def espnow_jittered_period_ms(period_ms, jitter_ms=20):
   return max(1, period_ms + offset)
 
 
-def configure_wifi_radio(sta, tx_power_dbm, label):
+def configure_wifi_radio(sta, tx_power_dbm, label, debug=False):
   """Apply and report WiFi radio settings for a board."""
+  if not debug:
+    sta.config(txpower=tx_power_dbm)
+    try:
+      sta.config(pm=sta.PM_NONE)
+    except (AttributeError, OSError, ValueError):
+      pass
+    return
   try:
     print("WiFi TX power before ({}): {} dBm".format(label, sta.config("txpower")))
   except (AttributeError, OSError, ValueError):
