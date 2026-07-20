@@ -8,6 +8,7 @@ class ScreenID:
   MAIN      = 1
   CHARGING  = 2
   POWEROFF  = 3
+  MOTOR_BLOCKED = 4
 
 class ScreenManager:
   def __init__(self, fb, vars):
@@ -18,6 +19,7 @@ class ScreenManager:
       ScreenID.MAIN: ("screens.main", "MainScreen"),
       ScreenID.CHARGING: ("screens.charging", "ChargingScreen"),
       ScreenID.POWEROFF: ("screens.poweroff", "PowerOffScreen"),
+      ScreenID.MOTOR_BLOCKED: ("screens.motor_blocked", "MotorBlockedScreen"),
     }
     self._screen_factories = {
       ScreenID.BOOT: BootScreen,
@@ -107,6 +109,16 @@ class ScreenManager:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)
+      return
+
+    # Hold a dedicated centred warning while the motor requires throttle
+    # release after being enabled.
+    if getattr(vars, "motor_throttle_rearm_required", False):
+      if not self.current_is(ScreenID.MOTOR_BLOCKED):
+        self.force(ScreenID.MOTOR_BLOCKED)
+      return
+    if self.current_is(ScreenID.MOTOR_BLOCKED):
+      self.force(ScreenID.MAIN)
       return
     
     button_power_click = bool(vars.buttons_state & 0x0100)

@@ -18,14 +18,16 @@ DEFAULT_CONFIG="config_escooter_dual_motor_iscooter_i12.py"
 
 CFG="${2:-$DEFAULT_CONFIG}"
 [[ "$CFG" == config_*.py ]] || CFG="config_${CFG}.py"
+OBSOLETE_FILES=()
 
 case "$BOARD" in
   main_board)
     FILES=(01_diy_main_board/boot.py 01_diy_main_board/main.py
-      01_diy_main_board/bms_jbd.py 01_diy_main_board/mode.py
+      01_diy_main_board/mode.py
       01_diy_main_board/motor.py 01_diy_main_board/vars.py
       01_diy_main_board/throttle.py 01_diy_main_board/brake.py)
     for f in 01_diy_main_board/escooter/*.py; do FILES+=("$f"); done
+    OBSOLETE_FILES=("/bms_jbd.py")
     MANIFEST="/.main_board_update_manifest"
     ;;
   lights_board)
@@ -39,6 +41,7 @@ case "$BOARD" in
     ;;
   display)
     FILES=(02_diy_display/main.py 02_diy_display/screen_manager.py
+      02_diy_display/bms_jbd.py
       02_diy_display/wifi_time_sync.py
       02_diy_display/rtc_datetime.py)
     for f in 02_diy_display/escooter/*.py 02_diy_display/lcd/*.py \
@@ -84,11 +87,18 @@ for source in "${FILES[@]}"; do
   fi
 done
 
-if [[ "$changed" -eq 0 ]]; then
+removed=0
+for obsolete in "${OBSOLETE_FILES[@]}"; do
+  if [[ -n "${OLD["$obsolete"]:-}" ]] && "${MP[@]}" fs rm ":$obsolete" 2>/dev/null; then
+    removed=$((removed + 1))
+  fi
+done
+
+if [[ "$changed" -eq 0 && "$removed" -eq 0 ]]; then
   echo "$BOARD já está atualizado; nenhum ficheiro foi enviado."
   exit 0
 fi
 
 "${MP[@]}" fs cp "$TMP" ":$MANIFEST"
-echo "$changed ficheiro(s) atualizado(s) no $BOARD; a reiniciar..."
+echo "$changed ficheiro(s) atualizado(s) e $removed obsoleto(s) removido(s) no $BOARD; a reiniciar..."
 "${MP[@]}" reset

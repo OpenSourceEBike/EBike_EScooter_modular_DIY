@@ -21,6 +21,9 @@ _IRQ_GATTC_DESCRIPTOR_RESULT     = const(13)
 _IRQ_GATTC_DESCRIPTOR_DONE       = const(14)
 _IRQ_GATTC_NOTIFY                = const(18)
 
+MAX_RECONNECT_ATTEMPTS = 2
+CONNECT_TIMEOUT_MS = 8000
+
 # ===== BLE UUIDs exposed by JBD over GATT =====
 SVC_UUID    = bluetooth.UUID(0xFF00)
 NOTIFY_UUID = bluetooth.UUID(0xFF01)
@@ -132,6 +135,13 @@ class JbdBmsClient:
     self.awaiting = False
     self.phase = 0
     self.last_data_ms = 0
+    self._scan_ms = 8000
+    self._scan_active = False
+    self._connecting = False
+    self._connect_deadline_ms = 0
+    self._retry_count = 0
+    self._unavailable = False
+    self._started = False
 
     self._buf = bytearray()
     self._head = 0
@@ -143,9 +153,26 @@ class JbdBmsClient:
   # ───────── Public API ─────────
 
   def start(self, scan_ms=8000):
+    if not self.ble.active():
+      self.ble.active(True)
+    self.ble.irq(self._irq)
+    self._scan_ms = scan_ms
+    self._retry_count = 0
+    self._unavailable = False
+    self._started = True
+    self._reset_state()
     self._scan(scan_ms)
 
-  def stop(self):
+  def is_available(self):
+    return not self._unavailable
+
+  def is_started(self):
+    return self._started
+
+  def stop(self, deactivate=False):
+    # Block disconnect/scan IRQs from starting another retry while stopping.
+    self._unavailable = True
+    self._started = False
     try:
       self.ble.gap_scan(None)
     except:
@@ -156,9 +183,25 @@ class JbdBmsClient:
     except:
       pass
     self._reset_state(clear_buf=True)
+    if deactivate:
+      try:
+        self.ble.active(False)
+      except:
+        pass
 
   def tick(self):
     try:
+      if self._unavailable:
+        return
+
+      if self._connecting:
+        if time.ticks_diff(time.ticks_ms(), self._connect_deadline_ms) >= 0:
+          self._handle_connection_failure("connect timeout")
+        return
+
+      if self._scan_active:
+        return
+
       self._drain_frames()
 
       if (self.conn is None) or (self.h_n is None):
@@ -179,8 +222,8 @@ class JbdBmsClient:
           self.awaiting = False
           self.next_ms = time.ticks_add(time.ticks_ms(), self.query_period_ms)
 
-      if self.last_data_ms and time.ticks_diff(t, self.last_data_ms) > (self.query_period_ms * 3) and (not self.awaiting):
-        self._schedule_send(100)
+      if self.last_data_ms and time.ticks_diff(t, self.last_data_ms) > (self.query_period_ms * 3):
+        self._handle_connection_failure("stale data")
 
     except Exception as ex:
       if self.debug:
@@ -251,13 +294,47 @@ class JbdBmsClient:
   # ───────── Internals: BLE + scheduling + buffering + parsing ─────────
 
   def _scan(self, ms):
+    if self._unavailable:
+      return
+    self._scan_active = True
     if self.debug:
       print("Scanning…")
     try:
-      self.ble.gap_scan(ms, 30000, 30000)
+      # Keep BLE scan duty cycle near 15% so it shares the radio with ESP-NOW.
+      # Values are interval/window in microseconds: 200 ms / 30 ms.
+      self.ble.gap_scan(ms, 200000, 30000)
     except Exception as ex:
+      self._scan_active = False
       if self.debug:
         print("gap_scan error:", ex)
+      self._retry_or_unavailable("scan error")
+
+  def _retry_or_unavailable(self, reason):
+    if self._unavailable or self._scan_active or self._connecting:
+      return
+    if self._retry_count >= MAX_RECONNECT_ATTEMPTS:
+      self._unavailable = True
+      if self.debug:
+        print("BMS unavailable after {} retries ({})".format(
+          MAX_RECONNECT_ATTEMPTS, reason))
+      return
+    self._retry_count += 1
+    if self.debug:
+      print("BMS retry {}/{} ({})".format(
+        self._retry_count, MAX_RECONNECT_ATTEMPTS, reason))
+    self._scan(self._scan_ms)
+
+  def _handle_connection_failure(self, reason):
+    if self._unavailable:
+      return
+    old_conn = self.conn
+    self._reset_state()
+    if old_conn is not None:
+      try:
+        self.ble.gap_disconnect(old_conn)
+      except:
+        pass
+    self._retry_or_unavailable(reason)
 
   def _reset_state(self, clear_buf=False):
     self.conn = None
@@ -269,6 +346,9 @@ class JbdBmsClient:
     self.awaiting = False
     self.phase = 0
     self.last_data_ms = 0
+    self._scan_active = False
+    self._connecting = False
+    self._connect_deadline_ms = 0
     if clear_buf:
       self._buf = bytearray()
       self._head = 0
@@ -484,11 +564,22 @@ class JbdBmsClient:
             break
           i += 1 + L
         if nm == self.target_name:
+          self._scan_active = False
+          self._connecting = True
+          self._connect_deadline_ms = time.ticks_add(
+            time.ticks_ms(), CONNECT_TIMEOUT_MS)
           self.ble.gap_scan(None)
           self.ble.gap_connect(at, addr)
 
+      elif e == _IRQ_SCAN_DONE:
+        self._scan_active = False
+        if self.conn is None and not self._connecting:
+          self._retry_or_unavailable("BMS not found")
+
       elif e == _IRQ_PERIPHERAL_CONNECT:
         self.conn, _, _ = d
+        self._connect_deadline_ms = time.ticks_add(
+          time.ticks_ms(), CONNECT_TIMEOUT_MS)
         self.ble.gattc_discover_services(self.conn)
 
       elif e == _IRQ_GATTC_SERVICE_RESULT:
@@ -501,8 +592,7 @@ class JbdBmsClient:
           s, e2 = self.srange
           self.ble.gattc_discover_characteristics(self.conn, s, e2)
         else:
-          self._reset_state()
-          self._scan(8000)
+          self._handle_connection_failure("service discovery")
 
       elif e == _IRQ_GATTC_CHARACTERISTIC_RESULT:
         ch, _, val_h, props, uuid = d
@@ -514,12 +604,10 @@ class JbdBmsClient:
           self.h_w = val_h
 
       elif e == _IRQ_GATTC_CHARACTERISTIC_DONE:
-        if self.h_n is not None:
+        if self.h_n is not None and self.h_w is not None:
           self.ble.gattc_discover_descriptors(self.conn, self.h_n, self.h_n + 3)
-          self._schedule_send(self.first_kick_ms)
         else:
-          self._reset_state()
-          self._scan(8000)
+          self._handle_connection_failure("characteristic discovery")
 
       elif e == _IRQ_GATTC_DESCRIPTOR_RESULT:
         ch, dh, duuid = d
@@ -532,18 +620,28 @@ class JbdBmsClient:
             self.ble.gattc_write(self.conn, self.h_cccd, b"\x01\x00", 1)
           except:
             pass
+          self._connecting = False
+          self._connect_deadline_ms = 0
+          # No valid BMS response has been received yet. Freshness starts
+          # only after _drain_frames() accepts a valid JBD frame.
+          self.last_data_ms = 0
+          self._schedule_send(self.first_kick_ms)
+        else:
+          self._handle_connection_failure("descriptor discovery")
 
       elif e == _IRQ_GATTC_NOTIFY:
         ch, vh, nd = d
         if ch == self.conn and vh == self.h_n:
           self._push_bytes(bytes(nd))
           self.awaiting = False
-          self.last_data_ms = time.ticks_ms()
+          # A notification completes the current request. Schedule the next
+          # poll from the normal query period instead of the response timeout.
+          self.next_ms = time.ticks_add(
+            time.ticks_ms(), self.query_period_ms)
 
       elif e == _IRQ_PERIPHERAL_DISCONNECT:
         ch, _, _ = d
-        if ch == self.conn:
-          self._reset_state()
-          self._scan(8000)
+        if self._connecting or ch == self.conn:
+          self._handle_connection_failure("disconnect")
     except:
       pass

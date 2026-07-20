@@ -10,6 +10,7 @@ It is responsible for:
 - rendering status on screen
 - showing warnings and errors
 - sending user intent to the rest of the system
+- reading the optional JBD BMS over BLE and detecting charging locally
 
 ## What it does
 
@@ -27,6 +28,7 @@ In the active scooter firmware:
 
 - the display sends motor, rider-light, and power-switch commands directly
 - the display receives motor status and tracks each remote link separately
+- the display owns the optional BLE BMS connection and `battery_is_charging`
 - the display schedules the one-shot charging NTP sync after boot
 
 ## Important notes
@@ -35,13 +37,15 @@ In the active scooter firmware:
 - It should rely on communication health coming back from the motor board.
 - If a board stops replying, the display is the place where the error becomes visible to the rider.
 - During NTP sync, `comms_paused` stops all display ESP-NOW traffic until the
-  stack has been rebuilt.
+  stack has been rebuilt. The BLE BMS client is also stopped and restarted so
+  it does not contend with Wi-Fi during synchronization.
 
 ## Code areas
 
 Relevant code is usually in:
 
 - `02_diy_display/escooter/main.py`
+- `02_diy_display/bms_jbd.py`
 - `common/espnow_protocol.py`
 
 The old `02_diy_display/ebike/` path is legacy and not maintained.

@@ -49,15 +49,6 @@ cfg.throttle_2_adc_min = 17500
 cfg.throttle_2_adc_max = 49000
 cfg.throttle_2_adc_over_max_error = 54500
 
-# JBD BMS
-cfg.has_jbd_bms = True
-cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
-cfg.bms_debug = False
-
-# Charging detection
-cfg.charge_current_threshold_a_x100 = 50
-cfg.charge_detect_hold_ms = 1000
-
 # Motors
 front_motor_cfg.poles_pair = 15
 rear_motor_cfg.poles_pair = 15
@@ -138,6 +129,13 @@ rear_motor_cfg.battery_current_limit_min_max_speed = 25.0
 # ===================================================================
 # DISPLAY
 # ===================================================================
+# Display-owned JBD BMS and charging detection
+cfg.has_jbd_bms = True
+cfg.jbd_bms_bluetooth_name = 'BMS-FiidoQ1S'
+cfg.bms_debug = False
+cfg.charge_current_threshold_a_x100 = 50
+cfg.charge_detect_hold_ms = 1000
+
 # LCD ST7565 pins
 pin_spi_mosi = 43
 pin_spi_clk = 44
@@ -221,7 +219,7 @@ brake_tail_off_ms = 100
 #   255 = maximum threshold, hardest to trigger
 # motion_detection_rate_hz: 3, 6, 12, 25, 50, 100, 200, 400, 800, 1600, 3200
 #   default 25; unsupported values are rounded to the nearest supported rate
-motion_detection_threshold = 16
+motion_detection_threshold = 14
 motion_detection_rate_hz = 25
 motion_detection_ac_mode = True
 timeout_no_motion_seconds_to_disable_relay = 300

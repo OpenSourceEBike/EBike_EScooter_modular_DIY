@@ -148,20 +148,24 @@ class Motor(object):
         if message_id == 9 and dlc >= 6:
           motor_data.speed_erpm          = struct.unpack_from(">l", data, 0)[0]
           motor_data.motor_current_x10   = struct.unpack_from(">h", data, 4)[0]
+          motor_data.last_can_data_ms = time.ticks_ms()
 
         # CAN_PACKET_STATUS_4 (cmd 16)
         elif message_id == 16 and dlc >= 6:
           motor_data.vesc_temperature_x10  = struct.unpack_from(">h", data, 0)[0]
           motor_data.motor_temperature_x10 = struct.unpack_from(">h", data, 2)[0]
           motor_data.battery_current_x10   = struct.unpack_from(">h", data, 4)[0]
+          motor_data.last_can_data_ms = time.ticks_ms()
 
         # CAN_PACKET_STATUS_5 (cmd 27)
         elif message_id == 27 and dlc >= 6:
           motor_data.battery_voltage_x10 = struct.unpack_from(">h", data, 4)[0]
+          motor_data.last_can_data_ms = time.ticks_ms()
 
         # CAN_PACKET_STATUS_7 (cmd 99)
         elif message_id == 99 and dlc >= 2:
           motor_data.battery_soc_x1000 = struct.unpack_from(">h", data, 0)[0]
+          motor_data.last_can_data_ms = time.ticks_ms()
 
         # (extend with more decoders as needed)
 
@@ -269,3 +273,4 @@ class MotorData:
     self.battery_voltage_x10 = 0
     self.battery_soc_x1000 = 0
     self.vesc_fault_code = 0
+    self.last_can_data_ms = 0

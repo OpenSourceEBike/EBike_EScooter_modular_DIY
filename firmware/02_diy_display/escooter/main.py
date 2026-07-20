@@ -220,6 +220,47 @@ if ESPNOW_DEBUG:
   print("ESP-NOW lights peer MAC:", bytes(mac_address_lights))
   print("ESP-NOW lights peer ready:", lights_board.peer_ready)
 
+# The display owns BMS communication and charging-state detection. BLE scanning
+# starts after ESP-NOW startup and is paused during Wi-Fi/NTP synchronization.
+bms = None
+if cfg.has_jbd_bms:
+  import bluetooth
+  from bms_jbd import JbdBmsClient
+
+  _ble = bluetooth.BLE()
+  bms = JbdBmsClient(
+    ble=_ble,
+    target_name=cfg.jbd_bms_bluetooth_name,
+    query_period_ms=1000,
+    interleave_cells=True,
+    debug=getattr(cfg, "bms_debug", False),
+  )
+
+  async def bms_task(bms, vars):
+    period_ms = 50
+    next_wake = time.ticks_ms()
+    await asyncio.sleep_ms(300)
+    while vars.rtc_sync_pending or vars.comms_paused:
+      await asyncio.sleep_ms(50)
+    bms.start(scan_ms=8000)
+    while True:
+      bms.tick()
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
+
+  async def bms_read_task(bms, vars):
+    period_ms = 1000
+    next_wake = time.ticks_ms()
+    while True:
+      if bms.is_connected() and bms.is_fresh(3000):
+        vars.bms_battery_current_x100 = bms.get_current_a_x100()
+      else:
+        vars.bms_battery_current_x100 = None
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
+
 def _power_config_snapshot():
   return (
     int(cfg.motion_detection_threshold),
@@ -620,6 +661,7 @@ async def ui_task(fb, lcd, vars):
       await asyncio.sleep_ms(0)
 
 async def rtc_sync_task(vars, delay_ms=2000):
+  bms_should_resume = False
   await asyncio.sleep_ms(delay_ms)
   vars.rtc_sync_pending = False
   # The sync belongs to the charging session that scheduled it.  If the
@@ -629,8 +671,16 @@ async def rtc_sync_task(vars, delay_ms=2000):
     return
   vars.rtc_sync_started = True
   vars.rtc_sync_result = 'pending'
+  # Do not carry a charging decision across the Wi-Fi/BLE radio handover.
+  # Charging must be re-confirmed after the BMS reconnects with fresh data.
+  vars.battery_is_charging = False
+  vars.bms_battery_current_x100 = None
   vars.comms_paused = True
   try:
+    if bms is not None:
+      bms_should_resume = bms.is_started() and bms.is_available()
+      if bms_should_resume:
+        bms.stop(deactivate=True)
     # Release the ESP-NOW radio/channel before scanning for the WiFi router.
     # The ESP-NOW stack is rebuilt on channel 1 after the sync completes.
     _esp.active(False)
@@ -668,6 +718,12 @@ async def rtc_sync_task(vars, delay_ms=2000):
       vars.comms_paused = False
       machine.reset()
     else:
+      if bms_should_resume:
+        try:
+          bms.start(scan_ms=8000)
+        except Exception as ex:
+          if getattr(cfg, "bms_debug", False):
+            print("BMS restart failed:", ex)
       vars.comms_paused = False
     # Allow a fresh sync when the next charging session starts.
     vars.rtc_sync_started = False
@@ -680,6 +736,7 @@ async def preload_screens_task(delay_ms=0):
     (ScreenID.MAIN, "MAIN"),
     (ScreenID.CHARGING, "CHARGING"),
     (ScreenID.POWEROFF, "POWEROFF"),
+    (ScreenID.MOTOR_BLOCKED, "MOTOR_BLOCKED"),
   ):
     try:
       preload_start_ms = time.ticks_ms()
@@ -697,7 +754,9 @@ async def main_task(vars):
   global screen_manager
   
   motor_power_previous = 0
+  charge_seen_ms = None
   was_in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
+  was_comms_paused = vars.comms_paused
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
   backlight_timeout_ms = getattr(cfg, 'backlight_timeout_ms', 1000)
   backlight_idle_since = system_boot_ms
@@ -709,6 +768,33 @@ async def main_task(vars):
 
   while True:
     now = time.ticks_ms()
+
+    if was_comms_paused and not vars.comms_paused:
+      # Force a new charging hold interval after Wi-Fi/NTP radio recovery.
+      charge_seen_ms = None
+      vars.battery_is_charging = False
+      vars.bms_battery_current_x100 = None
+    was_comms_paused = vars.comms_paused
+
+    # Charging is valid only while motor-board telemetry is fresh. A zero
+    # wheel speed without a fresh motor status is not evidence of standstill.
+    if cfg.has_jbd_bms and not vars.rtc_sync_pending and not vars.comms_paused:
+      if not vars.motor_board_rx_ok or vars.wheel_speed_x10 != 0:
+        vars.battery_is_charging = False
+        charge_seen_ms = None
+      elif vars.bms_battery_current_x100 is not None:
+        if vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
+          if charge_seen_ms is None:
+            charge_seen_ms = now
+          elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
+            vars.battery_is_charging = True
+        else:
+          vars.battery_is_charging = False
+          charge_seen_ms = None
+      elif bms is None or not bms.is_available():
+        vars.battery_is_charging = False
+        charge_seen_ms = None
+
     in_main_screen = screen_manager.current_is(ScreenID.MAIN)
     in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
 
@@ -910,7 +996,7 @@ async def motor_comms_task(vars):
         flags = parts[9]
         vars.brakes_are_active = bool(flags & (1 << 0))
         vars.regen_braking_is_active = bool(flags & (1 << 1))
-        vars.battery_is_charging = bool(flags & (1 << 2))
+        vars.motor_throttle_rearm_required = bool(flags & (1 << 2))
         vars.mode = (flags >> 3) & 0x07
         vars.cruise_control_is_active = bool(flags & (1 << 6))
         vars.throttle_is_active = bool(flags & (1 << 7))
@@ -942,6 +1028,9 @@ async def main():
     tasks.append(asyncio.create_task(preload_screens_task()))
     tasks.append(asyncio.create_task(motor_comms_task(vars)))
     tasks.append(asyncio.create_task(main_task(vars)))
+    if bms is not None:
+      tasks.append(asyncio.create_task(bms_task(bms, vars)))
+      tasks.append(asyncio.create_task(bms_read_task(bms, vars)))
     boot_log("Main tasks started")
 
     await asyncio.gather(*tasks)

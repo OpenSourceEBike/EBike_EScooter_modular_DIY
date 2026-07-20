@@ -134,6 +134,9 @@ Motor to display status:
 MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
 ```
 
+Status `flags` bit 2 is reserved. `battery_is_charging` is display-local state
+derived from the optional BLE BMS and is not transported in motor status.
+
 Power-switch to sender config echo/status:
 
 ```text
@@ -189,10 +192,10 @@ When enabled, the display schedules one NTP sync on the first transition into
 delay expires, the pending one-shot is cancelled and can be retried on a later
 charging entry.
 
-During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop
-and the charging screen shows `Wifi time sync`. The display rebuilds the
-ESP-NOW stack before resuming communications; a rebuild failure releases the
-pause and resets the display board.
+During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop,
+the BLE BMS client is stopped, and the charging screen shows `Wifi time sync`.
+The display rebuilds ESP-NOW and restarts BLE before resuming communications;
+a rebuild failure releases the pause and resets the display board.
 
 ## Timing and safety defaults
 
@@ -216,6 +219,7 @@ latest command separately for each sender (display and motor board).
 | Display → power-switch board | Motion/power configuration: threshold, rate, AC mode, timeout and wait period | Only when values change; on send failure, retry every 2000 ms | Processed approximately every 20 ms; valid values are persisted by the power-switch board. |
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
 | Lights board → other boards | — | Does not send ESP-NOW frames | Receives and applies commands only. |
+| JBD BMS → display | BLE battery current used for local charging detection | Basic/cell queries currently alternate at about 1 Hz | BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with at most two retries before the BMS is marked unavailable. |
 
 - Display motor transmission and power communication timeout: 1500 ms.
 - Display motor-status receive timeout: 2000 ms.

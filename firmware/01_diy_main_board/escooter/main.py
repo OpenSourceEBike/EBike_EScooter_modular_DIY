@@ -26,6 +26,7 @@ from mode import Mode
 
 TEMPERATURE_NOT_AVAILABLE_X10 = -2550
 DISPLAY_MOTORS_ENABLE_TIMEOUT_MS = 2000
+THROTTLE_REARM_ZERO_HOLD_MS = 1000
 system_boot_ms = time.ticks_ms()
 
 try:
@@ -104,14 +105,10 @@ def decode_display_command(msg):
 def encode_display_status(vars, rear_motor_data, front_motor_data=None):
   brakes_are_active = 1 if vars.brakes_are_active else 0
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
-  battery_is_charging = 1 if vars.battery_is_charging else 0
   cruise_control_is_active = 1 if vars.cruise_control.state == 2 else 0
   throttle_active = 1 if vars.throttle_value > 50 else 0
   throttle_right_fault = 1 if vars.throttle_right_fault else 0
   throttle_left_fault = 1 if vars.throttle_left_fault else 0
-
-  if not cfg.has_jbd_bms:
-    battery_is_charging = 0
 
   motor_datas_local = [rear_motor_data]
   if front_motor_data is not None:
@@ -124,7 +121,7 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
 
   flags = ((brakes_are_active & 1) << 0) | \
           ((regen_braking_is_active & 1) << 1) | \
-          ((battery_is_charging & 1) << 2) | \
+          ((1 if throttle_rearm_required else 0) << 2) | \
           ((vars.mode & 7) << 3) | \
           ((cruise_control_is_active & 1) << 6) | \
           ((throttle_active & 1) << 7) | \
@@ -189,54 +186,6 @@ for _motor_data in motor_data:
   _motor_data.battery_target_current_limit_max = _motor_data.cfg.battery_max_current_limit_max
   _motor_data.battery_target_current_limit_min = _motor_data.cfg.battery_max_current_limit_min
 
-# Optional BMS support (BLE). The client may activate BLE when created;
-# scanning is deferred to bms.start().
-if cfg.has_jbd_bms:
-  import bluetooth
-  from bms_jbd import JbdBmsClient
-
-  # Create a single BLE instance. Only BLE scanning is delayed below.
-  ble = bluetooth.BLE()
-  bms = JbdBmsClient(
-    ble=ble,
-    target_name=cfg.jbd_bms_bluetooth_name,
-    query_period_ms=1000,
-    interleave_cells=True,
-    debug=getattr(cfg, "bms_debug", False),
-  )
-
-  async def bms_task(bms: JbdBmsClient):
-    """
-    Drive the client's cooperative state machine:
-    - drain BLE notifications
-    - schedule 0x03/0x04 polls
-    - keep reconnect logic responsive
-    NOTE: BLE scanning starts only after ESP-NOW is up and we've paused briefly.
-    """
-    period_ms = 50
-    next_wake = time.ticks_ms()
-    # Give Wi-Fi/ESP-NOW a moment to settle before starting BLE scanning.
-    await asyncio.sleep_ms(300)
-    bms.start(scan_ms=8000)
-    while True:
-      bms.tick()
-      next_wake = time.ticks_add(next_wake, period_ms)
-      remaining = time.ticks_diff(next_wake, time.ticks_ms())
-      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
-
-  async def bms_read_task(bms: JbdBmsClient):
-    """
-    Periodically read cached data. No blocking, no BLE calls here.
-    """
-    period_ms = 1000
-    next_wake = time.ticks_ms()
-    while True:
-      if bms.is_connected() and bms.is_fresh(3000):
-        vars.bms_battery_current_x100 = bms.get_current_a_x100()
-      next_wake = time.ticks_add(next_wake, period_ms)
-      remaining = time.ticks_diff(next_wake, time.ticks_ms())
-      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
-
 # Throttles
 throttle_1 = Throttle(
   cfg.throttle_1_pin,
@@ -257,18 +206,38 @@ else:
 throttle_1_disabled = False
 throttle_2_disabled = throttle_2 is None
 throttle_rearm_required = False
+throttle_rearm_zero_since_ms = None
 
 mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_mode_to_nvs)
 
 async def task_motors_refresh_data():
   period_ms = 50
   next_wake = time.ticks_ms()
+  can_timeout_ms = 500
   # Refresh latest VESC data (call once; it fills both via CAN)
   while True:
     if front_motor is None:
       rear_motor.update_motor_data(rear_motor, None)
     else:
       rear_motor.update_motor_data(rear_motor, front_motor)
+
+    now = time.ticks_ms()
+    for data in motor_data:
+      if (
+        not data.last_can_data_ms or
+        time.ticks_diff(now, data.last_can_data_ms) >= can_timeout_ms
+      ):
+        # Do not keep publishing old VESC values as live telemetry. The
+        # display receives zeros until fresh CAN frames arrive again.
+        data.speed_erpm = 0
+        data.wheel_speed = 0
+        data.vesc_temperature_x10 = 0
+        data.motor_temperature_x10 = 0
+        data.motor_current_x10 = 0
+        data.battery_current_x10 = 0
+        data.battery_voltage_x10 = 0
+        data.battery_soc_x1000 = 0
+
     next_wake = time.ticks_add(next_wake, espnow_jittered_period_ms(period_ms))
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
     await asyncio.sleep_ms(remaining if remaining > 0 else 0)
@@ -322,7 +291,7 @@ async def task_lights_send_data():
 
 async def task_espnow_receive_process_data():
   global display_motors_enable_last_seen_ms, last_display_enable_command
-  global throttle_rearm_required
+  global throttle_rearm_required, throttle_rearm_zero_since_ms
 
   period_ms = 250
   next_wake = time.ticks_ms()
@@ -343,8 +312,10 @@ async def task_espnow_receive_process_data():
       new_enable_state = bool(parts[3])
       if new_enable_state and not last_display_enable_command:
         throttle_rearm_required = True
+        throttle_rearm_zero_since_ms = None
       elif not new_enable_state:
         throttle_rearm_required = False
+        throttle_rearm_zero_since_ms = None
       last_display_enable_command = new_enable_state
       vars.motors_enable_state = new_enable_state
       display_motors_enable_last_seen_ms = time.ticks_ms()
@@ -415,6 +386,7 @@ def _stop_motors():
 
 async def task_control_motor():
   global throttle_1_disabled, throttle_2_disabled, throttle_rearm_required
+  global throttle_rearm_zero_since_ms
   global display_motors_enable_last_seen_ms, last_display_enable_command
   _release_condition_since_ms = None
 
@@ -468,8 +440,18 @@ async def task_control_motor():
     # any motor target can be applied.
     if not vars.motors_enable_state:
       throttle_rearm_required = False
-    if throttle_rearm_required and throttle_value == 0:
-      throttle_rearm_required = False
+      throttle_rearm_zero_since_ms = None
+    elif throttle_rearm_required:
+      now = time.ticks_ms()
+      if throttle_value <= Mode.THROTTLE_ZERO_MAX:
+        if throttle_rearm_zero_since_ms is None:
+          throttle_rearm_zero_since_ms = now
+        elif time.ticks_diff(now, throttle_rearm_zero_since_ms) >= THROTTLE_REARM_ZERO_HOLD_MS:
+          throttle_rearm_required = False
+          throttle_rearm_zero_since_ms = None
+      else:
+        # The one-second zero-throttle window must be continuous.
+        throttle_rearm_zero_since_ms = None
 
     if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):
       _stop_motors()
@@ -529,6 +511,7 @@ async def task_control_motor():
         vars.motors_enable_state = False
         last_display_enable_command = False
         throttle_rearm_required = False
+        throttle_rearm_zero_since_ms = None
         vars.display_comm_ok = False
 
     # Consider less then 10 negative amps of motor current for regen_brakes_are_active = True
@@ -633,7 +616,6 @@ async def task_various():
   period_ms = 100
   next_wake = time.ticks_ms()
   wheel_speed_previous_motor_speed_erpm = 0
-  charge_seen_ms = None
   global mode
 
   while True:
@@ -650,21 +632,6 @@ async def task_various():
       # No negative values
       if rear_motor.data.wheel_speed < 1.0:
         rear_motor.data.wheel_speed = 0.0
-
-    # Auto-detect charging
-    # Note: BMS battery current is positive when charging
-    if cfg.has_jbd_bms:
-      now = time.ticks_ms()
-      if rear_motor.data.wheel_speed == 0 and \
-              vars.bms_battery_current_x100 is not None and \
-              vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
-        if charge_seen_ms is None:
-          charge_seen_ms = now
-        elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
-          vars.battery_is_charging = True
-      else:
-        vars.battery_is_charging = False
-        charge_seen_ms = None
 
     # Run Mode tick
     mode.tick()
@@ -717,11 +684,6 @@ async def main():
     asyncio.create_task(task_various()),
     asyncio.create_task(task_gc_maintenance()),
   ]
-
-  # Add BMS tasks only if enabled in config
-  if cfg.has_jbd_bms:
-    tasks.append(asyncio.create_task(bms_task(bms)))
-    tasks.append(asyncio.create_task(bms_read_task(bms)))
 
   print("Starting EBike/EScooter\n")
 

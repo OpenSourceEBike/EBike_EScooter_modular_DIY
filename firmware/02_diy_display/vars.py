@@ -15,6 +15,7 @@ class Vars:
     self.battery_voltage_x10 = 0
     self.battery_current_x10 = 0
     self.battery_soc_x1000 = -1 # -1 means value is invalid
+    self.bms_battery_current_x100 = None
     self.battery_is_charging = False
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
@@ -23,6 +24,7 @@ class Vars:
     self.regen_braking_is_active = False
     self.cruise_control_is_active = False
     self.throttle_is_active = False
+    self.motor_throttle_rearm_required = False
     self.throttle_right_fault = False
     self.throttle_left_fault = False
     self.torque_weight = 0
