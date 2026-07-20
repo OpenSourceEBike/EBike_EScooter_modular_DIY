@@ -43,11 +43,6 @@ cfg.throttle_1_adc_min = 15250
 cfg.throttle_1_adc_max = 46900
 cfg.throttle_1_adc_over_max_error = 54500
 
-# JBD BMS
-cfg.has_jbd_bms = False
-cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
-cfg.bms_debug = False
-
 # Motors
 rear_motor_cfg.poles_pair = 15
 rear_motor_cfg.wheel_radius = 0.160
@@ -92,6 +87,11 @@ rear_motor_cfg.battery_current_limit_min_max_speed = 20.0
 # ===================================================================
 # DISPLAY / LIGHTS / APC CONFIGS
 # ===================================================================
+# Display-owned JBD BMS
+cfg.has_jbd_bms = False
+cfg.jbd_bms_bluetooth_name = 'BMS-iScooteri12'
+cfg.bms_debug = False
+
 # LCD ST7565 pins
 pin_spi_mosi = 43
 pin_spi_clk = 44

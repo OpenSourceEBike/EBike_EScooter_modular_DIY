@@ -27,6 +27,7 @@ In the active scooter firmware:
 
 - the display sends motor commands directly
 - the motor board sends only `REAR_BRAKE_BIT` to the lights board
+- the motor board does not communicate with the BMS or report charging state
 - the motor board drops drive enable after 2000 ms without a display command
 
 ## Important notes

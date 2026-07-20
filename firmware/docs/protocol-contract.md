@@ -87,6 +87,9 @@ Motor to display status:
 MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
 ```
 
+Status `flags` bit 2 is reserved. Charging state is detected locally by the
+display from its BLE BMS connection and is not sent by the motor board.
+
 Power-switch to sender config echo/status:
 
 ```text
@@ -105,6 +108,8 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
 8. Receivers drain their ESP-NOW queue during each receive cycle and apply only
    the most recent valid command or status for each relevant source. Older
    queued packets are discarded.
+9. The display owns the optional BLE BMS connection and local charging
+   detection; the motor board does not communicate with the BMS.
 
 ## Diagnostics
 
