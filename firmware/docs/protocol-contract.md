@@ -18,6 +18,8 @@ These choices match the current implementation:
 - Frames do not include a sequence field.
 - There is no generic acknowledgement frame.
 - Board health is inferred from send results, received status frames, timeouts, and board-specific echo/status payloads.
+- Lights transmissions use a local retry backoff; this is transport policy and
+  does not change the frame shape.
 
 ## Message Rules
 
@@ -27,6 +29,10 @@ These choices match the current implementation:
 4. Every ESPNOW message must be ASCII encoded.
 5. Command frames must be `MSG_COMMAND, src, dst, ...payload`.
 6. Status frames must be `MSG_STATUS, src, dst, health, ...payload`.
+
+The shared frame contract currently has no generic sequence or acknowledgement
+field. Board-specific application acknowledgements must therefore be documented
+as separate payload shapes if introduced.
 
 ## Constants
 
@@ -110,6 +116,22 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
    queued packets are discarded.
 9. The display owns the optional BLE BMS connection and local charging
    detection; the motor board does not communicate with the BMS.
+10. Failed lights sends retry with an exponential interval starting at 50 ms
+    and capped at 1000 ms; successful sends reset the interval.
+
+## Display button contract
+
+The maintained power button uses the shared `thisButton` driver:
+
+- Stable debounce is configured per board (30 ms in the scooter configurations).
+- Short click: 100 ms inclusive up to, but not including, 1000 ms.
+- Long press: 1000 ms inclusive.
+- Presses shorter than 100 ms are ignored.
+- Power click and long-press events are latched until the UI task consumes them.
+
+The lights input is a maintained switch, not a momentary click. Its stable
+state is combined with the automatic schedule according to
+`auto_lights_schedule_authoritative` (manual ON override by default).
 
 ## Diagnostics
 
@@ -123,6 +145,8 @@ quiet in normal operation; enable the flag only during board-local diagnosis.
 1. The display tracks motor TX, motor RX, lights TX, and power-switch TX separately.
 2. The motor board reports motor-to-lights TX health through `HEALTH_MOTOR_LIGHTS_TX_OK`.
 3. The display turns failed board health into board-specific warning text.
+4. Display-to-lights and motor-to-lights TX health expires only after 1500 ms
+   without a successful send; an individual lost frame is not a link failure.
 
 ## Error Rules
 

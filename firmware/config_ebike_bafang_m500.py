@@ -60,8 +60,9 @@ main_screen_timeout_ms = 300000
 power_button_pin = 6
 lights_button_pin = 5
 
-# Long-press
-power_btn_long_ms = 700
+# Button duration windows
+power_btn_click_min_ms = 200
+power_btn_long_ms = 1000
 debounce_ms = 30
 
 # Tail light brake blink (for scooters without a dedicated brake light)
@@ -72,6 +73,7 @@ brake_tail_off_ms = 100
 # Automatic Power Control board defaults.
 # This board/feature is optional and can be ignored. In that case,
 # motion_detection_threshold: 0..255
+#   12 = current configured value (more sensitive than 16)
 #   16 = fairly sensitive, common starting point
 #   32 = moderate
 #   64 = hard to trigger
@@ -79,7 +81,7 @@ brake_tail_off_ms = 100
 #   255 = maximum threshold, hardest to trigger
 # motion_detection_rate_hz: 3, 6, 12, 25, 50, 100, 200, 400, 800, 1600, 3200
 #   default 25; unsupported values are rounded to the nearest supported rate
-motion_detection_threshold = 16
+motion_detection_threshold = 12
 motion_detection_rate_hz = 25
 motion_detection_ac_mode = True
 timeout_no_motion_seconds_to_disable_relay = 300

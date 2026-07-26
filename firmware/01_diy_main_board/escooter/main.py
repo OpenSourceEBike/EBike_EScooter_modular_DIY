@@ -26,6 +26,10 @@ from mode import Mode
 
 TEMPERATURE_NOT_AVAILABLE_X10 = -2550
 DISPLAY_MOTORS_ENABLE_TIMEOUT_MS = 2000
+LIGHTS_TX_COMM_TIMEOUT_MS = 1500
+LIGHTS_HEARTBEAT_MS = 250
+LIGHTS_RETRY_MS = 50
+LIGHTS_RETRY_MAX_MS = 1000
 THROTTLE_REARM_ZERO_HOLD_MS = 1000
 system_boot_ms = time.ticks_ms()
 
@@ -251,7 +255,9 @@ async def task_display_send_data():
     else:
       vars.display_comm_ok = display_status_comms.send_data(vars, rear_motor_data, front_motor_data)
     
-    next_wake = time.ticks_add(next_wake, period_ms)
+    next_wake = time.ticks_add(
+      next_wake, espnow_jittered_period_ms(period_ms)
+    )
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
     if remaining > 0:
       await asyncio.sleep_ms(remaining)
@@ -259,10 +265,14 @@ async def task_display_send_data():
       await asyncio.sleep_ms(0)
 
 async def task_lights_send_data():
-  period_ms = 250
+  period_ms = 50
   next_wake = time.ticks_ms()
   next_send_ms = time.ticks_ms()
   last_brake_bit = None
+  last_tx_ok_ms = time.ticks_add(
+    time.ticks_ms(), -LIGHTS_TX_COMM_TIMEOUT_MS
+  )
+  lights_retry_ms = LIGHTS_RETRY_MS
   while True:
     # A disabled motor state is also a hard lights-off command.  This keeps
     # the motor-board path consistent with the display-board light command.
@@ -279,11 +289,25 @@ async def task_lights_send_data():
       brake_bit != last_brake_bit or
       time.ticks_diff(now, next_send_ms) >= 0
     ):
-      vars.lights_comm_ok = lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+      lights_ok = lights_tx_comms.send_data(REAR_BRAKE_BIT, brake_bit)
+      if lights_ok:
+        last_tx_ok_ms = now
+        lights_retry_ms = LIGHTS_RETRY_MS
+      else:
+        lights_retry_ms = min(LIGHTS_RETRY_MAX_MS, lights_retry_ms * 2)
       last_brake_bit = brake_bit
       next_send_ms = time.ticks_add(
-        now, espnow_jittered_period_ms(250)
+        now,
+        espnow_jittered_period_ms(
+          LIGHTS_HEARTBEAT_MS if lights_ok else lights_retry_ms
+        ),
       )
+
+    # A single lost radio frame is normal.  Report a failed link only after
+    # several consecutive heartbeats have received no MAC-level response.
+    vars.lights_comm_ok = time.ticks_diff(
+      now, last_tx_ok_ms
+    ) < LIGHTS_TX_COMM_TIMEOUT_MS
 
     next_wake = time.ticks_add(next_wake, period_ms)
     remaining = time.ticks_diff(next_wake, time.ticks_ms())

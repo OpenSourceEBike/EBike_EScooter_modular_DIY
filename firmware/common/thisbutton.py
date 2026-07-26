@@ -1,12 +1,27 @@
 import time
 from machine import Pin
 
-def _ticks_ns():
-  # MicroPython has ticks_ns() on most modern ports; fall back if needed.
+def _ticks_us():
+  # Use a clock supported by ticks_diff on all target MicroPython ports.
   try:
-    return time.ticks_ns()
+    return time.ticks_us()
   except AttributeError:
-    return time.ticks_us() * 1000
+    return time.ticks_ms() * 1000
+
+
+def _ticks_diff(now, previous):
+  """Return elapsed time using MicroPython's wrap-safe tick arithmetic."""
+  try:
+    return time.ticks_diff(now, previous)
+  except AttributeError:
+    return now - previous
+
+
+def _ticks_add(now, delta):
+  try:
+    return time.ticks_add(now, delta)
+  except AttributeError:
+    return now + delta
 
 class thisButton:
   def __init__(self, gpio, pull_up=True):
@@ -38,14 +53,22 @@ class thisButton:
     self.long_press_release_function = None
     self.held_function = None
     self.click_only_assigned = False
+    self.switch_mode = False
+    self.switch_change_function = None
+    self.switch_initialized = False
+    self._candidate_state = None
+    self._stable_state = None
+    self._candidate_change_time = None
 
-    # defaults in nanoseconds (match your CP values):
-    # 5 ms, 500 ms, 100 ms
-    self.default_debounce_threshold = 5_000_000
-    self.default_long_press_threshold = 500_000_000
-    self.default_held_interval = 100_000_000
+    # Thresholds use ticks_us units: debounce, minimum click, long press,
+    # held repeat.
+    self.default_debounce_threshold = 5_000
+    self.default_click_min_threshold = 100_000
+    self.default_long_press_threshold = 1_000_000
+    self.default_held_interval = 100_000
 
     self.debounce_threshold = self.default_debounce_threshold
+    self.click_min_threshold = self.default_click_min_threshold
     self.long_press_threshold = self.default_long_press_threshold
     self.held_interval = self.default_held_interval
     self.held_next_time = 0
@@ -54,45 +77,73 @@ class thisButton:
 
   # this needs to be called frequently from the main loop
   def tick(self):
-    self.cur_time = _ticks_ns()
+    self.cur_time = _ticks_us()
 
-    # read the pin and start debounce when a change is detected
-    if not self.debouncing:
-      self.cur_state = 1 if self.pin.value() else 0
-      if self.cur_state != self.prev_state:
-        self.start_debounce()
+    if self.switch_mode:
+      self._tick_switch()
+      return
 
-    # finish debounce delay
-    if self.debouncing and self.cur_time > (self.debounce_start + self.debounce_threshold):
+    raw_state = 1 if self.pin.value() else 0
+    state_changed = False
+
+    # Keep a candidate separate from the last accepted state. A transition is
+    # processed only after the candidate remains stable for the debounce time.
+    if self._candidate_state is None:
+      self._candidate_state = raw_state
+      self.cur_state = raw_state
+      self.debounce_start = self.cur_time
+      self._candidate_change_time = self.cur_time
+      self.debouncing = self.debounce_threshold > 0
+      if self.debouncing:
+        return
+      self._stable_state = raw_state
+      state_changed = True
+    elif raw_state != self._candidate_state:
+      self._candidate_state = raw_state
+      self.cur_state = raw_state
+      self.debounce_start = self.cur_time
+      self._candidate_change_time = self.cur_time
+      self.debouncing = self.debounce_threshold > 0
+      if self.debouncing:
+        return
+      self._stable_state = raw_state
+      state_changed = True
+    elif self.debouncing:
+      if _ticks_diff(self.cur_time, self.debounce_start) < self.debounce_threshold:
+        return
       self.debouncing = False
+      if self._stable_state != self._candidate_state:
+        self._stable_state = self._candidate_state
+        state_changed = True
+
+    self.cur_state = self._stable_state
+    if self.prev_state is None and self._stable_state is not None:
+      state_changed = True
 
     if self.cur_state == self.activated_state:
       # button is active this cycle
       if self.active is not True:
         # just pressed
         self.active = True
-        self.prev_state_change = self.cur_time
+        self.prev_state_change = (
+          self._candidate_change_time
+          if self._candidate_change_time is not None else self.cur_time
+        )
         if self.debug:
           print("Click Down")
-        # if only click is defined, fire now
-        if self.click_start_function is not None and self.click_only_assigned:
-          try:
-            self.click_start_function()
-          except Exception as e:
-            if self.debug: print("click_start error:", e)
       else:
         # still held
-        if (self.cur_time - self.prev_state_change) > self.long_press_threshold:
+        if _ticks_diff(self.cur_time, self.prev_state_change) >= self.long_press_threshold:
           # Long-press start
-          if (self.long_press_activated is not True) and (self.long_press_start_function is not None):
+          if self.long_press_activated is not True:
             if self.debug:
               print("Long press start Detected")
             self.long_press_activated = True
-            self.active = False  # block further detections until release
-            try:
-              self.long_press_start_function()
-            except Exception as e:
-              if self.debug: print("long_press_start error:", e)
+            if self.long_press_start_function is not None:
+              try:
+                self.long_press_start_function()
+              except Exception as e:
+                if self.debug: print("long_press_start error:", e)
           # Held repeat
           elif self.held_function is not None:
             self.long_press_activated = True
@@ -102,18 +153,33 @@ class thisButton:
                 self.held_function()
               except Exception as e:
                 if self.debug: print("held first error:", e)
-              self.held_next_time = self.cur_time + self.held_interval
-            elif self.cur_time > self.held_next_time:
+              self.held_next_time = _ticks_add(self.cur_time, self.held_interval)
+            elif _ticks_diff(self.cur_time, self.held_next_time) >= 0:
               try:
                 self.held_function()
               except Exception as e:
                 if self.debug: print("held repeat error:", e)
-              self.held_next_time = self.cur_time + self.held_interval
+              self.held_next_time = _ticks_add(self.cur_time, self.held_interval)
 
     # button released (and not bouncing)
     elif (self.cur_state != self.activated_state) and (self.active is True):
-      if self.long_press_activated:
+      release_time = (
+        self._candidate_change_time
+        if self._candidate_change_time is not None else self.cur_time
+      )
+      press_duration = _ticks_diff(release_time, self.prev_state_change)
+      if (self.long_press_activated or
+          press_duration >= self.long_press_threshold):
         # long press / held release
+        if not self.long_press_activated:
+          # The loop may have been delayed past the threshold; classify the
+          # press correctly even if no tick occurred while it was held.
+          self.long_press_activated = True
+          if self.long_press_start_function is not None:
+            try:
+              self.long_press_start_function()
+            except Exception as e:
+              if self.debug: print("long_press_start error:", e)
         self.long_press_activated = False
         self.active = False
         self.held = False
@@ -123,31 +189,62 @@ class thisButton:
           except Exception as e:
             if self.debug: print("long_press_release error:", e)
         if self.debug:
-          print("Long press or hold duration:", self.cur_time - self.prev_state_change)
+          print("Long press or hold duration:", press_duration)
       else:
         # click release
         self.active = False
-        if (self.click_start_function is not None) and (not self.click_only_assigned):
-          try:
-            self.click_start_function()
-          except Exception as e:
-            if self.debug: print("click_start (release path) error:", e)
-        if self.click_release_function is not None:
-          try:
-            self.click_release_function()
-          except Exception as e:
-            if self.debug: print("click_release error:", e)
+        if (press_duration >= self.click_min_threshold and
+            press_duration < self.long_press_threshold):
+          if self.click_start_function is not None:
+            try:
+              self.click_start_function()
+            except Exception as e:
+              if self.debug: print("click_start error:", e)
+          if self.click_release_function is not None:
+            try:
+              self.click_release_function()
+            except Exception as e:
+              if self.debug: print("click_release error:", e)
         if self.debug:
-          print("Click release, duration:", self.cur_time - self.prev_state_change)
+          print("Click release, duration:", press_duration)
 
-    self.prev_state = self.cur_state
+    if state_changed:
+      self.prev_state = self.cur_state
+
+  def _tick_switch(self):
+    """Poll a maintained switch and notify only after a stable change."""
+    raw_state = 1 if self.pin.value() else 0
+    if self.cur_state is None or raw_state != self.cur_state:
+      self.cur_state = raw_state
+      self.debounce_start = self.cur_time
+      self.debouncing = True
+      return
+
+    if self.debouncing:
+      if _ticks_diff(self.cur_time, self.debounce_start) < self.debounce_threshold:
+        return
+      # The candidate remained unchanged for the full debounce interval.
+      self.debouncing = False
+
+    new_active = self.cur_state == self.activated_state
+    if self.switch_initialized and new_active == self.active:
+      return
+
+    self.active = new_active
+    self.prev_state_change = self.cur_time
+    self.switch_initialized = True
+    if self.switch_change_function is not None:
+      try:
+        self.switch_change_function(self.active)
+      except Exception as e:
+        if self.debug: print("switch change error:", e)
 
   # ----- utils -----
   def msToNs(self, milliseconds):
-    return int(milliseconds) * 1_000_000
+    return int(milliseconds) * 1_000
 
   def nsToMs(self, nanoseconds):
-    return nanoseconds / 1_000_000.0
+    return nanoseconds / 1_000.0
 
   def start_debounce(self):
     self.debouncing = True
@@ -189,6 +286,22 @@ class thisButton:
       self.default_debounce_threshold if milliseconds < 0 else self.msToNs(milliseconds)
     )
 
+  def setClickMinThreshold(self, milliseconds=-1):
+    self.click_min_threshold = (
+      self.default_click_min_threshold if milliseconds < 0 else self.msToNs(milliseconds)
+    )
+
+  def setSwitchMode(self, enabled=True):
+    self.switch_mode = bool(enabled)
+    self.switch_initialized = False
+    self.debouncing = False
+    self._candidate_state = None
+    self._stable_state = None
+    self._candidate_change_time = None
+
+  def assignSwitchChange(self, function_name):
+    self.switch_change_function = function_name
+
   def setLongPressThreshold(self, milliseconds=-1):
     self.long_press_threshold = (
       self.default_long_press_threshold if milliseconds < 0 else self.msToNs(milliseconds)
@@ -209,7 +322,7 @@ class thisButton:
   def heldDuration(self):
     # ms held (0 if not in long-press/hold)
     if self.long_press_activated:
-      return self.nsToMs(_ticks_ns() - self.prev_state_change)
+      return self.nsToMs(_ticks_diff(_ticks_us(), self.prev_state_change))
     return 0
 
   @property
@@ -223,6 +336,5 @@ class thisButton:
 
   @property
   def buttonActive(self):
-    # True while button is currently pressed after debouncing (not during suppressed long-press)
+    # True while the button is currently pressed after debouncing.
     return bool(self.active)
-

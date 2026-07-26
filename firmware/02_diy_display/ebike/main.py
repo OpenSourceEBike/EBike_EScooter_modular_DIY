@@ -265,11 +265,14 @@ buttons_callbacks = {
   'long_click_start': button_up_long_click_start_cb,
 }
 
+button_click_min_ms = int(getattr(cfg, 'power_btn_click_min_ms', 200))
+button_long_ms = int(getattr(cfg, 'power_btn_long_ms', 1000))
 buttons = [0] * nr_buttons
 for index in range(nr_buttons):
   buttons[index] = tb.thisButton(buttons_pins[index], True)
   buttons[index].setDebounceThreshold(50)
-  buttons[index].setLongPressThreshold(1500)
+  buttons[index].setClickMinThreshold(button_click_min_ms)
+  buttons[index].setLongPressThreshold(button_long_ms)
   # check if each callback is defined, and if so, register it
   if 'click_start' in buttons_callbacks[index]: buttons[index].assignClickStart(buttons_callbacks[index]['click_start'])
   if 'click_release' in buttons_callbacks[index]: buttons[index].assignClickRelease(buttons_callbacks[index]['click_release'])

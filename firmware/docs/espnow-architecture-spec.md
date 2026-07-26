@@ -97,6 +97,7 @@ These implementation choices are currently settled:
 - Command frames use `MSG_COMMAND, src, dst, ...payload`.
 - Status frames use `MSG_STATUS, src, dst, health, ...payload`.
 - There is no generic acknowledgement frame.
+- Failed lights transmissions use a bounded exponential retry interval.
 
 ## Current Frame Shapes
 
@@ -195,7 +196,10 @@ charging entry.
 During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop,
 the BLE BMS client is stopped, and the charging screen shows `Wifi time sync`.
 The display rebuilds ESP-NOW and restarts BLE before resuming communications;
-a rebuild failure releases the pause and resets the display board.
+a rebuild failure releases the pause and resets the display board. If fresh BMS
+evidence is not available within 10 seconds after the handoff, the display shows
+`charging unknown` and requires a power long-press acknowledgement; it does not
+silently report non-charging.
 
 ## Timing and safety defaults
 
@@ -213,8 +217,8 @@ latest command separately for each sender (display and motor board).
 | --- | --- | --- | --- |
 | Display → motor board | Motor command: `motor_enable`, buttons, lights and relay-off request | 100 ms (10 Hz) | Queue drained every 250 ms; the last valid queued command is applied. If `motor_enable` is absent for 2000 ms, the motor board disables the motors. |
 | Motor board → display | System status: battery, current, SOC, speed, temperatures, flags and lights-link health | 100 ms (10 Hz) | Processed in the display 250 ms communications loop; the latest queued status is applied. The display marks received motor status stale after 2000 ms. |
-| Display → lights board | Rider-light request: low beam, tail and turn signals; excludes the brake bit | 250 ms (4 Hz) | Queue drained every 25 ms; latest display command is applied. Display-owned outputs are reset after 20000 ms without a display message. |
-| Motor board → lights board | Brake-light state: `REAR_BRAKE_BIT` only | Every 250 ms (4 Hz), and once immediately when the state changes | Queue drained every 25 ms; latest motor command is applied independently of the display command. The brake output is cleared after 2000 ms without a motor heartbeat. |
+| Display → lights board | Rider-light request: low beam, tail and turn signals; excludes the brake bit | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest display command is applied. Display-owned outputs are reset after 20000 ms without a display message. Display TX health expires after 1500 ms without a successful send. |
+| Motor board → lights board | Brake-light state: `REAR_BRAKE_BIT` only | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest motor command is applied independently of the display command. Motor TX health expires after 1500 ms without a successful send; the brake output is cleared after 2000 ms without a motor heartbeat. |
 | Display → power-switch board | Relay command: `turn_off` | Every 250 ms (4 Hz), and once immediately when the state changes | Processed approximately every 20 ms. The display considers its last successful send valid for 1500 ms. |
 | Display → power-switch board | Motion/power configuration: threshold, rate, AC mode, timeout and wait period | Only when values change; on send failure, retry every 2000 ms | Processed approximately every 20 ms; valid values are persisted by the power-switch board. |
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
@@ -223,11 +227,27 @@ latest command separately for each sender (display and motor board).
 
 - Display motor transmission and power communication timeout: 1500 ms.
 - Display motor-status receive timeout: 2000 ms.
+- Display-to-lights and motor-to-lights TX health timeout: 1500 ms.
 - Lights-board motor heartbeat timeout: 2000 ms.
 - Power-switch heartbeat: 250 ms.
 - Motor-board display-enable timeout: 2000 ms.
 - After every disabled-to-enabled transition, the motor board requires the
   throttle to return to zero before applying a motor target.
+- The display keeps the normal MAIN screen during the short zero-throttle
+  re-arm window after leaving CHARGING; the `MOTOR_BLOCKED` warning is shown
+  only when throttle remains active. Rider lights remain available during that
+  warning because motor torque and light output have separate safety paths.
+
+### Display button timing
+
+The maintained power button is debounced by `thisButton` and uses a 100 ms
+minimum click duration. Durations from 100 ms to below 1000 ms are short clicks;
+durations of 1000 ms or more are long presses. Durations below 100 ms are
+ignored. The power button's click and long-press callbacks are latched until
+the UI task consumes them. The lights input is a maintained switch; its state
+is combined with the automatic schedule, with manual ON override as the
+default and `auto_lights_schedule_authoritative = True` available for a
+schedule-authoritative deployment.
 
 This avoids conflicting writes from multiple firmware modules.
 
