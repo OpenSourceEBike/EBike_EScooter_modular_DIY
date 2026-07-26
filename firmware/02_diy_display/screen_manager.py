@@ -35,6 +35,12 @@ class ScreenManager:
     self._button_power_click_previous = False
     self._charging_state_previous = False
     self._charging_entry_is_auto = False
+    self._rearm_warning_suppressed_until_ms = 0
+
+  def _suppress_rearm_warning(self, duration_ms=1500):
+    self._rearm_warning_suppressed_until_ms = time.ticks_add(
+      time.ticks_ms(), duration_ms
+    )
 
   # ---- Convenience getters ----
   def get_current_id(self):
@@ -97,12 +103,46 @@ class ScreenManager:
 
   def update(self, vars):
 
+    button_power_long_click = bool(vars.buttons_state & 0x0200)
+    power_click_pending = bool(getattr(vars, "power_click_pending", False))
+    power_long_click_pending = bool(
+      getattr(vars, "power_long_click_pending", False)
+    )
+    if power_click_pending:
+      vars.power_click_pending = False
+      # Force the edge detector below to process the latched click even if
+      # press/release happened between two UI iterations.
+      self._button_power_click_previous = not bool(
+        vars.buttons_state & 0x0100
+      )
+    if power_long_click_pending:
+      vars.power_long_click_pending = False
+      self._button_power_long_click_previous = not button_power_long_click
+
+    # A failed post-sync charging check is deliberately visible as an
+    # "unknown" state. Require an explicit long-press acknowledgement before
+    # allowing the rider to leave the charging screen.
+    if getattr(vars, "charging_reconfirm_failed", False):
+      if button_power_long_click:
+        vars.charging_reconfirm_failed = False
+        self._suppress_rearm_warning()
+        vars.motor_enable_state = False
+        self._charging_entry_is_auto = False
+        self.force(ScreenID.BOOT)
+      else:
+        if not self.current_is(ScreenID.CHARGING):
+          self._charging_entry_is_auto = False
+          vars.motor_enable_state = False
+          self.force(ScreenID.CHARGING)
+        return
+
     # Keep the display in CHARGING while the delayed Wi-Fi/NTP sync is
     # pending or active.  This also turns a button attempt to leave into the
     # user-visible sync message rendered by ChargingScreen.
     sync_lock = bool(
       getattr(vars, "rtc_sync_pending", False) or
-      getattr(vars, "comms_paused", False)
+      getattr(vars, "comms_paused", False) or
+      getattr(vars, "charging_reconfirm_pending", False)
     )
     if sync_lock:
       if not self.current_is(ScreenID.CHARGING):
@@ -113,7 +153,19 @@ class ScreenManager:
 
     # Hold a dedicated centred warning while the motor requires throttle
     # release after being enabled.
-    if getattr(vars, "motor_throttle_rearm_required", False):
+    motor_rearm_required = bool(
+      getattr(vars, "motor_throttle_rearm_required", False)
+    )
+    throttle_active = bool(getattr(vars, "throttle_is_active", False))
+    rearm_warning_suppressed = (
+      time.ticks_diff(
+        self._rearm_warning_suppressed_until_ms, time.ticks_ms()
+      ) > 0
+    )
+    # The motor board deliberately keeps a one-second re-arm latch after
+    # enabling. Show the warning only when the rider is still requesting
+    # throttle; a normal zero-throttle re-enable should remain on MAIN.
+    if motor_rearm_required and throttle_active and not rearm_warning_suppressed:
       if not self.current_is(ScreenID.MOTOR_BLOCKED):
         self.force(ScreenID.MOTOR_BLOCKED)
       return
@@ -122,7 +174,6 @@ class ScreenManager:
       return
     
     button_power_click = bool(vars.buttons_state & 0x0100)
-    button_power_long_click = bool(vars.buttons_state & 0x0200)
     is_charging = vars.battery_is_charging
     wheel_stopped = (vars.wheel_speed_x10 == 0)
     brakes_on = bool(vars.brakes_are_active)
@@ -141,9 +192,10 @@ class ScreenManager:
 
       # Charging entered automatically must also exit automatically.
       if not is_charging and \
-        self.current_is(ScreenID.CHARGING) and \
-        self._charging_entry_is_auto:
+          self.current_is(ScreenID.CHARGING) and \
+          self._charging_entry_is_auto:
         self._charging_entry_is_auto = False
+        self._suppress_rearm_warning()
         vars.motor_enable_state = False
         self.force(ScreenID.BOOT)
         return
@@ -177,6 +229,7 @@ class ScreenManager:
               not is_charging and \
               not self._charging_entry_is_auto:
         self._charging_entry_is_auto = False
+        self._suppress_rearm_warning()
         vars.motor_enable_state = False
         self.force(ScreenID.BOOT)
         return

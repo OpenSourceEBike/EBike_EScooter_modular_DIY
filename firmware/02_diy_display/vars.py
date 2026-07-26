@@ -40,6 +40,7 @@ class Vars:
     self.turn_off_relay = False
     self.motor_enable_state = False
     self.lights_state = False
+    self.lights_switch_state = False
     self.auto_lights_state = False
     self.lights_board_pins_state = 0
     self.motor_board_rx_ok = False
@@ -49,7 +50,12 @@ class Vars:
     self.power_switch_board_comm_ok = False
     self.motor_board_tx_last_ok_ms = 0
     self.motor_board_rx_last_ok_ms = 0
+    self.lights_board_tx_last_ok_ms = 0
     self.buttons_state = 0
+    # Latched button events avoid losing a click between the 50 ms button
+    # poller and the slower UI task.
+    self.power_click_pending = False
+    self.power_long_click_pending = False
     self.shutdown_request = False
     self.buttons = None
     self.rtc = None
@@ -59,6 +65,9 @@ class Vars:
     # Wi-Fi/NTP sync is scheduled on each charging entry.
     self.rtc_sync_pending = False
     self.rtc_sync_started = False
+    self.charging_reconfirm_pending = False
+    self.charging_reconfirm_started_ms = 0
+    self.charging_reconfirm_failed = False
     # Result of the latest charging-screen Wi-Fi/NTP synchronization.
     # Values used by the screen: idle, pending, success, fallback, failed.
     self.rtc_sync_result = 'idle'

@@ -56,6 +56,8 @@ class ChargingScreen(BaseScreen):
     sync_result = getattr(vars, 'rtc_sync_result', 'idle')
     if getattr(vars, 'rtc_sync_pending', False) or getattr(vars, 'comms_paused', False):
       self._title.update('wifi time sync')
+    elif getattr(vars, 'charging_reconfirm_failed', False):
+      self._title.update('charging unknown')
     elif sync_result == 'success':
       self._title.update('time sync ok')
     elif sync_result == 'ssid_missing':

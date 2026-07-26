@@ -69,7 +69,7 @@ _OPTIONAL_DEFAULTS = {
   "brake_tail_on_ms": 400,
   "brake_tail_off_ms": 100,
   "bms_debug": False,
-  "motion_detection_threshold": 16,
+  "motion_detection_threshold": 12,
   "motion_detection_rate_hz": 25,
   "motion_detection_ac_mode": True,
   "timeout_no_motion_seconds_to_disable_relay": 300,
@@ -79,6 +79,9 @@ _OPTIONAL_DEFAULTS = {
   # Automatic lights schedule is optional; configs may ignore these values.
   "auto_lights_schedule_enabled": False,
   "auto_lights_schedule_enabled_at_boot_only": False,
+  # False keeps the maintained switch as a manual ON override. Set True when
+  # the schedule must be authoritative and switch ON must not defeat OFF.
+  "auto_lights_schedule_authoritative": False,
   "auto_lights_on_hour": 19,
   "auto_lights_on_minute": 0,
   "auto_lights_off_hour": 7,

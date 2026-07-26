@@ -75,10 +75,15 @@ configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display", debug=ES
 DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
 MOTOR_BOARD_TX_COMM_TIMEOUT_MS = 1500
 MOTOR_BOARD_RX_COMM_TIMEOUT_MS = 2000
+LIGHTS_BOARD_TX_COMM_TIMEOUT_MS = 1500
+LIGHTS_HEARTBEAT_MS = 250
+LIGHTS_RETRY_MS = 50
+LIGHTS_RETRY_MAX_MS = 1000
 POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
 POWER_SWITCH_HEARTBEAT_MS = 250
 POWER_CONFIG_RETRY_MS = 2000
 RTC_SYNC_DELAY_MS = 2000
+CHARGING_RECONFIRM_TIMEOUT_MS = 10000
 _power_peer = bytes(mac_address_power_switch)
 _power_peer_added = False
 _power_tx_had_failure = False
@@ -115,11 +120,13 @@ def decode_motor_status(msg):
   return None
 
 def _display_lights_state():
-  # Rider/automatic lights are only allowed while the display is in MAIN and
-  # the motor enable command is active. The physical lights board receives
-  # zero whenever either safety condition is false.
+  # Keep rider-visible lights active in MAIN and during the short
+  # MOTOR_BLOCKED re-arm warning; motor torque remains independently blocked.
   if (
-    not screen_manager.current_is(ScreenID.MAIN) or
+    not (
+      screen_manager.current_is(ScreenID.MAIN) or
+      screen_manager.current_is(ScreenID.MOTOR_BLOCKED)
+    ) or
     not vars.motor_enable_state
   ):
     return 0
@@ -328,6 +335,7 @@ def _rebuild_espnow_stack():
   vars.power_switch_board_comm_ok = False
   vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_TX_COMM_TIMEOUT_MS)
   vars.motor_board_rx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_RX_COMM_TIMEOUT_MS)
+  vars.lights_board_tx_last_ok_ms = time.ticks_add(now, -LIGHTS_BOARD_TX_COMM_TIMEOUT_MS)
 
   _sta, _esp = espnow_init(
     channel=1,
@@ -464,14 +472,30 @@ def update_time_string(vars):
     vars.time_string = ''
     print(ex)
 
+def refresh_lights_state(vars):
+  schedule_enabled = bool(getattr(cfg, 'auto_lights_schedule_enabled', False))
+  schedule_authoritative = bool(
+    getattr(cfg, 'auto_lights_schedule_authoritative', False)
+  )
+  if schedule_enabled and schedule_authoritative:
+    vars.lights_state = bool(vars.auto_lights_state)
+  else:
+    # Default policy: the maintained switch is a manual ON override and the
+    # schedule is an additional automatic ON request.
+    vars.lights_state = bool(
+      getattr(vars, 'lights_switch_state', False) or
+      getattr(vars, 'auto_lights_state', False)
+    )
+
 def update_auto_lights_state(vars):
-  previous_auto_lights_state = bool(vars.auto_lights_state)
   vars.auto_lights_state = False
 
   if not cfg.enable_rtc_time or not getattr(cfg, 'auto_lights_schedule_enabled', False):
+    refresh_lights_state(vars)
     return
 
   if not getattr(vars, 'rtc_ntp_sync_valid', False):
+    refresh_lights_state(vars)
     return
 
   try:
@@ -488,10 +512,10 @@ def update_auto_lights_state(vars):
       vars.auto_lights_state = now_minutes >= on_minutes or now_minutes < off_minutes
   except Exception as ex:
     print(ex)
+    refresh_lights_state(vars)
     return
 
-  if vars.auto_lights_state != previous_auto_lights_state:
-    vars.lights_state = vars.auto_lights_state
+  refresh_lights_state(vars)
 
 def effective_lights_state(vars):
   return (
@@ -529,6 +553,7 @@ boot_log("ESP-NOW stack initialized")
 
 # --- button callbacks ---
 def button_power_click_start_cb():
+  vars.power_click_pending = True
   vars.buttons_state |= 1
   if vars.buttons_state & 0x0100: vars.buttons_state &= ~0x0100
   else: vars.buttons_state |= 0x0100
@@ -537,6 +562,7 @@ def button_power_click_release_cb():
   vars.buttons_state &= ~1
 
 def button_power_long_click_start_cb():
+  vars.power_long_click_pending = True
   vars.buttons_state |= 2
   if vars.buttons_state & 0x0200: vars.buttons_state &= ~0x0200
   else: vars.buttons_state |= 0x0200
@@ -544,11 +570,9 @@ def button_power_long_click_start_cb():
 def button_power_long_click_release_cb():
   vars.buttons_state &= ~2
 
-def button_lights_click_start_cb():
-  vars.lights_state = True
-
-def button_lights_click_release_cb():
-  vars.lights_state = False
+def button_lights_switch_change_cb(is_on):
+  vars.lights_switch_state = bool(is_on)
+  refresh_lights_state(vars)
 
 buttons_callbacks = {
   button_POWER: {
@@ -558,8 +582,7 @@ buttons_callbacks = {
     'long_click_release': button_power_long_click_release_cb
   },
   button_LIGHTS: {
-    'click_start': button_lights_click_start_cb,
-    'click_release': button_lights_click_release_cb
+    'switch_change': button_lights_switch_change_cb
   },
 }
 
@@ -571,13 +594,18 @@ def _positive_cfg_int(name, default):
   return value if value > 0 else default
 
 button_debounce_ms = _positive_cfg_int("debounce_ms", 50)
-power_button_long_ms = _positive_cfg_int("power_btn_long_ms", 1500)
+button_click_min_ms = _positive_cfg_int("power_btn_click_min_ms", 100)
+power_button_long_ms = _positive_cfg_int("power_btn_long_ms", 1000)
 
 vars.buttons = [None]*nr_buttons
 for i, pin in enumerate(BUTTON_PINS):
   btn = thisButton(pin, True)
   btn.setDebounceThreshold(button_debounce_ms)
+  btn.setClickMinThreshold(button_click_min_ms)
   btn.setLongPressThreshold(power_button_long_ms)
+  if 'switch_change' in buttons_callbacks[i]:
+    btn.setSwitchMode(True)
+    btn.assignSwitchChange(buttons_callbacks[i]['switch_change'])
   if 'click_start' in buttons_callbacks[i]:
     btn.assignClickStart(buttons_callbacks[i]['click_start'])
   if 'click_release' in buttons_callbacks[i]:
@@ -671,6 +699,14 @@ async def rtc_sync_task(vars, delay_ms=2000):
     return
   vars.rtc_sync_started = True
   vars.rtc_sync_result = 'pending'
+  vars.charging_reconfirm_failed = False
+  # Keep the charging screen latched until fresh BMS data confirms whether
+  # charging continued during the Wi-Fi/BLE radio handover. A configuration
+  # without a BMS has no evidence source to wait for.
+  vars.charging_reconfirm_pending = bool(cfg.has_jbd_bms)
+  vars.charging_reconfirm_started_ms = (
+    time.ticks_ms() if vars.charging_reconfirm_pending else 0
+  )
   # Do not carry a charging decision across the Wi-Fi/BLE radio handover.
   # Charging must be re-confirmed after the BMS reconnects with fresh data.
   vars.battery_is_charging = False
@@ -725,7 +761,8 @@ async def rtc_sync_task(vars, delay_ms=2000):
           if getattr(cfg, "bms_debug", False):
             print("BMS restart failed:", ex)
       vars.comms_paused = False
-    # Allow a fresh sync when the next charging session starts.
+    # Allow a fresh sync when the next charging session starts.  The charging
+    # screen remains latched separately until fresh BMS data is evaluated.
     vars.rtc_sync_started = False
 
 
@@ -769,6 +806,19 @@ async def main_task(vars):
   while True:
     now = time.ticks_ms()
 
+    if (
+      vars.charging_reconfirm_pending and
+      vars.charging_reconfirm_started_ms and
+      time.ticks_diff(now, vars.charging_reconfirm_started_ms) >=
+          CHARGING_RECONFIRM_TIMEOUT_MS
+    ):
+      # Keep the rider-facing state explicit instead of silently reporting
+      # non-charging without fresh evidence. The rider can acknowledge this
+      # state with a power long-press.
+      vars.charging_reconfirm_pending = False
+      vars.charging_reconfirm_started_ms = 0
+      vars.charging_reconfirm_failed = True
+
     if was_comms_paused and not vars.comms_paused:
       # Force a new charging hold interval after Wi-Fi/NTP radio recovery.
       charge_seen_ms = None
@@ -788,12 +838,22 @@ async def main_task(vars):
             charge_seen_ms = now
           elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
             vars.battery_is_charging = True
+            vars.charging_reconfirm_pending = False
+            vars.charging_reconfirm_started_ms = 0
+            vars.charging_reconfirm_failed = False
         else:
           vars.battery_is_charging = False
           charge_seen_ms = None
+          vars.charging_reconfirm_pending = False
+          vars.charging_reconfirm_started_ms = 0
+          vars.charging_reconfirm_failed = False
       elif bms is None or not bms.is_available():
         vars.battery_is_charging = False
         charge_seen_ms = None
+    elif vars.charging_reconfirm_pending:
+      # No BMS-backed charging detector is active for this configuration.
+      vars.charging_reconfirm_pending = False
+      vars.charging_reconfirm_started_ms = 0
 
     in_main_screen = screen_manager.current_is(ScreenID.MAIN)
     in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
@@ -902,6 +962,8 @@ async def motor_comms_task(vars):
   next_motor_command_ms = next_wake
   next_lights_command_ms = next_wake
   next_motor_status_receive_ms = next_wake
+  last_lights_command = None
+  lights_retry_ms = LIGHTS_RETRY_MS
   while True:
     now = time.ticks_ms()
 
@@ -916,10 +978,22 @@ async def motor_comms_task(vars):
       )
     else:
       motor_ok = False
-    if time.ticks_diff(now, next_lights_command_ms) >= 0:
+    current_lights_command = _display_lights_state()
+    if (
+      current_lights_command != last_lights_command or
+      time.ticks_diff(now, next_lights_command_ms) >= 0
+    ):
       lights_ok = lights_board.send_data()
+      last_lights_command = current_lights_command
+      if lights_ok:
+        lights_retry_ms = LIGHTS_RETRY_MS
+      else:
+        lights_retry_ms = min(LIGHTS_RETRY_MAX_MS, lights_retry_ms * 2)
       next_lights_command_ms = time.ticks_add(
-        now, 50
+        now,
+        espnow_jittered_period_ms(
+          LIGHTS_HEARTBEAT_MS if lights_ok else lights_retry_ms
+        ),
       )
     else:
       lights_ok = None
@@ -949,8 +1023,11 @@ async def motor_comms_task(vars):
     if motor_ok:
       vars.motor_board_tx_last_ok_ms = now
     vars.motor_board_tx_ok = time.ticks_diff(now, vars.motor_board_tx_last_ok_ms) < MOTOR_BOARD_TX_COMM_TIMEOUT_MS
-    if lights_ok is not None:
-      vars.lights_board_comm_ok = bool(lights_ok)
+    if lights_ok:
+      vars.lights_board_tx_last_ok_ms = now
+    vars.lights_board_comm_ok = time.ticks_diff(
+      now, vars.lights_board_tx_last_ok_ms
+    ) < LIGHTS_BOARD_TX_COMM_TIMEOUT_MS
     vars.power_switch_board_comm_ok = bool(power_switch_ok)
 
     if time.ticks_diff(now, next_motor_status_receive_ms) >= 0:

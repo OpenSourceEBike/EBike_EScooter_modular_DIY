@@ -1,6 +1,6 @@
 # Firmware Issues Review
 
-Review date: 2026-07-17.
+Review date: 2026-07-26.
 
 Scope: active MicroPython firmware in this checkout, with focus on the maintained escooter display, motor, lights, automatic power control board, shared ESP-NOW helpers, and config runtime. The e-bike path is documented as legacy/not maintained and is not part of the active maintained firmware scope.
 
@@ -14,7 +14,48 @@ Validation done:
 
 This file tracks currently open findings. Older findings already marked implemented are intentionally removed from the active list.
 
-Resolved since the previous review: the power-board production logging default is now disabled (`debug_enable = False`), and forced GC calls were removed from the high-frequency motor, lights, and power-control loops in favour of low-frequency memory maintenance checks.
+Resolved since the previous review: the power-board production logging default is
+disabled (`debug_enable = False`), forced GC calls were removed from the
+high-frequency motor, lights, and power-control loops, lights retries now use a
+bounded backoff, charging reconfirmation failures are shown as an explicit
+unknown state, and button timing/event delivery was hardened.
+
+## Recently resolved findings
+
+### Lights retry traffic was unbounded during an outage
+
+**Status:** Resolved.
+
+Display and motor-board lights transmissions now retry with an exponential
+interval starting at 50 ms and capped at 1000 ms. Jitter remains applied to
+avoid synchronized retries, and a successful send resets the interval.
+
+### Charging reconfirmation timeout silently reported non-charging
+
+**Status:** Resolved.
+
+After the 10-second evidence window, the display enters an explicit
+`charging unknown` state instead of silently presenting non-charging. The
+charging screen remains protected until the rider acknowledges it with a power
+long press or fresh BMS evidence resolves the state.
+
+### Manual lights and automatic schedule policy was implicit
+
+**Status:** Resolved.
+
+The maintained switch remains a manual ON override by default. Deployments that
+require the schedule to be authoritative can set
+`auto_lights_schedule_authoritative = True` in the selected configuration.
+
+### Button timing used an incompatible tick source and UI events could be lost
+
+**Status:** Resolved.
+
+`thisButton` now uses `ticks_us()` with `ticks_diff()`/`ticks_add()`. Short clicks
+are accepted from 100 ms, long presses from 1000 ms, and power-button events are
+latched until the UI task consumes them. The display also suppresses the
+transient re-arm warning after leaving the charging screen while preserving the
+motor-board safety latch.
 
 ## Review Summary
 
