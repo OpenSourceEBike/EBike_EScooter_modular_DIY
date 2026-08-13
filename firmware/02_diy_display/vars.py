@@ -16,6 +16,10 @@ class Vars:
     self.battery_current_x10 = 0
     self.battery_soc_x1000 = -1 # -1 means value is invalid
     self.bms_battery_current_x100 = None
+    # Timestamp of the BASIC BMS frame that supplied the current above.  This
+    # lets charging detection reject a regeneration sample captured before the
+    # scooter came to a stop.
+    self.bms_battery_current_last_update_ms = 0
     self.battery_is_charging = False
     self.motor_power_percent = 0
     self.motor_current_x10 = 0

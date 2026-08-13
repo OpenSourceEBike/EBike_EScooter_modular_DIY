@@ -260,10 +260,12 @@ if cfg.has_jbd_bms:
     period_ms = 1000
     next_wake = time.ticks_ms()
     while True:
-      if bms.is_connected() and bms.is_fresh(3000):
+      if bms.is_connected() and bms.is_basic_fresh(3000):
         vars.bms_battery_current_x100 = bms.get_current_a_x100()
+        vars.bms_battery_current_last_update_ms = bms.last_basic_data_ms
       else:
         vars.bms_battery_current_x100 = None
+        vars.bms_battery_current_last_update_ms = 0
       next_wake = time.ticks_add(next_wake, period_ms)
       remaining = time.ticks_diff(next_wake, time.ticks_ms())
       await asyncio.sleep_ms(remaining if remaining > 0 else 0)
@@ -792,6 +794,7 @@ async def main_task(vars):
   
   motor_power_previous = 0
   charge_seen_ms = None
+  stationary_since_ms = None
   was_in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
   was_comms_paused = vars.comms_paused
   time_counter_next = time.ticks_add(time.ticks_ms(), 1000)
@@ -822,18 +825,37 @@ async def main_task(vars):
     if was_comms_paused and not vars.comms_paused:
       # Force a new charging hold interval after Wi-Fi/NTP radio recovery.
       charge_seen_ms = None
+      stationary_since_ms = None
       vars.battery_is_charging = False
       vars.bms_battery_current_x100 = None
+      vars.bms_battery_current_last_update_ms = 0
     was_comms_paused = vars.comms_paused
 
-    # Charging is valid only while motor-board telemetry is fresh. A zero
-    # wheel speed without a fresh motor status is not evidence of standstill.
+    # Charging is valid only while motor-board telemetry is fresh.  In
+    # particular, regen can leave a positive BMS current sample behind when
+    # the wheel reaches zero; accept it only if it was sampled after a stable,
+    # non-braking standstill.
     if cfg.has_jbd_bms and not vars.rtc_sync_pending and not vars.comms_paused:
-      if not vars.motor_board_rx_ok or vars.wheel_speed_x10 != 0:
+      vehicle_is_stationary = (
+        vars.motor_board_rx_ok and
+        vars.wheel_speed_x10 == 0 and
+        not vars.brakes_are_active and
+        not vars.regen_braking_is_active
+      )
+      if not vehicle_is_stationary:
         vars.battery_is_charging = False
         charge_seen_ms = None
+        stationary_since_ms = None
+      elif stationary_since_ms is None:
+        stationary_since_ms = now
       elif vars.bms_battery_current_x100 is not None:
-        if vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100:
+        bms_current_is_post_stop = time.ticks_diff(
+          vars.bms_battery_current_last_update_ms, stationary_since_ms
+        ) >= 0
+        if (
+          bms_current_is_post_stop and
+          vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100
+        ):
           if charge_seen_ms is None:
             charge_seen_ms = now
           elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
@@ -850,6 +872,7 @@ async def main_task(vars):
       elif bms is None or not bms.is_available():
         vars.battery_is_charging = False
         charge_seen_ms = None
+        stationary_since_ms = None
     elif vars.charging_reconfirm_pending:
       # No BMS-backed charging detector is active for this configuration.
       vars.charging_reconfirm_pending = False
