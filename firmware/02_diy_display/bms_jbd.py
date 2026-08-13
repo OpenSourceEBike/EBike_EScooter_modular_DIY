@@ -135,6 +135,9 @@ class JbdBmsClient:
     self.awaiting = False
     self.phase = 0
     self.last_data_ms = 0
+    # BASIC frames carry pack current; cell frames must not make a stale pack
+    # current appear fresh to consumers that make safety decisions from it.
+    self.last_basic_data_ms = 0
     self._scan_ms = 8000
     self._scan_active = False
     self._connecting = False
@@ -238,6 +241,13 @@ class JbdBmsClient:
     if not self.last_data_ms:
       return False
     return time.ticks_diff(time.ticks_ms(), self.last_data_ms) <= max_age_ms
+
+  def is_basic_fresh(self, max_age_ms=3000):
+    if not self.last_basic_data_ms:
+      return False
+    return time.ticks_diff(
+      time.ticks_ms(), self.last_basic_data_ms
+    ) <= max_age_ms
 
   # ───────── Getters (×100 or ×1000 where applicable) ─────────
 
@@ -346,6 +356,7 @@ class JbdBmsClient:
     self.awaiting = False
     self.phase = 0
     self.last_data_ms = 0
+    self.last_basic_data_ms = 0
     self._scan_active = False
     self._connecting = False
     self._connect_deadline_ms = 0
@@ -536,6 +547,7 @@ class JbdBmsClient:
         if info:
           self._last_basic = info
           self.last_data_ms = time.ticks_ms()
+          self.last_basic_data_ms = self.last_data_ms
           changed = True
       elif cmd == 0x04 and self.interleave_cells:
         cells_x1000 = self._parse_cells(f)
@@ -625,6 +637,7 @@ class JbdBmsClient:
           # No valid BMS response has been received yet. Freshness starts
           # only after _drain_frames() accepts a valid JBD frame.
           self.last_data_ms = 0
+          self.last_basic_data_ms = 0
           self._schedule_send(self.first_kick_ms)
         else:
           self._handle_connection_failure("descriptor discovery")
