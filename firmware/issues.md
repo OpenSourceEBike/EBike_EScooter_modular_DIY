@@ -1,195 +1,172 @@
 # Firmware Issues Review
 
-Review date: 2026-07-26.
+Review date: 2026-08-13.
 
-Scope: active MicroPython firmware in this checkout, with focus on the maintained escooter display, motor, lights, automatic power control board, shared ESP-NOW helpers, and config runtime. The e-bike path is documented as legacy/not maintained and is not part of the active maintained firmware scope.
+Scope: maintained scooter firmware in this checkout: motor, Display, lights,
+automatic power-control board, shared ESP-NOW helpers, runtime configuration,
+and the battery-resistance feature. The legacy e-bike paths are excluded.
 
-Validation done:
+Only open findings are kept in this file. Resolved findings and accepted design
+decisions remain documented in the relevant pages under `docs/`.
 
-- CPython syntax-only `py_compile` passed for the active entry points and
-  critical shared modules.
-- `pyflakes` and `ruff` are not installed in this environment, so no external static linter pass was run.
-- `mpy-cross` is not installed in this environment, so no MicroPython parser/compiler pass was run.
-- No hardware test was done in this review.
+## Open findings
 
-This file tracks currently open findings. Older findings already marked implemented are intentionally removed from the active list.
+| ID | Probability / evidence | Severity | Open finding |
+| --- | --- | --- | --- |
+| LT-01 | Known receiver behavior; sender contract normally prevents it | Medium | Lights ownership is selected from `mask`, not enforced from `src`. |
+| SEC-01 | Certain architectural exposure; incident likelihood not measured | High | ESP-NOW command frames are unauthenticated and replayable. |
+| SYS-01 | Certain architectural gap | High | Critical tasks have no supervisor or watchdog recovery. |
+| PWR-01 | Certain protocol gap | Medium | Relay and power configuration are not application-acknowledged. |
+| MOT-01 | Required CAN delay; target timing not measured | Medium | Synchronous post-send delays can still postpone the nominal 20 ms motor cycle. |
+| RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
 
-Resolved since the previous review: the power-board production logging default is
-disabled (`debug_enable = False`), forced GC calls were removed from the
-high-frequency motor, lights, and power-control loops, lights retries now use a
-bounded backoff, charging reconfirmation failures are shown as an explicit
-unknown state, and button timing/event delivery was hardened.
+## Lights and communications
 
-## Recently resolved findings
+### LT-01 — lights ownership is selected from mask
 
-### Lights retry traffic was unbounded during an outage
+**Status:** Open; established behavior restored. **Severity:** Medium.
 
-**Status:** Resolved.
-
-Display and motor-board lights transmissions now retry with an exponential
-interval starting at 50 ms and capped at 1000 ms. Jitter remains applied to
-avoid synchronized retries, and a successful send resets the interval.
-
-### Charging reconfirmation timeout silently reported non-charging
-
-**Status:** Resolved.
-
-After the 10-second evidence window, the display enters an explicit
-`charging unknown` state instead of silently presenting non-charging. The
-charging screen remains protected until the rider acknowledges it with a power
-long press or fresh BMS evidence resolves the state.
-
-### Manual lights and automatic schedule policy was implicit
-
-**Status:** Resolved.
-
-The maintained switch remains a manual ON override by default. Deployments that
-require the schedule to be authoritative can set
-`auto_lights_schedule_authoritative = True` in the selected configuration.
-
-### Button timing used an incompatible tick source and UI events could be lost
-
-**Status:** Resolved.
-
-`thisButton` now uses `ticks_us()` with `ticks_diff()`/`ticks_add()`. Short clicks
-are accepted from 100 ms, long presses from 1000 ms, and power-button events are
-latched until the UI task consumes them. The display also suppresses the
-transient re-arm warning after leaving the charging screen while preserving the
-motor-board safety latch.
-
-## Review Summary
-
-| Severity | Open findings |
-| --- | --- |
-| High | ESP-NOW command frames are not authenticated; active critical tasks have no supervisor. |
-| Medium | Relay state has no application acknowledgement; motor-cycle timing is unmeasured; NTP remains blocking. |
-
-## Findings
-
-### High - ESP-NOW command frames are not authenticated
-
-**Status:** Open.
-
-The shared protocol is plain ASCII and carries only numeric source/destination
-board IDs. The active receivers validate those fields but do not validate the
-received peer MAC address or authenticate the payload.
+The lights receiver accepts Display and motor sources but selects the
+brake/display state path from `mask`, not from `src`. Source enforcement was
+reverted to restore the existing receiver behavior.
 
 **References:**
 
-- `common/espnow_protocol.py:14-30`
-- `01_diy_main_board/escooter/main.py:298-309`
-- `03_diy_lights_board/main.py:166-180`
-- `04_diy_automatic_power_control/main.py:186-195`
+- `03_diy_lights_board/main.py:92-98`
+- `03_diy_lights_board/main.py:167-184`
+- `common/lights_bits.py:1-21`
+
+**Impact:** a malformed or forged Display frame containing the brake bit can
+refresh the motor-owned state; a motor frame without it can reach the
+Display-owned path. Current encoders are expected to preserve ownership.
+
+**Recommended action:** keep the restored behavior unless a future hardware
+integration test explicitly validates a source-enforced replacement.
+
+### SEC-01 — ESP-NOW commands are unauthenticated
+
+**Status:** Open. **Severity:** High.
+
+Frames are plain ASCII with numeric source/destination IDs. Receivers validate
+the payload IDs but do not bind them to the received peer MAC, authenticate the
+payload, or reject replayed commands.
+
+**References:**
+
+- `common/espnow_protocol.py:18-34`
+- `01_diy_main_board/escooter/main.py:352-387`
+- `03_diy_lights_board/main.py:91-97`
+- `04_diy_automatic_power_control/main.py:186-196`
 
 **Impact:** a radio sender able to forge a valid frame can request motor state,
 lights, relay shutdown, or power configuration changes.
 
-**Recommended action:** validate the peer MAC against the expected board for
-each link, configure encrypted ESP-NOW peers, and add a replay-resistant
-counter/nonce if the platform supports it.
+**Recommended action:** validate peer MAC ownership, configure encrypted peers,
+and add a replay-resistant counter/nonce if supported by the deployed
+MicroPython ESP-NOW stack.
 
-### High - active critical tasks have no supervisor or watchdog recovery
+## Runtime supervision and timing
 
-**Status:** Open.
+### SYS-01 — no supervisor or watchdog recovery
 
-The active scooter firmware no longer creates or feeds a hardware watchdog.
-The power board asserts relay outputs at startup and its normal timeout-based
-power-off logic only runs while the main loop continues executing. The motor
-and display applications also have no task supervisor to recover an
-unexpectedly terminated critical task.
+**Status:** Open. **Severity:** High.
 
-**References:**
-
-- `01_diy_main_board/escooter/main.py:708-724`
-- `02_diy_display/escooter/main.py:921-928`
-- `04_diy_automatic_power_control/main.py:354-465`
-
-**Impact:** a firmware or peripheral lock-up can leave the power path asserted
-until an external reset or power intervention. An uncaught exception can also
-stop motor or display tasks while the remaining firmware continues running.
-
-**Recommended action:** add an explicit supervisor that places actuators in a
-safe state and restarts promptly after a critical task failure. If a hardware
-watchdog is reintroduced, feed it only after the complete critical cycle and
-test the relay state after watchdog reset on target hardware.
-
-### Medium - relay command delivery is not application-acknowledged
-
-**Status:** Open.
-
-The Display treats a successful ESP-NOW send as power-board communication
-health. The power board emits configuration echoes, but does not send its
-actual relay state or an acknowledgement tied to each `turn_off` command.
+The motor and Display run critical coroutines under `asyncio.gather()` without a
+supervisor. There is no active hardware watchdog. The power board also relies
+on its main loop continuing in order to reach normal timeout shutdown.
 
 **References:**
 
-- `02_diy_display/escooter/main.py:804-829`
-- `04_diy_automatic_power_control/main.py:364-367`
+- `01_diy_main_board/escooter/main.py:735-753`
+- `02_diy_display/escooter/main.py:1205-1223`
+- `04_diy_automatic_power_control/main.py:357-469`
 
-**Impact:** the Display can report communication as healthy even if the relay
-command was received but could not be applied by the power board.
+**Impact:** an uncaught task exception or peripheral lock-up can leave a board
+degraded or keep the power path asserted until external intervention.
 
-**Recommended action:** add a power-board status frame containing relay state,
-last command identifier, and power-off reason; make Display health depend on a
-fresh matching acknowledgement.
+**Recommended action:** supervise critical tasks, apply a software-safe state
+on failure, and reset promptly. Feed any reintroduced hardware watchdog only
+after a complete critical cycle; validate relay state after watchdog reset on
+target hardware.
 
-### Medium - motor control timing has blocking work in the 20 ms loop
+### MOT-01 — required CAN delays can postpone the 20 ms cycle
 
-**Status:** Open; requires hardware measurement.
+**Status:** Open; requires hardware measurement. **Severity:** Medium.
 
-The motor-control coroutine targets 20 ms but can make multiple CAN sends per
-iteration. Each successful send calls `time.sleep_ms(3)`. CAN telemetry drain
-also reserves up to 10 ms in a separate cooperative task.
-
-**References:**
-
-- `01_diy_main_board/escooter/main.py:375-526`
-- `01_diy_main_board/motor.py:75-77`
-- `01_diy_main_board/motor.py:111-116`
-
-**Impact:** with two motors, real control and ESP-NOW latency can exceed the
-nominal cadence, particularly under CAN traffic.
-
-**Recommended action:** instrument worst-case task duration on the board,
-review the 3 ms post-send delay, and bound the CAN work performed per cycle.
-
-### Medium - task exceptions are not recovered explicitly
-
-**Status:** Open.
-
-Both active asynchronous applications use `asyncio.gather()` without a task
-supervisor. An uncaught exception terminates the affected task and there is no
-active hardware watchdog to provide recovery.
+Each successful CAN transmission retains the required 3 ms ESP32 delay. The
+normal 20 ms loop now sends only one actuation command per configured VESC, but
+the separate 100 ms task sends the two persistent limit commands per VESC.
+CAN receive no longer waits on an empty queue and is bounded to 32 queued
+frames per refresh.
 
 **References:**
 
-- `01_diy_main_board/escooter/main.py:708-724`
-- `02_diy_display/escooter/main.py:921-928`
+- `01_diy_main_board/escooter/main.py:447-604`
+- `01_diy_main_board/escooter/main.py:606-658`
+- `01_diy_main_board/motor.py:60-78`
+- `01_diy_main_board/motor.py:110-190`
 
-**Impact:** a software fault can leave the firmware degraded indefinitely. The
-safe behaviour of attached motor controllers during that interval is not
-guaranteed by this firmware.
+**Impact:** in dual-motor operation, cooperative scheduling can still delay an
+actuation cycle when it coincides with the limit-refresh task.
 
-**Recommended action:** add a top-level supervisor that logs the failing task,
-applies a software-safe state when possible, and resets promptly; validate with
-fault injection on hardware.
+**Recommended action:** measure worst-case loop latency on the ESP32-S3 with
+dual VESC traffic while retaining the proven 3 ms post-send delay.
 
-### Medium - asynchronous NTP sync still contains a blocking operation
+### RTC-01 — synchronous NTP call inside asynchronous flow
 
-**Status:** Open; requires target-network measurement.
+**Status:** Open; requires target-network measurement. **Severity:** Medium.
 
-`sync_rtc_time_from_wifi_ntp_async()` calls the synchronous
-`ntptime.settime()`. During this period the Display pauses ESP-NOW, and the
-event loop cannot schedule normal UI and communication work.
+`sync_rtc_time_from_wifi_ntp_async()` ultimately calls synchronous
+`ntptime.settime()`. During that call the Display event loop cannot schedule UI
+or recovery work, while ESP-NOW and BLE are deliberately paused.
 
 **References:**
 
-- `02_diy_display/wifi_time_sync.py:303-351`
-- `02_diy_display/escooter/main.py:613-641`
+- `02_diy_display/wifi_time_sync.py:334-387`
+- `02_diy_display/escooter/main.py:757-832`
 
-**Impact:** slow DNS/NTP behaviour can freeze the Display longer than expected
-and delay recovery of normal communication.
+**Impact:** slow DNS/NTP behavior can freeze the Display longer than expected
+and delay radio recovery.
 
-**Recommended action:** measure the worst case with the deployed network. If
-it is unacceptable, use a bounded NTP implementation or isolate the operation
-so normal UI and communication tasks remain responsive.
+**Recommended action:** measure worst-case duration on the deployed network.
+If unacceptable, use a bounded NTP implementation or isolate the blocking
+operation from the normal UI/communication scheduler.
+
+## Power-control acknowledgement
+
+### PWR-01 — relay/config delivery is not application-acknowledged
+
+**Status:** Open. **Severity:** Medium.
+
+The Display treats a successful ESP-NOW send as power-board health. The power
+board echoes configuration only after an accepted value changes and does not
+report actual relay state or acknowledge each `turn_off` request. The Display
+also marks configuration as sent after MAC-level success rather than after a
+matching echo.
+
+**References:**
+
+- `02_diy_display/escooter/main.py:320-346`
+- `02_diy_display/escooter/main.py:1047-1152`
+- `04_diy_automatic_power_control/main.py:198-270`
+- `04_diy_automatic_power_control/main.py:357-448`
+
+**Impact:** the Display cannot distinguish applied, rejected, already-present,
+or merely transmitted state, and cannot confirm that the relay physically
+followed the request.
+
+**Recommended action:** add status containing relay state, applied
+configuration, last command identifier, and power-off reason. Echo valid
+configuration commands even when values do not change, and base Display state
+on a fresh matching acknowledgement.
+
+## Validation performed
+
+- Syntax compilation succeeded for all 86 Python files in the checkout.
+- Twenty-six host tests passed: battery resistance, persistence, bounded CAN RX,
+  and preservation of the required CAN post-send delay.
+- `bash -n scripts/update_firmware.sh` passed.
+- `git diff --check` passed.
+- `ruff`, `pyflakes`, and `mpy-cross` are unavailable in this environment.
+- No ESP32-S3, CAN, radio, filesystem power-loss, or target-network timing test
+  was performed.

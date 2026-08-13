@@ -35,6 +35,15 @@ import uasyncio as asyncio
 import machine
 import esp32
 from common.utils import map_range
+from common.config_battery_resistance import (
+  battery_resistance_config,
+  validate_battery_resistance_display_config,
+  validate_battery_resistance_measurement_config,
+)
+from common.battery_resistance_persistence import (
+  load_battery_resistance_history,
+  save_battery_resistance_history,
+)
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
 import vars as Vars
 from common.espnow_protocol import (
@@ -43,6 +52,7 @@ from common.espnow_protocol import (
   BOARD_MOTOR,
   BOARD_POWER_SWITCH,
   HEALTH_MOTOR_LIGHTS_TX_OK,
+  HEALTH_MOTOR_REAR_SPEED_VALID,
   MSG_COMMAND,
   MSG_STATUS,
   POWER_CONFIG_CMD,
@@ -61,6 +71,24 @@ from common.espnow import (
 )
 
 vars = Vars.Vars()
+battery_resistance_display_config_error = validate_battery_resistance_display_config(
+  battery_resistance_config)
+battery_resistance_measurement_config_error = \
+  validate_battery_resistance_measurement_config(battery_resistance_config)
+vars.battery_resistance_enabled = battery_resistance_display_config_error is None
+vars.battery_resistance_measurement_available = (
+  battery_resistance_measurement_config_error is None)
+vars.battery_resistance_config_error = (
+  battery_resistance_display_config_error or
+  battery_resistance_measurement_config_error or
+  ''
+)
+if not vars.battery_resistance_enabled:
+  print("Battery resistance display disabled:",
+        battery_resistance_display_config_error)
+elif not vars.battery_resistance_measurement_available:
+  print("Battery resistance measurement unavailable:",
+        battery_resistance_measurement_config_error)
 boot_log("Vars initialized")
 
 my_mac_address = cfg.mac_address_display
@@ -438,6 +466,39 @@ def save_rtc_ntp_sync_valid(value):
     return False
   return True
 
+def _battery_resistance_timestamp(vars):
+  if not getattr(vars, 'rtc_time_valid', False) or vars.rtc is None:
+    return 0
+  try:
+    dt = vars.rtc.date_time()
+    return time.mktime((dt[0], dt[1], dt[2], dt[3], dt[4], dt[5], 0, 0))
+  except Exception:
+    return 0
+
+def record_battery_resistance_result(vars, resistance_mohm):
+  timestamp = _battery_resistance_timestamp(vars)
+  vars.battery_resistance_last_mohm = resistance_mohm
+  vars.battery_resistance_last_timestamp = timestamp
+  save_minimum = (
+    vars.battery_resistance_min_mohm is None or
+    resistance_mohm < vars.battery_resistance_min_mohm
+  )
+  save_maximum = (
+    vars.battery_resistance_max_mohm is None or
+    resistance_mohm > vars.battery_resistance_max_mohm
+  )
+  if save_minimum:
+    vars.battery_resistance_min_mohm = resistance_mohm
+    vars.battery_resistance_min_timestamp = timestamp
+  if save_maximum:
+    vars.battery_resistance_max_mohm = resistance_mohm
+    vars.battery_resistance_max_timestamp = timestamp
+  vars.battery_resistance_history_dirty = True
+  vars.battery_resistance_alert_pending = (
+    resistance_mohm,
+    int(battery_resistance_config.alert_duration_ms),
+  )
+
 if cfg.enable_rtc_time:
   vars.rtc = get_rtc_datetime_class()(
     rtc_scl_pin=cfg.rtc_scl_pin,
@@ -446,6 +507,9 @@ if cfg.enable_rtc_time:
     debug=cfg.rtc_debug,
   )
   boot_log("RTC object initialized")
+
+if vars.battery_resistance_enabled:
+  load_battery_resistance_history(vars, battery_resistance_config)
 
 def filter_motor_power(p):
   if p < 0:
@@ -774,6 +838,7 @@ async def preload_screens_task(delay_ms=0):
   for screen_id, label in (
     (ScreenID.MAIN, "MAIN"),
     (ScreenID.CHARGING, "CHARGING"),
+    (ScreenID.BATTERY_RESISTANCE, "BATTERY_RESISTANCE"),
     (ScreenID.POWEROFF, "POWEROFF"),
     (ScreenID.MOTOR_BLOCKED, "MOTOR_BLOCKED"),
   ):
@@ -838,6 +903,7 @@ async def main_task(vars):
     if cfg.has_jbd_bms and not vars.rtc_sync_pending and not vars.comms_paused:
       vehicle_is_stationary = (
         vars.motor_board_rx_ok and
+        vars.rear_speed_telemetry_valid and
         vars.wheel_speed_x10 == 0 and
         not vars.brakes_are_active and
         not vars.regen_braking_is_active
@@ -962,6 +1028,9 @@ async def main_task(vars):
 
     # Shutdown
     if vars.shutdown_request:
+      if not save_battery_resistance_history(
+          vars, battery_resistance_config):
+        print("Battery resistance history save failed")
       vars.turn_off_relay = True
       vars.motor_enable_state = False
       vars.lights_board_pins_state = 0
@@ -1087,6 +1156,8 @@ async def motor_comms_task(vars):
         vars.motor_board_rx_last_ok_ms = now
         health_bitmap = parts[3]
         vars.motor_lights_tx_ok = bool(health_bitmap & HEALTH_MOTOR_LIGHTS_TX_OK)
+        vars.rear_speed_telemetry_valid = bool(
+          health_bitmap & HEALTH_MOTOR_REAR_SPEED_VALID)
 
         vars.battery_voltage_x10 = parts[4]
         vars.battery_current_x10 = parts[5]
@@ -1107,9 +1178,20 @@ async def motor_comms_task(vars):
         vars.rear_motor_temperature_x10 = parts[12]
         vars.front_motor_temperature_x10 = parts[13]
 
+        if len(parts) == 15 and \
+            vars.battery_resistance_enabled and \
+            vars.battery_resistance_measurement_available and \
+            not vars.battery_resistance_received_this_boot:
+          resistance_mohm = parts[14]
+          if (battery_resistance_config.min_mohm <= resistance_mohm <=
+              battery_resistance_config.max_mohm):
+            vars.battery_resistance_received_this_boot = True
+            record_battery_resistance_result(vars, resistance_mohm)
+
     vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_RX_COMM_TIMEOUT_MS
     if not vars.motor_board_rx_ok:
       vars.motor_lights_tx_ok = False
+      vars.rear_speed_telemetry_valid = False
 
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)

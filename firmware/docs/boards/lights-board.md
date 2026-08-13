@@ -34,6 +34,9 @@ In the active scooter firmware:
 - If the display stops driving light updates through the motor board, the lights board should fall back to safe outputs.
 - The motor-owned brake output is cleared after 2000 ms without a motor
   heartbeat; display-owned outputs use their own timeout.
+- The receiver selects the brake/display path from the requested mask. The
+  senders retain the intended motor-only brake and Display-only rider-light
+  ownership; source-side enforcement is not applied in the current receiver.
 
 ## Code areas
 

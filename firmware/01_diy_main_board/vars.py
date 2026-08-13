@@ -68,4 +68,6 @@ class Vars(object):
     self.turn_off_relay = False
     self.display_comm_ok = False
     self.lights_comm_ok = False
+    # -1 until the one motor-side measurement for this boot succeeds.
+    self.battery_resistance_mohm = -1
     

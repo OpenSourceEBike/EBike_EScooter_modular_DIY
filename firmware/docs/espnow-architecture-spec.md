@@ -117,6 +117,10 @@ The display owns the rider-light bits and the motor board sends only
 `REAR_BRAKE_BIT`. During Wi-Fi time sync, the display light state is outside
 the sync/recovery contract.
 
+The current senders follow this ownership, but the lights receiver selects the
+brake/display path from `mask` rather than enforcing it from `src`. This keeps
+the established receiver behavior without changing the frame.
+
 Display or motor to power-switch relay command:
 
 ```text
@@ -132,11 +136,27 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm
 ```
 
-Status `flags` bit 2 is reserved. `battery_is_charging` is display-local state
-derived from the optional BLE BMS and is not transported in motor status.
+Status `flags` bit 2 carries `throttle_rearm_required`.
+`battery_is_charging` is display-local state derived from the optional BLE BMS
+and is not transported in motor status.
+
+Motor-status health bits also report whether rear speed is fresh. VESC status
+families have independent timestamps; receiving one family does not refresh the
+others.
+
+The battery-resistance estimator runs on the motor board. Existing field
+meanings and order remain unchanged; the terminal
+`battery_resistance_mohm` field is `-1` while no result is available and then
+repeats the one `1..2500` mOhm result for the rest of the boot. It carries no
+measurement timestamp, age, or sequence number.
+
+The Display latches that repeated result once per Display boot. Repeated frames
+within the same boot do not duplicate history or alerts. If only the Display
+restarts while the motor remains powered, the new local session accepts the
+result once and shows one new alert.
 
 Power-switch to sender config echo/status:
 
@@ -216,7 +236,7 @@ latest command separately for each sender (display and motor board).
 | Sender → receiver | Information | Send period | Receiver processing / expiry |
 | --- | --- | --- | --- |
 | Display → motor board | Motor command: `motor_enable`, buttons, lights and relay-off request | 100 ms (10 Hz) | Queue drained every 250 ms; the last valid queued command is applied. If `motor_enable` is absent for 2000 ms, the motor board disables the motors. |
-| Motor board → display | System status: battery, current, SOC, speed, temperatures, flags and lights-link health | 100 ms (10 Hz) | Processed in the display 250 ms communications loop; the latest queued status is applied. The display marks received motor status stale after 2000 ms. |
+| Motor board → display | System status: battery, current, SOC, speed, temperatures, flags and lights-link health; also repeats the motor-side battery-resistance result | 100 ms (10 Hz) | Processed in the display 250 ms communications loop; the latest queued status is applied. The display marks received motor status stale after 2000 ms. |
 | Display → lights board | Rider-light request: low beam, tail and turn signals; excludes the brake bit | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest display command is applied. Display-owned outputs are reset after 20000 ms without a display message. Display TX health expires after 1500 ms without a successful send. |
 | Motor board → lights board | Brake-light state: `REAR_BRAKE_BIT` only | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest motor command is applied independently of the display command. Motor TX health expires after 1500 ms without a successful send; the brake output is cleared after 2000 ms without a motor heartbeat. |
 | Display → power-switch board | Relay command: `turn_off` | Every 250 ms (4 Hz), and once immediately when the state changes | Processed approximately every 20 ms. The display considers its last successful send valid for 1500 ms. |
@@ -224,6 +244,13 @@ latest command separately for each sender (display and motor board).
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
 | Lights board → other boards | — | Does not send ESP-NOW frames | Receives and applies commands only. |
 | JBD BMS → display | BLE battery current used for local charging detection | Basic/cell queries currently alternate at about 1 Hz | BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with at most two retries before the BMS is marked unavailable. |
+
+The JBD BMS is never used by the battery-resistance estimator. Motor-side CAN
+measurement continues even while the Display is unavailable or showing
+`m RX!`; only delivery and presentation of the repeated result are delayed.
+Independently phased `STATUS_4`/`STATUS_5` half-pairs are tracked inside the
+motor-side feature module. Pending halves do not reset an attempt, and no
+ESP-NOW payload change is required.
 
 - Display motor transmission and power communication timeout: 1500 ms.
 - Display motor-status receive timeout: 2000 ms.

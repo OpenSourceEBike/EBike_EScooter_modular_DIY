@@ -3,6 +3,13 @@ import gc
 import uasyncio as asyncio
 
 import common.config_runtime as cfg
+from common.config_battery_resistance import (
+  battery_resistance_config,
+  validate_battery_resistance_measurement_config,
+)
+from common.battery_resistance import (
+  BatteryResistanceEstimator,
+)
 
 from vars import Vars
 from motor import MotorData, Motor
@@ -17,6 +24,7 @@ from common.espnow_protocol import (
   MSG_COMMAND,
   MSG_STATUS,
   HEALTH_MOTOR_LIGHTS_TX_OK,
+  HEALTH_MOTOR_REAR_SPEED_VALID,
   build_command,
   build_status,
   parse_frame,
@@ -32,6 +40,16 @@ LIGHTS_RETRY_MS = 50
 LIGHTS_RETRY_MAX_MS = 1000
 THROTTLE_REARM_ZERO_HOLD_MS = 1000
 system_boot_ms = time.ticks_ms()
+battery_resistance_config_error = validate_battery_resistance_measurement_config(
+  battery_resistance_config)
+CAN_SIGNAL_TIMEOUT_MS = 500
+if battery_resistance_config_error is not None:
+  print("Battery resistance measurement disabled:",
+        battery_resistance_config_error)
+battery_resistance_estimator = (
+  BatteryResistanceEstimator(battery_resistance_config, system_boot_ms)
+  if battery_resistance_config_error is None else None
+)
 
 try:
   import neopixel
@@ -106,6 +124,12 @@ def decode_display_command(msg):
     return parts
   return None
 
+def _can_timestamp_is_fresh(now, timestamp_ms):
+  return bool(
+    timestamp_ms and
+    0 <= time.ticks_diff(now, timestamp_ms) < CAN_SIGNAL_TIMEOUT_MS
+  )
+
 def encode_display_status(vars, rear_motor_data, front_motor_data=None):
   brakes_are_active = 1 if vars.brakes_are_active else 0
   regen_braking_is_active = 1 if vars.regen_braking_is_active else 0
@@ -132,7 +156,10 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
           ((throttle_right_fault & 1) << 8) | \
           ((throttle_left_fault & 1) << 9)
 
+  now = time.ticks_ms()
   health_bitmap = HEALTH_MOTOR_LIGHTS_TX_OK if vars.lights_comm_ok else 0
+  if _can_timestamp_is_fresh(now, rear_motor_data.status_1_last_update_ms):
+    health_bitmap |= HEALTH_MOTOR_REAR_SPEED_VALID
 
   return build_status(
     BOARD_MOTOR,
@@ -148,6 +175,7 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
     front_vesc_temperature_x10,
     int(rear_motor_data.motor_temperature_x10),
     front_motor_temperature_x10,
+    int(vars.battery_resistance_mohm),
   )
 
 def encode_lights_message(mask, state):
@@ -217,7 +245,6 @@ mode = Mode(brake_sensor, (throttle_1, throttle_2), vars, save_to_nvs=cfg.save_m
 async def task_motors_refresh_data():
   period_ms = 50
   next_wake = time.ticks_ms()
-  can_timeout_ms = 500
   # Refresh latest VESC data (call once; it fills both via CAN)
   while True:
     if front_motor is None:
@@ -227,20 +254,29 @@ async def task_motors_refresh_data():
 
     now = time.ticks_ms()
     for data in motor_data:
-      if (
-        not data.last_can_data_ms or
-        time.ticks_diff(now, data.last_can_data_ms) >= can_timeout_ms
-      ):
-        # Do not keep publishing old VESC values as live telemetry. The
-        # display receives zeros until fresh CAN frames arrive again.
+      # Status families arrive independently and can have different periods.
+      # Expire only the values owned by the status family that went stale.
+      if not _can_timestamp_is_fresh(now, data.status_1_last_update_ms):
         data.speed_erpm = 0
         data.wheel_speed = 0
+        data.motor_current_x10 = 0
+      if not _can_timestamp_is_fresh(now, data.status_4_last_update_ms):
         data.vesc_temperature_x10 = 0
         data.motor_temperature_x10 = 0
-        data.motor_current_x10 = 0
         data.battery_current_x10 = 0
+      if not _can_timestamp_is_fresh(now, data.status_5_last_update_ms):
         data.battery_voltage_x10 = 0
+      if not _can_timestamp_is_fresh(now, data.status_7_last_update_ms):
         data.battery_soc_x1000 = 0
+
+    if battery_resistance_estimator is not None and not \
+        battery_resistance_estimator.completed:
+      resistance_mohm = battery_resistance_estimator.update(
+        now, motor_data, vars.regen_braking_is_active)
+      if resistance_mohm is not None:
+        vars.battery_resistance_mohm = resistance_mohm
+        print("Battery resistance measured: {} mOhm".format(
+          resistance_mohm))
 
     next_wake = time.ticks_add(next_wake, espnow_jittered_period_ms(period_ms))
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
@@ -512,16 +548,6 @@ async def task_control_motor():
       if _motor_data.motor_target_speed > motor_erpm_max_speed_limit:
         _motor_data.motor_target_speed = motor_erpm_max_speed_limit
 
-    # Set motor/battery current limits
-    for motor in motors:
-      motor.set_motor_current_limits(
-        motor.data.motor_target_current_limit_min,
-        motor.data.motor_target_current_limit_max)
-
-      motor.set_battery_current_limits(
-        motor.data.battery_target_current_limit_min,
-        motor.data.battery_target_current_limit_max)
-
     # Brakes
     vars.brakes_are_active = True if brake_sensor.value else False
 
@@ -616,6 +642,16 @@ async def task_control_motor_limit_current():
         _motor_data.cfg.battery_current_limit_min_max,
         _motor_data.cfg.battery_current_limit_min_min,
         clamp=True)
+
+    # Limit updates do not belong in the 20 ms actuation loop. The VESC keeps
+    # the latest limits, so refresh them here at this task's 100 ms cadence.
+    for motor in motors:
+      motor.set_motor_current_limits(
+        motor.data.motor_target_current_limit_min,
+        motor.data.motor_target_current_limit_max)
+      motor.set_battery_current_limits(
+        motor.data.battery_target_current_limit_min,
+        motor.data.battery_target_current_limit_max)
 
     next_wake = time.ticks_add(next_wake, period_ms)
     remaining = time.ticks_diff(next_wake, time.ticks_ms())

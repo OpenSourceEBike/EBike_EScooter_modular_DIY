@@ -9,6 +9,7 @@ class ScreenID:
   CHARGING  = 2
   POWEROFF  = 3
   MOTOR_BLOCKED = 4
+  BATTERY_RESISTANCE = 5
 
 class ScreenManager:
   def __init__(self, fb, vars):
@@ -20,6 +21,9 @@ class ScreenManager:
       ScreenID.CHARGING: ("screens.charging", "ChargingScreen"),
       ScreenID.POWEROFF: ("screens.poweroff", "PowerOffScreen"),
       ScreenID.MOTOR_BLOCKED: ("screens.motor_blocked", "MotorBlockedScreen"),
+      ScreenID.BATTERY_RESISTANCE: (
+        "screens.battery_resistance", "BatteryResistanceScreen"
+      ),
     }
     self._screen_factories = {
       ScreenID.BOOT: BootScreen,
@@ -224,11 +228,18 @@ class ScreenManager:
         self.force(ScreenID.CHARGING)
         return
 
-      # Charging entered manually may also be left manually.
+      # Charging entered manually opens the battery-resistance history first.
       if self.current_is(ScreenID.CHARGING) and \
               not is_charging and \
               not self._charging_entry_is_auto:
         self._charging_entry_is_auto = False
+        vars.motor_enable_state = False
+        self.force(ScreenID.BATTERY_RESISTANCE)
+        return
+
+      # The history screen is an informational stop in the manual charging
+      # flow; the next click continues to BOOT.
+      if self.current_is(ScreenID.BATTERY_RESISTANCE):
         self._suppress_rearm_warning()
         vars.motor_enable_state = False
         self.force(ScreenID.BOOT)

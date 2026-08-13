@@ -74,7 +74,7 @@ class Motor(object):
       # Non-blocking send; extframe=True for VESC extended IDs pattern
       Motor._can.send(buf, msg_id, extframe=True, timeout=0)
       self.tx_ok += 1
-      time.sleep_ms(3)  # small yield to avoid starving REPL/USB/CAN IRQs
+      time.sleep_ms(3)  # required delay for reliable ESP32 CAN transmission
       return True
 
     except OSError as e:
@@ -108,20 +108,20 @@ class Motor(object):
       return None
 
   # ------------------ PUBLIC: RX drain & VESC decode ------------------
-  def update_motor_data(self, motor_1, motor_2=None, budget_ms=10):
+  def update_motor_data(self, motor_1, motor_2=None, max_frames=32):
     """
-    Drain frames for ~budget_ms without blocking.
+    Drain at most max_frames already queued, without waiting for new frames.
     Decodes a subset of VESC CAN status packets into MotorData.
     """
     if Motor._can is None:
-      return
+      return 0
 
-    end_at = time.ticks_add(time.ticks_ms(), budget_ms)
-    while time.ticks_diff(end_at, time.ticks_ms()) > 0:
+    frames_processed = 0
+    while frames_processed < max_frames:
       tup = self._recv_nonblock()
       if not tup:
-        time.sleep_us(300)  # tiny yield when bus idle
-        continue
+        break
+      frames_processed += 1
 
       try:
         message_id_full, is_ext, rtr, data = tup
@@ -146,32 +146,49 @@ class Motor(object):
       try:
         # CAN_PACKET_STATUS_1 (cmd 9)
         if message_id == 9 and dlc >= 6:
+          now = time.ticks_ms()
           motor_data.speed_erpm          = struct.unpack_from(">l", data, 0)[0]
           motor_data.motor_current_x10   = struct.unpack_from(">h", data, 4)[0]
-          motor_data.last_can_data_ms = time.ticks_ms()
+          motor_data.status_1_last_update_ms = now
+          motor_data.last_can_data_ms = now
 
         # CAN_PACKET_STATUS_4 (cmd 16)
         elif message_id == 16 and dlc >= 6:
+          now = time.ticks_ms()
           motor_data.vesc_temperature_x10  = struct.unpack_from(">h", data, 0)[0]
           motor_data.motor_temperature_x10 = struct.unpack_from(">h", data, 2)[0]
           motor_data.battery_current_x10   = struct.unpack_from(">h", data, 4)[0]
-          motor_data.last_can_data_ms = time.ticks_ms()
+          motor_data.battery_current_measurement_x10 = \
+            motor_data.battery_current_x10
+          motor_data.status_4_last_update_ms = now
+          motor_data.battery_pair_update_counter = (
+            motor_data.battery_pair_update_counter + 1) & 0x3fffffff
+          motor_data.last_can_data_ms = now
 
         # CAN_PACKET_STATUS_5 (cmd 27)
         elif message_id == 27 and dlc >= 6:
+          now = time.ticks_ms()
           motor_data.battery_voltage_x10 = struct.unpack_from(">h", data, 4)[0]
-          motor_data.last_can_data_ms = time.ticks_ms()
+          motor_data.battery_voltage_measurement_x10 = \
+            motor_data.battery_voltage_x10
+          motor_data.status_5_last_update_ms = now
+          motor_data.battery_pair_update_counter = (
+            motor_data.battery_pair_update_counter + 1) & 0x3fffffff
+          motor_data.last_can_data_ms = now
 
         # CAN_PACKET_STATUS_7 (cmd 99)
         elif message_id == 99 and dlc >= 2:
+          now = time.ticks_ms()
           motor_data.battery_soc_x1000 = struct.unpack_from(">h", data, 0)[0]
-          motor_data.last_can_data_ms = time.ticks_ms()
+          motor_data.status_7_last_update_ms = now
+          motor_data.last_can_data_ms = now
 
         # (extend with more decoders as needed)
 
       except Exception:
         # Decode error (length/type), ignore and continue
         pass
+    return frames_processed
 
   # ------------------ PUBLIC: Commands (fire-and-forget) ------------------
 
@@ -271,6 +288,18 @@ class MotorData:
     self.motor_current_x10 = 0
     self.battery_current_x10 = 0
     self.battery_voltage_x10 = 0
+    # Raw last decoded values are retained for the estimator's separately
+    # validated 1500 ms observation window. Operational values above still
+    # expire at the shorter general CAN safety timeout.
+    self.battery_current_measurement_x10 = None
+    self.battery_voltage_measurement_x10 = None
     self.battery_soc_x1000 = 0
     self.vesc_fault_code = 0
+    # Each VESC status family has an independent cadence. A common timestamp
+    # cannot prove that voltage, current, and speed are all still fresh.
+    self.status_1_last_update_ms = 0
+    self.status_4_last_update_ms = 0
+    self.status_5_last_update_ms = 0
+    self.status_7_last_update_ms = 0
+    self.battery_pair_update_counter = 0
     self.last_can_data_ms = 0
