@@ -25,6 +25,7 @@ The intended board-to-board flow is documented here:
 
 - [ESP-NOW Architecture Spec](./docs/espnow-architecture-spec.md)
 - [Protocol Contract](./docs/protocol-contract.md)
+- [Battery Resistance Measurement](./docs/battery-resistance-measurement.md)
 - [Documentation Organization](./docs/documentation-organization.md)
 
 ## What this wiki is for

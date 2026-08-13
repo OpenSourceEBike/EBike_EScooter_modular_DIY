@@ -56,6 +56,7 @@ Power-switch command IDs:
 Health bits:
 
 - `HEALTH_MOTOR_LIGHTS_TX_OK = 1 << 0`
+- `HEALTH_MOTOR_REAR_SPEED_VALID = 1 << 4`
 
 ## Current Frame Shapes
 
@@ -75,6 +76,10 @@ The display owns the rider-light bits and the motor board sends only
 `REAR_BRAKE_BIT`. During Wi-Fi time sync, the display light state is not part
 of the sync/recovery contract.
 
+The current senders obey that ownership, but the lights receiver still chooses
+the ownership path from `mask` instead of enforcing it from `src`. This is kept
+for the established runtime behavior and does not change the frame shape.
+
 Display to power-switch relay command:
 
 ```text
@@ -90,11 +95,24 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm
 ```
 
-Status `flags` bit 2 is reserved. Charging state is detected locally by the
-display from its BLE BMS connection and is not sent by the motor board.
+Status `flags` bit 2 carries `throttle_rearm_required`. Charging state is
+detected locally by the display from its BLE BMS connection and is not sent by
+the motor board.
+
+### Battery-resistance result
+
+The estimator runs on the motor board. It sends `-1` until the one result for
+its boot is available, then repeats the measured `1..2500` mOhm value in every
+status. No measurement age, CAN timestamp, or sequence number is added.
+Existing Displays continue to ignore the trailing field; a new Display also
+accepts the previous 14-field status and treats resistance as unavailable.
+
+The repeated result produces at most one alert per Display boot. An independent
+Display reset clears that local latch, so the still-running motor's repeated
+result is accepted once and alerts once in the new Display session.
 
 Power-switch to sender config echo/status:
 
@@ -118,6 +136,13 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
    detection; the motor board does not communicate with the BMS.
 10. Failed lights sends retry with an exponential interval starting at 50 ms
     and capped at 1000 ms; successful sends reset the interval.
+11. Battery-current (`STATUS_4`), battery-voltage (`STATUS_5`), and speed
+    (`STATUS_1`) freshness are tracked independently for each VESC. A
+    resistance sample requires a valid voltage/current pair from every
+    configured VESC; charging standstill detection requires valid rear speed.
+12. The optional JBD BMS is not a battery-resistance source. It remains
+    Display-local and is used only by unrelated functions such as charging
+    detection.
 
 ## Display button contract
 

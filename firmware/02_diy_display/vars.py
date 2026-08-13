@@ -14,6 +14,7 @@ class Vars:
     self.vesc_fault_code = 0
     self.battery_voltage_x10 = 0
     self.battery_current_x10 = 0
+    self.rear_speed_telemetry_valid = False
     self.battery_soc_x1000 = -1 # -1 means value is invalid
     self.bms_battery_current_x100 = None
     # Timestamp of the BASIC BMS frame that supplied the current above.  This
@@ -21,6 +22,27 @@ class Vars:
     # scooter came to a stop.
     self.bms_battery_current_last_update_ms = 0
     self.battery_is_charging = False
+    # Passive battery DC-resistance history. Timestamps are local RTC epoch
+    # seconds, or zero when no valid RTC is available.
+    self.battery_resistance_last_mohm = None
+    self.battery_resistance_last_timestamp = 0
+    self.battery_resistance_min_mohm = None
+    self.battery_resistance_min_timestamp = 0
+    self.battery_resistance_max_mohm = None
+    self.battery_resistance_max_timestamp = 0
+    self.battery_resistance_history_dirty = False
+    # Shutdown persistence transaction state. The row flag prevents a retry
+    # from appending twice after history succeeded but summary publication did
+    # not. A recovered summary is repaired at the next explicit shutdown.
+    self.battery_resistance_history_row_saved = False
+    self.battery_resistance_summary_repair_pending = False
+    # Prevent repeated motor status frames from duplicating alert/history state.
+    self.battery_resistance_received_this_boot = False
+    # One-shot (resistance_mohm, duration_ms) consumed by MainScreen.
+    self.battery_resistance_alert_pending = None
+    self.battery_resistance_enabled = True
+    self.battery_resistance_measurement_available = True
+    self.battery_resistance_config_error = ''
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
     self.wheel_speed_x10 = 0

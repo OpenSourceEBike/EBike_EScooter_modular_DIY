@@ -27,6 +27,7 @@ class MainScreen(BaseScreen):
     self._warning_queue = []
     self._warning_current = None
     self._warning_start_ms = 0
+    self._warning_duration_ms = 2000
     self._warning_text_previous = ''
     self._warning_showing_progress_bar = False
     self._warning_bar_kind = None
@@ -54,6 +55,7 @@ class MainScreen(BaseScreen):
     self._warning_queue = []
     self._warning_current = None
     self._warning_start_ms = 0
+    self._warning_duration_ms = 2000
     self._warning_text_previous = ''
     self._warning_showing_progress_bar = False
     self._warning_bar_kind = None
@@ -113,7 +115,7 @@ class MainScreen(BaseScreen):
       align_inside="right"
     )
     self._warning_widget.set_box(
-      x1=self.fb.width - 40, y1=38,
+      x1=self.fb.width - 78, y1=38,
       x2=self.fb.width - 1, y2=38 + 8
     )
     self._warning_widget.update('')
@@ -154,6 +156,15 @@ class MainScreen(BaseScreen):
     in_startup_grace = time.ticks_diff(now, getattr(cfg, "system_boot_ms", 0)) < boot_comm_grace_ms
     comms_paused = bool(getattr(vars, "comms_paused", False))
     suppress_remote_warnings = in_startup_grace or comms_paused
+    resistance_alert = getattr(
+      vars, "battery_resistance_alert_pending", None)
+    if resistance_alert is not None:
+      vars.battery_resistance_alert_pending = None
+      resistance_mohm, duration_ms = resistance_alert
+      self._enqueue_warning(
+        "R {} mOhm".format(int(resistance_mohm)),
+        duration_ms=duration_ms,
+      )
     # Motor power
     if self._motor_power_previous != vars.motor_power_percent:
       self._motor_power_previous = vars.motor_power_percent
@@ -265,7 +276,7 @@ class MainScreen(BaseScreen):
       self._mode_last_seen = vars.mode
       self._enqueue_warning(self._mode_text_from_vars())
       
-    # Warning queue display (5s each)
+    # Warning queue display (duration is carried by each item).
     self._tick_warning_queue()
 
   def _mode_text_from_vars(self):
@@ -273,14 +284,15 @@ class MainScreen(BaseScreen):
       return ''
     return f"mode {int(self._mode_last_seen)}"
 
-  def _enqueue_warning(self, text):
+  def _enqueue_warning(self, text, duration_ms=2000):
     if text is None or text == '':
       return
     if not self._queue_has("text", text):
-      self._warning_queue.append(("text", text))
+      item = ("text", text, max(1, int(duration_ms)))
+      self._warning_queue.append(item)
 
   def _enqueue_progress_bar(self, kind):
-    self._warning_queue.append(("bar", kind))
+    self._warning_queue.append(("bar", kind, 2000))
 
   def _enqueue_temp_bars(self):
     if self._temp_bar_percents["vr"] > 0:
@@ -317,6 +329,7 @@ class MainScreen(BaseScreen):
     if self._warning_current == ("text", text):
       self._warning_current = None
       self._warning_start_ms = 0
+      self._warning_duration_ms = 2000
       self._warning_showing_progress_bar = False
       self._warning_bar_kind = None
       self._warning_text_previous = ''
@@ -386,13 +399,14 @@ class MainScreen(BaseScreen):
       if not self._warning_queue:
         self._enqueue_temp_bars()
       while self._warning_queue:
-        kind, payload = self._warning_queue.pop(0)
+        kind, payload, duration_ms = self._warning_queue.pop(0)
         if kind == "bar":
           percent = self._bar_percent(payload)
           if percent <= 0:
             continue
           self._warning_current = ("bar", payload)
           self._warning_start_ms = now
+          self._warning_duration_ms = duration_ms
           self._warning_showing_progress_bar = True
           self._warning_bar_kind = payload
           self._warning_widget.set_visible(False, clear=True)
@@ -404,6 +418,7 @@ class MainScreen(BaseScreen):
         else:
           self._warning_current = ("text", payload)
           self._warning_start_ms = now
+          self._warning_duration_ms = duration_ms
           if payload != self._warning_text_previous:
             self._warning_text_previous = payload
           self._warning_showing_progress_bar = False
@@ -413,7 +428,8 @@ class MainScreen(BaseScreen):
           self._warning_widget.update(payload)
           break
     else:
-      if time.ticks_diff(now, self._warning_start_ms) > 2000:
+      if time.ticks_diff(now, self._warning_start_ms) > \
+          self._warning_duration_ms:
         kind, payload = self._warning_current
         if kind == "bar":
           if self._bar_percent(payload) > 0:
