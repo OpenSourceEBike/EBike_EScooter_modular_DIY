@@ -42,11 +42,17 @@ In the active scooter firmware:
 - It should forward a compact health summary to the display instead of exposing raw link detail unless needed.
 - After each disabled-to-enabled transition, throttle release to zero is
   required before a motor target can be applied.
-- Battery-resistance configuration must not control the general CAN freshness
-  timeout used by speed, current limits, temperatures, voltage, or SOC.
-- The feature-local estimator distinguishes pending asynchronous
-  `STATUS_4`/`STATUS_5` halves from coherent invalid samples; the motor task
-  only passes current VESC snapshots to that module.
+- Battery-resistance configuration must not control the CAN freshness timeouts
+  used by speed, current limits, temperatures, voltage, or SOC.
+- VESC `STATUS_1`, `STATUS_4`, and `STATUS_5` are expected at 10 Hz and use
+  the 500 ms freshness timeout. The VESC LISP helper sends project-private
+  command `100` SOC at 1 Hz and command `101` precision voltage/current at
+  10 Hz; SOC stays valid for 30000 ms and command `101` is used only by the
+  estimator. Command `101` is an eight-byte big-endian payload: unsigned
+  32-bit mV followed by signed 32-bit mA.
+- The estimator accepts only fresh, atomic command-`101` mV/mA samples from
+  every VESC, with a bounded rear/front receipt-time skew. Standard status
+  frames remain independent operational telemetry.
 - The 20 ms actuation loop sends one target command per VESC and preserves the
   required 3 ms post-send CAN delay. Motor/battery limit refresh runs at 100 ms,
   and CAN receive drains at most 32 already-queued frames without waiting on an

@@ -111,7 +111,9 @@ POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
 POWER_SWITCH_HEARTBEAT_MS = 250
 POWER_CONFIG_RETRY_MS = 2000
 RTC_SYNC_DELAY_MS = 2000
-CHARGING_RECONFIRM_TIMEOUT_MS = 10000
+# A BMS reconnect can include an 8 s scan plus its first BASIC response.
+# Start this timer only after the Wi-Fi/BLE radio handover has completed.
+CHARGING_RECONFIRM_TIMEOUT_MS = 20000
 _power_peer = bytes(mac_address_power_switch)
 _power_peer_added = False
 _power_tx_had_failure = False
@@ -770,9 +772,9 @@ async def rtc_sync_task(vars, delay_ms=2000):
   # charging continued during the Wi-Fi/BLE radio handover. A configuration
   # without a BMS has no evidence source to wait for.
   vars.charging_reconfirm_pending = bool(cfg.has_jbd_bms)
-  vars.charging_reconfirm_started_ms = (
-    time.ticks_ms() if vars.charging_reconfirm_pending else 0
-  )
+  # Do not start the timeout while Wi-Fi is still searching for the router.
+  # It starts below once ESP-NOW is rebuilt and BLE has been restarted.
+  vars.charging_reconfirm_started_ms = 0
   # Do not carry a charging decision across the Wi-Fi/BLE radio handover.
   # Charging must be re-confirmed after the BMS reconnects with fresh data.
   vars.battery_is_charging = False
@@ -780,7 +782,10 @@ async def rtc_sync_task(vars, delay_ms=2000):
   vars.comms_paused = True
   try:
     if bms is not None:
-      bms_should_resume = bms.is_started() and bms.is_available()
+      # A temporarily unavailable client still owns BLE state. Stop and
+      # restart every started client so post-sync charging always depends on
+      # a new BMS BASIC frame, never on the pre-sync connection state.
+      bms_should_resume = bms.is_started()
       if bms_should_resume:
         bms.stop(deactivate=True)
     # Release the ESP-NOW radio/channel before scanning for the WiFi router.
@@ -826,6 +831,11 @@ async def rtc_sync_task(vars, delay_ms=2000):
         except Exception as ex:
           if getattr(cfg, "bms_debug", False):
             print("BMS restart failed:", ex)
+      # Keep the CHARGING latch over the whole radio handover. The timeout
+      # starts only once a fresh BLE scan can actually begin, so a missing
+      # Wi-Fi router cannot consume the BMS reconfirmation window.
+      if vars.charging_reconfirm_pending:
+        vars.charging_reconfirm_started_ms = time.ticks_ms()
       vars.comms_paused = False
     # Allow a fresh sync when the next charging session starts.  The charging
     # screen remains latched separately until fresh BMS data is evaluated.

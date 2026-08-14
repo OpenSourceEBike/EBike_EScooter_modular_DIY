@@ -43,6 +43,11 @@ system_boot_ms = time.ticks_ms()
 battery_resistance_config_error = validate_battery_resistance_measurement_config(
   battery_resistance_config)
 CAN_SIGNAL_TIMEOUT_MS = 500
+# Project-private command 100 is emitted by the VESC Lisp helper once per
+# second. It is display telemetry, so retain the last valid SOC through
+# transient CAN loss instead of publishing a misleading zero; the fast
+# control/status families retain the 500 ms safety timeout above.
+CAN_SOC_TIMEOUT_MS = 30000
 if battery_resistance_config_error is not None:
   print("Battery resistance measurement disabled:",
         battery_resistance_config_error)
@@ -124,10 +129,11 @@ def decode_display_command(msg):
     return parts
   return None
 
-def _can_timestamp_is_fresh(now, timestamp_ms):
+def _can_timestamp_is_fresh(now, timestamp_ms,
+                            timeout_ms=CAN_SIGNAL_TIMEOUT_MS):
   return bool(
     timestamp_ms and
-    0 <= time.ticks_diff(now, timestamp_ms) < CAN_SIGNAL_TIMEOUT_MS
+    0 <= time.ticks_diff(now, timestamp_ms) < timeout_ms
   )
 
 def encode_display_status(vars, rear_motor_data, front_motor_data=None):
@@ -266,7 +272,8 @@ async def task_motors_refresh_data():
         data.battery_current_x10 = 0
       if not _can_timestamp_is_fresh(now, data.status_5_last_update_ms):
         data.battery_voltage_x10 = 0
-      if not _can_timestamp_is_fresh(now, data.status_7_last_update_ms):
+      if not _can_timestamp_is_fresh(
+          now, data.status_7_last_update_ms, CAN_SOC_TIMEOUT_MS):
         data.battery_soc_x1000 = 0
 
     if battery_resistance_estimator is not None and not \

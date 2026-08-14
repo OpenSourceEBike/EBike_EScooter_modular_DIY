@@ -39,7 +39,9 @@ class MotorCanTimingTests(unittest.TestCase):
   def setUp(self):
     self.sleep_calls = []
     self.original_sleep_ms = getattr(time, 'sleep_ms', None)
+    self.original_ticks_ms = getattr(time, 'ticks_ms', None)
     time.sleep_ms = self.sleep_calls.append
+    time.ticks_ms = lambda: 1234
     motor_module.Motor._can = None
     FakeCAN.frames = []
     cfg = SimpleNamespace(can_tx_pin=1, can_rx_pin=2, can_baudrate=500000,
@@ -52,6 +54,10 @@ class MotorCanTimingTests(unittest.TestCase):
       del time.sleep_ms
     else:
       time.sleep_ms = self.original_sleep_ms
+    if self.original_ticks_ms is None:
+      del time.ticks_ms
+    else:
+      time.ticks_ms = self.original_ticks_ms
 
   def test_tx_keeps_required_post_send_delay(self):
     self.motor.set_motor_speed_erpm(1234)
@@ -70,6 +76,30 @@ class MotorCanTimingTests(unittest.TestCase):
     self.assertEqual(
       self.motor.update_motor_data(self.motor, max_frames=5), 5)
     self.assertEqual(len(self.motor._can.frames), 45)
+
+  def test_precision_battery_frame_is_decoded_atomically(self):
+    # Command 101: 54.000 V, 123.456 A, in uint32 mV and int32 mA.
+    self.motor._can.frames = [
+      ((101 << 8) | 10, True, False,
+       b'\x00\x00\xd2\xf0\x00\x01\xe2\x40')
+    ]
+    self.assertEqual(self.motor.update_motor_data(self.motor), 1)
+    self.assertEqual(self.data.battery_voltage_measurement_x1000, 54000)
+    self.assertEqual(self.data.battery_current_measurement_x1000, 123456)
+    self.assertEqual(self.data.battery_precision_last_update_ms, 1234)
+    self.assertEqual(self.data.battery_precision_update_counter, 1)
+
+  def test_standard_status_4_and_5_remain_operational_telemetry(self):
+    self.motor._can.frames = [
+      ((16 << 8) | 10, True, False, b'\x00\x19\x00\x1a\x00\x7b'),
+      ((27 << 8) | 10, True, False, b'\x00\x00\x00\x00\x02\x14'),
+    ]
+    self.assertEqual(self.motor.update_motor_data(self.motor), 2)
+    self.assertEqual(self.data.battery_current_x10, 123)
+    self.assertEqual(self.data.battery_voltage_x10, 532)
+    self.assertEqual(self.data.status_4_last_update_ms, 1234)
+    self.assertEqual(self.data.status_5_last_update_ms, 1234)
+    self.assertEqual(self.data.last_can_data_ms, 1234)
 
 
 if __name__ == '__main__':

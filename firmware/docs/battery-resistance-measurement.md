@@ -20,19 +20,19 @@ The motor board owns the estimator because it receives VESC CAN telemetry
 directly. Intermittent Display communication, including `m RX!`, must not affect
 an attempt already running on the motor board.
 
-The calculation uses only VESC CAN data:
+The calculation uses a project-private VESC LISP CAN frame (command `101`):
 
-- `STATUS_4` supplies battery current;
-- `STATUS_5` supplies battery voltage;
-- independent timestamps determine freshness and voltage/current skew;
-- every configured VESC must have a fresh valid voltage/current pair;
-- in dual-motor mode, equivalent rear/front current timestamps and rear/front
-  voltage timestamps must also be close enough to represent the same load.
+- each VESC sends its filtered input voltage as unsigned 32-bit mV and input
+  current as signed 32-bit mA in the same eight-byte frame at 10 Hz;
+- the motor board timestamps receipt of that atomic pair;
+- every configured VESC must have a fresh valid precision pair;
+- in dual-motor mode, rear/front receipt timestamps must be close enough to
+  represent the same load.
 
-The motor retains separate raw last-decoded battery voltage/current values for
-the estimator. Operational telemetry can therefore continue expiring at its
-shorter 500 ms safety timeout without turning an unrefreshed dual-motor branch
-into an artificial 0 A input during the estimator's 1500 ms observation window.
+`STATUS_4` and `STATUS_5` remain the normal operational telemetry and retain
+their 500 ms safety timeout. They are deliberately not estimator inputs, so
+their ×0.1-unit CAN quantisation and independent delivery cannot disturb the
+resistance calculation.
 
 The optional JBD BMS is never an input to this calculation. It remains available
 for unrelated Display functions such as charging detection. The optional RTC is
@@ -65,93 +65,104 @@ Vequiv = (Vrear * Irear + Vfront * Ifront) / Itotal
 
 For a single-motor configuration, `Itotal` and `Vequiv` are simply that VESC's
 values. A negative current from either configured VESC, non-positive voltage on
-an active branch, stale pair, or excessive voltage/current timestamp skew makes
+any configured branch, stale pair, or excessive rear/front timestamp skew makes
 the aggregate sample invalid.
 
 ## Measurement conditions
 
 All timing uses monotonic `ticks_ms()` arithmetic on the motor board.
 
-### 1. Boot delay
+### 1. Boot qualification
 
-Do not start an attempt during the first three minutes after motor-board boot:
-
-```text
-boot_delay_ms = 180000
-```
-
-After the delay, failed attempts may be retried. Only the first successful
-result completes the feature for that motor-board boot.
-
-### 2. Reference sample
-
-While total discharge current is above 2 A and below 15 A, retain the newest
-fresh aggregate pair:
+Before attempting a measurement, accumulate 60 distinct elapsed seconds since
+motor-board boot in which at least one valid aggregate observation has
+`Vequiv * Itotal >= 200 W`:
 
 ```text
-Vref, Iref, tref
+boot_qualifying_power_min_w = 200
+boot_qualifying_seconds = 60
 ```
 
-When current first reaches 15 A or more, freeze that reference. It is accepted
-only when:
+Several frames in the same elapsed second count as one second. The qualifying
+seconds need not be consecutive: a later second with one valid `>= 200 W`
+observation adds one to the total. Once the total reaches 60, failed attempts
+may be retried. Only the first successful result completes the feature for that
+motor-board boot.
 
-- it is no more than 1000 ms old;
-- `Iload - Iref >= 10 A`;
-- every configured VESC pair remains valid.
+### 2. Reference qualification and samples
 
-### 3. Five-second load qualification
+After boot qualification, require ten continuous seconds below 200 W:
 
-Starting at the first aggregate sample with `Itotal >= 15 A`, require five
-seconds of valid observed load. During this period:
+```text
+reference_power_max_w = 200
+reference_qualify_ms = 10000
+```
 
-- every observed aggregate current is at least 15 A;
-- current remains within the configured ±2 A stability band relative to the
-  load-start current;
-- the gap between valid aggregate observations is no more than 1500 ms;
+Each elapsed second needs at least one valid observation. An observation at
+200 W or more, regen, malformed data, or a second without a valid observation
+restarts this phase. At its end, while power remains below 200 W, collect three
+fresh aggregate pairs separated by at least 500 ms. Zero total current is valid
+in this phase; in dual-motor mode the equivalent voltage is then the mean of
+the two VESC voltages. Use the independent medians as:
+
+```text
+Vref = median(Vref_samples)
+Iref = median(Iref_samples)
+```
+
+The three reference samples must be collected within five seconds. Once they
+are complete, the estimator waits for the high-load phase.
+
+### 3. Ten-second load qualification
+
+Starting at the first aggregate sample with `Vequiv * Itotal >= 750 W`, require
+ten seconds of valid observed load. During this period:
+
+- every observed aggregate power is at least 750 W;
+- every elapsed second has at least one valid aggregate observation;
 - no configured VESC reports negative battery current;
-- no regen or invalid/stale voltage/current pair is observed.
+- no regen or invalid/stale precision pair is observed.
 
-A failure resets only the current attempt. The estimator can capture a new
+A failure resets only the current attempt. The estimator can collect a new
 reference and try again in the same boot.
 
-Continuity means continuity of valid observations. One valid observation per
-second is sufficient. The firmware does not attempt to reconstruct current
-changes inside CAN frames that were never received.
+Continuity means that every elapsed second has at least one valid observation.
+One valid observation in that second is sufficient; the firmware does not
+attempt to reconstruct current changes inside CAN frames that were never
+received.
 
-### Asynchronous input tracking
+### Precision input tracking
 
-`BatteryResistanceEstimator` owns the variable-interval input tracker inside
-`common/battery_resistance.py`. It observes each VESC's independent counters,
-raw values, and `STATUS_4`/`STATUS_5` timestamps and classifies a snapshot as:
+`BatteryResistanceEstimator` owns the variable-interval tracker inside
+`common/battery_resistance.py`. It observes each VESC's command-`101` update
+counter, atomic raw pair, and motor-board receipt timestamp and classifies a
+snapshot as:
 
-- pending: one half is missing, stale, or temporarily over-skew; preserve the
-  attempt until `motor_sample_gap_ms` expires;
+- pending: one VESC pair is missing, stale, or temporarily over-skew; preserve
+  the attempt until the active phase misses a required elapsed second;
 - invalid: malformed values, negative current, impossible timestamps, regen,
   or a coherent invalid aggregate; cancel only the current attempt;
-- valid: all configured VESC pairs and dual-VESC timestamps are coherent;
+- valid: all configured VESC pairs and rear/front timestamps are coherent;
   advance the monitor.
 
-Current timestamps are also evaluated independently of voltage. Therefore a
-new observed total below 15 A or outside the ±2 A stability band cancels an
-active plateau immediately even while its matching voltage half is pending.
-The motor entry point makes one feature call per 50 ms refresh cycle. This
-input-tracking correction adds no CAN or ESP-NOW protocol fields.
+The motor entry point makes one feature call per 50 ms refresh cycle. The
+source frame is VESC-local and no synchronised LISP clock is assumed.
 
-### 4. First three delayed samples
+### 4. First three load samples
 
-After the five-second qualification completes, accept the first three valid
+After the ten-second qualification completes, accept the first three valid
 aggregate samples available, subject to:
 
 - at least 500 ms between accepted resistance samples;
-- the same current, freshness, skew, stability, and observation-gap rules;
+- the same power and freshness rules;
 - all three samples collected within five seconds after qualification.
 
 Examples:
 
-- with fast telemetry: 5.0 s, 5.5 s, and 6.0 s after load start;
-- with one useful observation per second: 5 s, 6 s, and 7 s;
-- if three samples are not available by 10 s after load start: reset the
-  attempt and wait for a new reference.
+- with fast telemetry: 10.0 s, 10.5 s, and 11.0 s after load start;
+- with one useful observation per second: 10 s, 11 s, and 12 s;
+- if three samples are not available by 15 s after load start: reset the
+  attempt and collect a new reference.
 
 For every accepted sample:
 
@@ -159,7 +170,7 @@ For every accepted sample:
 R_mOhm = 1000 * (Vref - Vsample) / (Isample - Iref)
 ```
 
-The current step must remain at least 10 A and the voltage drop must be
+The current must be above the reference current and the voltage drop must be
 positive. Each result must be in the inclusive configured range:
 
 ```text
@@ -174,8 +185,9 @@ mean so one disturbed voltage sample has less influence.
 `common/config_battery_resistance.py` contains the shared settings. Ownership
 and validation are split:
 
-- the motor board validates boot delay, thresholds, freshness/skew, plateau,
-  sample spacing/collection timeout, sample count, and resistance range;
+- the motor board validates boot qualification, power thresholds,
+  freshness/skew, qualification duration, sample spacing/collection timeout,
+  sample count, and resistance range;
 - the Display validates only accepted result range, alert duration, filenames,
   and history size.
 
@@ -186,16 +198,17 @@ must not disable motor-side measurement or abort Display boot.
 Implemented sampling settings:
 
 ```text
-boot_delay_ms = 180000
-load_qualify_ms = 5000
+boot_qualifying_power_min_w = 200
+boot_qualifying_seconds = 60
+reference_power_max_w = 200
+reference_qualify_ms = 10000
+load_power_min_w = 750
+load_qualify_ms = 10000
 sample_count = 3
 sample_min_interval_ms = 500
 sample_collection_timeout_ms = 5000
-reference_max_age_ms = 1000
-motor_sample_gap_ms = 1500
-vesc_signal_max_age_ms = 1500
-vesc_voltage_current_max_skew_ms = 250
-dual_vesc_max_skew_ms = 250
+vesc_precision_sample_max_age_ms = 1500
+dual_vesc_precision_max_skew_ms = 250
 min_mohm = 1
 max_mohm = 2500
 ```

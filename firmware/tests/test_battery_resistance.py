@@ -27,12 +27,16 @@ from common.battery_resistance_persistence import (
 class BatteryResistanceMonitorTests(unittest.TestCase):
   def make_config(self):
     config = BatteryResistanceConfig()
-    config.boot_delay_ms = 0
+    config.boot_qualifying_seconds = 0
+    config.reference_qualify_ms = 0
+    config.load_qualify_ms = 5000
     return config
 
   def start_attempt(self, monitor, start_ms=0):
     monitor.update(start_ms, 5400, 300, 0)
-    monitor.update(start_ms + 100, 5300, 1600, 0)
+    monitor.update(start_ms + 500, 5400, 300, 0)
+    monitor.update(start_ms + 1000, 5400, 300, 0)
+    monitor.update(start_ms + 1100, 5300, 1600, 0)
 
   def feed(self, monitor, times_ms, voltage_x100=5300, current_x100=1600):
     result = None
@@ -45,38 +49,81 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
   def test_first_three_samples_at_500_ms_spacing(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    result = self.feed(monitor, range(600, 6601, 500))
+    result = self.feed(monitor, range(1600, 7601, 500))
     self.assertEqual(result, 76)
     self.assertTrue(monitor.completed)
 
   def test_one_observation_per_second_is_enough(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    result = self.feed(monitor, range(1100, 8101, 1000))
+    result = self.feed(monitor, range(2100, 9101, 1000))
     self.assertEqual(result, 76)
 
-  def test_default_three_minute_boot_delay_is_enforced(self):
+  def test_boot_qualification_counts_one_valid_power_sample_per_second(self):
     config = BatteryResistanceConfig()
+    config.boot_qualifying_seconds = 2
+    config.reference_qualify_ms = 0
+    config.load_qualify_ms = 5000
     monitor = BatteryResistanceMonitor(config)
-    monitor.update(179000, 5400, 300, 0)
-    monitor.update(179500, 5300, 1600, 0)
+    # Two 4 A, 54 V samples in the same elapsed second count only once.
+    monitor.update(100, 5400, 400, 0)
+    monitor.update(900, 5400, 400, 0)
     self.assertFalse(monitor.completed)
 
-    monitor.update(180000, 5400, 300, 0)
-    monitor.update(180100, 5300, 1600, 0)
+    # A qualifying sample in the next second enables reference qualification.
+    monitor.update(1100, 5400, 400, 0)
+    monitor.update(1200, 5400, 300, 0)
+    monitor.update(1700, 5400, 300, 0)
+    monitor.update(2200, 5400, 300, 0)
+    monitor.update(2300, 5300, 1600, 0)
     result = None
-    for now in range(180600, 186601, 500):
+    for now in range(2800, 8801, 500):
       value = monitor.update(now, 5300, 1600, 0)
       if value is not None:
         result = value
     self.assertEqual(result, 76)
 
+  def test_reference_qualification_requires_continuous_low_power(self):
+    config = self.make_config()
+    config.reference_qualify_ms = 2000
+    monitor = BatteryResistanceMonitor(config)
+    monitor.update(100, 5400, 300, 0)
+    monitor.update(900, 5300, 1600, 0)
+    monitor.update(1100, 5400, 300, 0)
+    monitor.update(2100, 5400, 300, 0)
+    monitor.update(3100, 5400, 300, 0)
+    monitor.update(3600, 5400, 300, 0)
+    monitor.update(4100, 5400, 300, 0)
+    monitor.update(4200, 5300, 1600, 0)
+    self.assertEqual(
+      self.feed(monitor, range(4700, 10701, 500)),
+      76,
+    )
+
+  def test_reference_qualification_restarts_when_one_second_is_missing(self):
+    config = self.make_config()
+    config.reference_qualify_ms = 2000
+    monitor = BatteryResistanceMonitor(config)
+    monitor.update(0, 5400, 300, 0)
+    monitor.update(2000, 5400, 300, 0)
+
+    monitor.update(2100, 5400, 300, 0)
+    monitor.update(3100, 5400, 300, 0)
+    monitor.update(4100, 5400, 300, 0)
+    monitor.update(4600, 5400, 300, 0)
+    monitor.update(5100, 5400, 300, 0)
+    monitor.update(5200, 5300, 1600, 0)
+    self.assertEqual(
+      self.feed(monitor, range(5700, 11701, 500)),
+      76,
+    )
+
   def test_one_implausible_calculation_is_skipped(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
     result = None
-    for now in range(600, 7101, 500):
-      voltage = 5500 if now == 5100 else 5300
+    for now in range(1600, 8101, 500):
+      voltage = 5500 if now == 6100 else 5300
       value = monitor.update(now, voltage, 1600, 0)
       if value is not None:
         result = value
@@ -85,46 +132,64 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
   def test_gap_resets_attempt_but_allows_retry(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    monitor.update(1100, 5300, 1600, 0)
-    self.assertTrue(monitor.expire_observation_gap(2701))
+    monitor.update(2100, 5300, 1600, 0)
+    self.assertTrue(monitor.expire_observation_gap(4101))
 
-    monitor.update(2800, 5400, 300, 0)
-    monitor.update(2900, 5300, 1600, 0)
-    result = self.feed(monitor, range(3400, 9401, 500))
+    self.start_attempt(monitor, 3800)
+    result = self.feed(monitor, range(5400, 11401, 500))
     self.assertEqual(result, 76)
 
-  def test_unstable_current_resets_attempt_but_allows_retry(self):
+  def test_power_drop_resets_attempt_but_allows_retry(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    monitor.update(1100, 5300, 1901, 0)
+    monitor.update(2100, 5300, 1400, 0)
 
-    monitor.update(1200, 5400, 300, 0)
-    monitor.update(1300, 5300, 1600, 0)
-    result = self.feed(monitor, range(1800, 7801, 500))
+    self.start_attempt(monitor, 2200)
+    result = self.feed(monitor, range(3800, 9801, 500))
     self.assertEqual(result, 76)
 
   def test_below_load_and_regen_reset_only_current_attempt(self):
     for current, regen in ((1400, False), (1600, True)):
       monitor = BatteryResistanceMonitor(self.make_config())
       self.start_attempt(monitor)
-      monitor.update(1100, 5300, current, 0, regen_active=regen)
-      monitor.update(1200, 5400, 300, 0)
-      monitor.update(1300, 5300, 1600, 0)
-      result = self.feed(monitor, range(1800, 7801, 500))
+      monitor.update(2100, 5300, current, 0, regen_active=regen)
+      self.start_attempt(monitor, 2200)
+      result = self.feed(monitor, range(3800, 9801, 500))
       self.assertEqual(result, 76)
 
   def test_completed_result_is_stable(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    result = self.feed(monitor, range(600, 6601, 500))
+    result = self.feed(monitor, range(1600, 7601, 500))
     self.assertEqual(result, 76)
     self.assertIsNone(monitor.update(7000, 5000, 2000, 0))
     self.assertEqual(monitor.result_mohm, 76)
+
+  def test_default_reference_and_load_require_ten_seconds_each(self):
+    config = BatteryResistanceConfig()
+    config.boot_qualifying_seconds = 0
+    monitor = BatteryResistanceMonitor(config)
+    for now in range(0, 10001, 1000):
+      self.assertIsNone(monitor.update(now, 5400, 300, 0))
+    self.assertIsNone(monitor.update(10500, 5400, 300, 0))
+    self.assertIsNone(monitor.update(11000, 5400, 300, 0))
+    self.assertIsNone(monitor.update(11100, 5300, 1600, 0))
+    for now in range(12100, 21100, 1000):
+      self.assertIsNone(monitor.update(now, 5300, 1600, 0))
+    self.assertIsNone(monitor.update(21100, 5300, 1600, 0))
+    self.assertIsNone(monitor.update(21600, 5300, 1600, 0))
+    self.assertEqual(monitor.update(22100, 5300, 1600, 0), 76)
 
   def test_dual_motor_currents_are_summed_and_voltage_is_weighted(self):
     self.assertEqual(
       aggregate_battery_measurements(((540, 100), (530, 200))),
       (5330, 3000),
+    )
+
+  def test_zero_current_reference_uses_mean_dual_vesc_voltage(self):
+    self.assertEqual(
+      aggregate_battery_measurements(((540, 0), (530, 0))),
+      (5350, 0),
     )
 
   def test_invalid_or_regen_branch_rejects_dual_motor_sample(self):
@@ -143,111 +208,123 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
 
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
-    monitor.update(600, 5300.0, 1600, 0)
+    monitor.update(1600, 5300.0, 1600, 0)
     self.assertFalse(monitor.completed)
 
-    monitor.update(700, 5400, 300, 0)
-    monitor.update(800, 5300, 1600, 0)
+    self.start_attempt(monitor, 1700)
     self.assertEqual(
-      self.feed(monitor, range(1300, 7301, 500)),
+      self.feed(monitor, range(3300, 9301, 500)),
       76,
     )
 
 
 class FakeMotorData:
   def __init__(self):
-    self.battery_pair_update_counter = 0
-    self.status_4_last_update_ms = 0
-    self.status_5_last_update_ms = 0
-    self.battery_current_measurement_x10 = None
-    self.battery_voltage_measurement_x10 = None
+    self.battery_precision_update_counter = 0
+    self.battery_precision_last_update_ms = 0
+    self.battery_current_measurement_x1000 = None
+    self.battery_voltage_measurement_x1000 = None
 
-  def current(self, timestamp_ms, current_x10):
-    self.status_4_last_update_ms = timestamp_ms
-    self.battery_current_measurement_x10 = current_x10
-    self.battery_pair_update_counter += 1
-
-  def voltage(self, timestamp_ms, voltage_x10):
-    self.status_5_last_update_ms = timestamp_ms
-    self.battery_voltage_measurement_x10 = voltage_x10
-    self.battery_pair_update_counter += 1
+  def precision(self, timestamp_ms, voltage_x1000, current_x1000):
+    self.battery_precision_last_update_ms = timestamp_ms
+    self.battery_voltage_measurement_x1000 = voltage_x1000
+    self.battery_current_measurement_x1000 = current_x1000
+    self.battery_precision_update_counter += 1
 
 
 class BatteryResistanceEstimatorTests(unittest.TestCase):
   def make_estimator(self):
     config = BatteryResistanceConfig()
-    config.boot_delay_ms = 0
+    config.boot_qualifying_seconds = 0
+    config.reference_qualify_ms = 0
+    config.load_qualify_ms = 5000
     return BatteryResistanceEstimator(config, 0)
 
-  def phased_pair(self, estimator, data, current_ms, voltage_ms,
-                  current_x10, voltage_x10):
-    data.current(current_ms, current_x10)
-    estimator.update(current_ms, (data,))
-    data.voltage(voltage_ms, voltage_x10)
-    return estimator.update(voltage_ms, (data,))
+  def precision_sample(self, estimator, data, timestamp_ms,
+                       current_x1000, voltage_x1000):
+    data.precision(timestamp_ms, voltage_x1000, current_x1000)
+    return estimator.update(timestamp_ms, (data,))
 
-  def dual_phased_pair(self, estimator, rear, front, start_ms,
-                       rear_current_x10, front_current_x10,
-                       rear_voltage_x10, front_voltage_x10):
-    rear.current(start_ms, rear_current_x10)
+  def dual_precision_sample(self, estimator, rear, front, start_ms,
+                            rear_current_x1000, front_current_x1000,
+                            rear_voltage_x1000, front_voltage_x1000):
+    rear.precision(start_ms, rear_voltage_x1000, rear_current_x1000)
     estimator.update(start_ms, (rear, front))
-    front.current(start_ms + 20, front_current_x10)
-    estimator.update(start_ms + 20, (rear, front))
-    rear.voltage(start_ms + 100, rear_voltage_x10)
-    estimator.update(start_ms + 100, (rear, front))
-    front.voltage(start_ms + 120, front_voltage_x10)
-    return estimator.update(start_ms + 120, (rear, front))
+    front.precision(start_ms + 20, front_voltage_x1000, front_current_x1000)
+    return estimator.update(start_ms + 20, (rear, front))
 
-  def test_phased_status_4_status_5_pairs_do_not_reset_attempt(self):
+  def start_precision_attempt(self, estimator, data, start_ms=100):
+    self.precision_sample(estimator, data, start_ms, 3000, 54000)
+    self.precision_sample(estimator, data, start_ms + 500, 3000, 54000)
+    self.precision_sample(estimator, data, start_ms + 1000, 3000, 54000)
+    return self.precision_sample(
+      estimator, data, start_ms + 1100, 16000, 53000)
+
+  def start_dual_precision_attempt(self, estimator, rear, front, start_ms=100):
+    for timestamp_ms in (start_ms, start_ms + 500, start_ms + 1000):
+      self.dual_precision_sample(
+        estimator, rear, front, timestamp_ms, 1000, 2000, 54000, 54000)
+    return self.dual_precision_sample(
+      estimator, rear, front, start_ms + 1100, 6000, 10000, 53000, 53000)
+
+  def test_atomic_precision_samples_complete_attempt(self):
     estimator = self.make_estimator()
     data = FakeMotorData()
-    self.phased_pair(estimator, data, 100, 200, 30, 540)
-    self.phased_pair(estimator, data, 1000, 1100, 160, 530)
+    self.start_precision_attempt(estimator, data)
 
     result = None
-    for current_ms in range(2000, 8001, 1000):
-      value = self.phased_pair(
-        estimator, data, current_ms, current_ms + 100, 160, 530)
+    for timestamp_ms in range(2200, 9001, 1000):
+      value = self.precision_sample(
+        estimator, data, timestamp_ms, 16000, 53000)
       if value is not None:
         result = value
     self.assertEqual(result, 76)
     self.assertTrue(estimator.completed)
 
-  def test_current_drop_resets_while_voltage_half_is_pending(self):
+  def test_zero_current_precision_reference_is_accepted(self):
     estimator = self.make_estimator()
     data = FakeMotorData()
-    self.phased_pair(estimator, data, 100, 200, 30, 540)
-    self.phased_pair(estimator, data, 1000, 1100, 160, 530)
+    for timestamp_ms in (100, 600, 1100):
+      self.precision_sample(estimator, data, timestamp_ms, 0, 54000)
+    self.precision_sample(estimator, data, 1200, 16000, 53000)
 
-    # The old voltage is over-skew when this current arrives. The tracker must
-    # still use the current-only evidence to cancel the active plateau.
-    self.phased_pair(estimator, data, 2000, 2100, 140, 530)
-    for current_ms in range(3000, 9001, 1000):
-      self.phased_pair(
-        estimator, data, current_ms, current_ms + 100, 160, 530)
+    result = None
+    for timestamp_ms in range(2200, 9001, 1000):
+      value = self.precision_sample(
+        estimator, data, timestamp_ms, 16000, 53000)
+      if value is not None:
+        result = value
+    self.assertEqual(result, 62)
+
+  def test_current_drop_resets_active_precision_attempt(self):
+    estimator = self.make_estimator()
+    data = FakeMotorData()
+    self.start_precision_attempt(estimator, data)
+
+    self.precision_sample(estimator, data, 2000, 14000, 53000)
+    for timestamp_ms in range(3000, 9001, 1000):
+      self.precision_sample(estimator, data, timestamp_ms, 16000, 53000)
     self.assertFalse(estimator.completed)
 
-    self.phased_pair(estimator, data, 10000, 10100, 30, 540)
-    self.phased_pair(estimator, data, 10900, 11000, 160, 530)
+    self.start_precision_attempt(estimator, data, 10000)
     result = None
-    for current_ms in range(11900, 17901, 1000):
-      value = self.phased_pair(
-        estimator, data, current_ms, current_ms + 100, 160, 530)
+    for timestamp_ms in range(12100, 19101, 1000):
+      value = self.precision_sample(
+        estimator, data, timestamp_ms, 16000, 53000)
       if value is not None:
         result = value
     self.assertEqual(result, 76)
 
-  def test_dual_vesc_independent_half_frames_complete(self):
+  def test_dual_vesc_precision_samples_complete(self):
     estimator = self.make_estimator()
     rear = FakeMotorData()
     front = FakeMotorData()
-    self.dual_phased_pair(estimator, rear, front, 100, 10, 20, 540, 540)
-    self.dual_phased_pair(estimator, rear, front, 1000, 60, 100, 530, 530)
+    self.start_dual_precision_attempt(estimator, rear, front)
 
     result = None
-    for start_ms in range(2000, 8001, 1000):
-      value = self.dual_phased_pair(
-        estimator, rear, front, start_ms, 60, 100, 530, 530)
+    for start_ms in range(2200, 9001, 1000):
+      value = self.dual_precision_sample(
+        estimator, rear, front, start_ms, 6000, 10000, 53000, 53000)
       if value is not None:
         result = value
     self.assertEqual(result, 76)
@@ -256,13 +333,14 @@ class BatteryResistanceEstimatorTests(unittest.TestCase):
 class BatteryResistanceConfigTests(unittest.TestCase):
   def test_non_integer_measurement_value_is_rejected(self):
     config = BatteryResistanceConfig()
-    config.boot_delay_ms = float("nan")
+    config.boot_qualifying_seconds = float("nan")
     self.assertIsNotNone(
       validate_battery_resistance_measurement_config(config))
 
   def test_dual_vesc_skew_cannot_exceed_source_age(self):
     config = BatteryResistanceConfig()
-    config.dual_vesc_max_skew_ms = config.vesc_signal_max_age_ms + 1
+    config.dual_vesc_precision_max_skew_ms = \
+      config.vesc_precision_sample_max_age_ms + 1
     self.assertIsNotNone(
       validate_battery_resistance_measurement_config(config))
 
