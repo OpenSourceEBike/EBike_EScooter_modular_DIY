@@ -137,9 +137,10 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
 10. Failed lights sends retry with an exponential interval starting at 50 ms
     and capped at 1000 ms; successful sends reset the interval.
 11. Battery-current (`STATUS_4`), battery-voltage (`STATUS_5`), and speed
-    (`STATUS_1`) freshness are tracked independently for each VESC. A
-    resistance sample requires a valid voltage/current pair from every
-    configured VESC; charging standstill detection requires valid rear speed.
+    (`STATUS_1`) freshness are tracked independently for each VESC. The
+    resistance estimator instead requires a fresh atomic mV/mA command-`101`
+    LISP sample from every configured VESC; charging standstill detection
+    requires valid rear speed.
 12. The optional JBD BMS is not a battery-resistance source. It remains
     Display-local and is used only by unrelated functions such as charging
     detection.

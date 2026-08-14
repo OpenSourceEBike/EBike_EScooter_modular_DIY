@@ -2,24 +2,23 @@ class BatteryResistanceConfig:
   """Motor-side measurement plus Display-side presentation/persistence config."""
 
   def __init__(self):
-    # Motor-side passive estimator. Current units are A x100.
-    self.boot_delay_ms = 180000
-    self.reference_current_min_a_x100 = 200
-    self.load_current_min_a_x100 = 1500
-    self.min_current_step_a_x100 = 1000
-    self.load_current_stability_a_x100 = 200
+    # Motor-side passive estimator thresholds use W and ms; result uses mOhm.
+    # Before an attempt, accumulate 60 distinct seconds with at least 200 W.
+    # Samples in the same second count only once and need not be consecutive.
+    self.boot_qualifying_power_min_w = 200
+    self.boot_qualifying_seconds = 60
+    self.reference_power_max_w = 200
+    self.reference_qualify_ms = 10000
+    self.load_power_min_w = 750
 
-    self.load_qualify_ms = 5000
+    self.load_qualify_ms = 10000
     self.sample_count = 3
     self.sample_min_interval_ms = 500
     self.sample_collection_timeout_ms = 5000
-    self.reference_max_age_ms = 1000
-    self.motor_sample_gap_ms = 1500
 
-    # VESC STATUS_4 current and STATUS_5 voltage arrive independently.
-    self.vesc_signal_max_age_ms = 1500
-    self.vesc_voltage_current_max_skew_ms = 250
-    self.dual_vesc_max_skew_ms = 250
+    # Project-private command 101 carries an atomic mV/mA sample per VESC.
+    self.vesc_precision_sample_max_age_ms = 1500
+    self.dual_vesc_precision_max_skew_ms = 250
 
     self.min_mohm = 1
     self.max_mohm = 2500
@@ -51,20 +50,17 @@ def _require_ints(config, names):
 def validate_battery_resistance_measurement_config(config):
   """Validate only settings owned by the motor-side estimator."""
   names = (
-    "boot_delay_ms",
-    "reference_current_min_a_x100",
-    "load_current_min_a_x100",
-    "min_current_step_a_x100",
-    "load_current_stability_a_x100",
+    "boot_qualifying_power_min_w",
+    "boot_qualifying_seconds",
+    "reference_power_max_w",
+    "reference_qualify_ms",
+    "load_power_min_w",
     "load_qualify_ms",
     "sample_count",
     "sample_min_interval_ms",
     "sample_collection_timeout_ms",
-    "reference_max_age_ms",
-    "motor_sample_gap_ms",
-    "vesc_signal_max_age_ms",
-    "vesc_voltage_current_max_skew_ms",
-    "dual_vesc_max_skew_ms",
+    "vesc_precision_sample_max_age_ms",
+    "dual_vesc_precision_max_skew_ms",
     "min_mohm",
     "max_mohm",
   )
@@ -72,16 +68,18 @@ def validate_battery_resistance_measurement_config(config):
   if error is not None:
     return error
 
-  if config.boot_delay_ms < 0:
-    return "boot_delay_ms must be >= 0"
-  if config.reference_current_min_a_x100 < 0:
-    return "reference current must be >= 0"
-  if config.load_current_min_a_x100 <= config.reference_current_min_a_x100:
-    return "load current must exceed reference current"
-  if config.min_current_step_a_x100 <= 0:
-    return "min current step must be > 0"
-  if config.load_current_stability_a_x100 < 0:
-    return "load current stability must be >= 0"
+  if config.boot_qualifying_power_min_w < 0:
+    return "boot qualifying power must be >= 0"
+  if config.boot_qualifying_seconds < 0:
+    return "boot_qualifying_seconds must be >= 0"
+  if config.reference_power_max_w < 0:
+    return "reference power must be >= 0"
+  if config.reference_qualify_ms <= 0:
+    return "reference_qualify_ms must be > 0"
+  if config.load_power_min_w <= 0:
+    return "load power must be > 0"
+  if config.reference_power_max_w >= config.load_power_min_w:
+    return "reference power must be below load power"
   if config.load_qualify_ms <= 0:
     return "load_qualify_ms must be > 0"
   if config.sample_count != 3:
@@ -91,18 +89,11 @@ def validate_battery_resistance_measurement_config(config):
   if config.sample_collection_timeout_ms < (
       (config.sample_count - 1) * config.sample_min_interval_ms):
     return "sample collection window is too short"
-  if config.reference_max_age_ms <= 0:
-    return "reference_max_age_ms must be > 0"
-  if config.motor_sample_gap_ms < config.sample_min_interval_ms:
-    return "motor sample gap must cover sample interval"
-  if config.vesc_signal_max_age_ms <= 0:
-    return "vesc_signal_max_age_ms must be > 0"
-  if (config.vesc_voltage_current_max_skew_ms < 0 or
-      config.vesc_voltage_current_max_skew_ms >
-        config.vesc_signal_max_age_ms):
-    return "invalid VESC voltage/current timestamp skew"
-  if (config.dual_vesc_max_skew_ms < 0 or
-      config.dual_vesc_max_skew_ms > config.vesc_signal_max_age_ms):
+  if config.vesc_precision_sample_max_age_ms <= 0:
+    return "vesc_precision_sample_max_age_ms must be > 0"
+  if (config.dual_vesc_precision_max_skew_ms < 0 or
+      config.dual_vesc_precision_max_skew_ms >
+        config.vesc_precision_sample_max_age_ms):
     return "invalid dual-VESC timestamp skew"
   if config.min_mohm <= 0 or config.max_mohm <= config.min_mohm:
     return "invalid resistance range"

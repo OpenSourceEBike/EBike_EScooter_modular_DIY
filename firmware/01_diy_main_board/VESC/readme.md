@@ -1,22 +1,21 @@
 On App Settings -> General, set CAN Baud Rate to 125K. This is the frequency the main board expects.
 
-The following code must be placed on VESCTool, on the LISP tab.
-This code reads the VESC battery SOC and sends it to CAN, every 1 second, so the main board can read the battery SOC.
+Install [battery_precision_telemetry.lisp](battery_precision_telemetry.lisp)
+in the VESCTool LISP tab on **both** VESCs. Set `vesc-id` to `0` on the rear
+VESC and `1` on the front VESC before running it.
 
-```lisp
-; This code reads the VESC battery SOC and sends it to CAN, every 1 second
-(def id 0)
-(def command 99)
-(def canid (bits-enc-int id 8 command 8))
+The script sends two project-private extended CAN frames:
 
-(loopwhile t {
-        (def battsoc (to-i(*(get-batt) 1000)))
-        (def canmsg (list (shr (bitwise-and battsoc 0xff00) 8) (bitwise-and battsoc 0xFF)))
-        (can-send-eid canid canmsg)
-        (timeout-reset)
-        (sleep 1.0)
-})
-```
+- command `100`: battery SOC in the existing ×1000 format, at 1 Hz;
+- command `101`: local VESC input voltage as unsigned 32-bit mV followed by
+  input current as signed 32-bit mA, at 10 Hz. Its eight-byte payload supports
+  currents beyond the signed-16-bit range while retaining 1 mA resolution.
+
+The motor ESP32 timestamps frame receipt and only combines rear/front command
+`101` samples that arrive in the same short window. This preserves the VESC
+filtered measurement resolution and avoids assuming synchronised Lisp clocks.
+The display retains the last SOC for up to 30 seconds; the shorter 500 ms
+timeout still applies only to fast control/status families.
 
 The main boards needs to read periodically data from the VESC like battery voltage and motor current, for that, the following CAN messages should be enabled:
 On App Settings -> General, on CAN Messages Rate 1:

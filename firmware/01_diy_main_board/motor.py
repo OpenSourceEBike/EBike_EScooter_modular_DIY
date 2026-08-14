@@ -158,30 +158,36 @@ class Motor(object):
           motor_data.vesc_temperature_x10  = struct.unpack_from(">h", data, 0)[0]
           motor_data.motor_temperature_x10 = struct.unpack_from(">h", data, 2)[0]
           motor_data.battery_current_x10   = struct.unpack_from(">h", data, 4)[0]
-          motor_data.battery_current_measurement_x10 = \
-            motor_data.battery_current_x10
           motor_data.status_4_last_update_ms = now
-          motor_data.battery_pair_update_counter = (
-            motor_data.battery_pair_update_counter + 1) & 0x3fffffff
           motor_data.last_can_data_ms = now
 
         # CAN_PACKET_STATUS_5 (cmd 27)
         elif message_id == 27 and dlc >= 6:
           now = time.ticks_ms()
           motor_data.battery_voltage_x10 = struct.unpack_from(">h", data, 4)[0]
-          motor_data.battery_voltage_measurement_x10 = \
-            motor_data.battery_voltage_x10
           motor_data.status_5_last_update_ms = now
-          motor_data.battery_pair_update_counter = (
-            motor_data.battery_pair_update_counter + 1) & 0x3fffffff
           motor_data.last_can_data_ms = now
 
-        # CAN_PACKET_STATUS_7 (cmd 99)
-        elif message_id == 99 and dlc >= 2:
+        # Project-private VESC LISP battery SOC (cmd 100).
+        elif message_id == 100 and dlc >= 2:
           now = time.ticks_ms()
           motor_data.battery_soc_x1000 = struct.unpack_from(">h", data, 0)[0]
           motor_data.status_7_last_update_ms = now
           motor_data.last_can_data_ms = now
+
+        # Project-private VESC LISP precision battery sample (cmd 101).
+        # The one CAN frame keeps filtered voltage/current atomic per VESC.
+        # Payload: uint32 mV followed by int32 mA, both big-endian.
+        elif message_id == 101 and dlc >= 8:
+          now = time.ticks_ms()
+          voltage_x1000, current_x1000 = struct.unpack_from(">Ii", data, 0)
+          if voltage_x1000 > 0:
+            motor_data.battery_voltage_measurement_x1000 = voltage_x1000
+            motor_data.battery_current_measurement_x1000 = current_x1000
+            motor_data.battery_precision_last_update_ms = now
+            motor_data.battery_precision_update_counter = (
+              motor_data.battery_precision_update_counter + 1) & 0x3fffffff
+            motor_data.last_can_data_ms = now
 
         # (extend with more decoders as needed)
 
@@ -288,11 +294,10 @@ class MotorData:
     self.motor_current_x10 = 0
     self.battery_current_x10 = 0
     self.battery_voltage_x10 = 0
-    # Raw last decoded values are retained for the estimator's separately
-    # validated 1500 ms observation window. Operational values above still
-    # expire at the shorter general CAN safety timeout.
-    self.battery_current_measurement_x10 = None
-    self.battery_voltage_measurement_x10 = None
+    # Atomic mV/mA LISP samples used only by the resistance estimator.
+    # Operational telemetry above retains its normal short safety timeout.
+    self.battery_current_measurement_x1000 = None
+    self.battery_voltage_measurement_x1000 = None
     self.battery_soc_x1000 = 0
     self.vesc_fault_code = 0
     # Each VESC status family has an independent cadence. A common timestamp
@@ -301,5 +306,6 @@ class MotorData:
     self.status_4_last_update_ms = 0
     self.status_5_last_update_ms = 0
     self.status_7_last_update_ms = 0
-    self.battery_pair_update_counter = 0
+    self.battery_precision_last_update_ms = 0
+    self.battery_precision_update_counter = 0
     self.last_can_data_ms = 0
