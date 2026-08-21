@@ -43,6 +43,11 @@ class Vars:
     self.battery_resistance_enabled = True
     self.battery_resistance_measurement_available = True
     self.battery_resistance_config_error = ''
+    self.battery_resistance_debug_phase = -1
+    self.battery_resistance_debug_boot_seconds = 0
+    self.battery_resistance_debug_error_count = 0
+    self.battery_resistance_debug_sample_count = 0
+    self.battery_resistance_debug_reference_sample_count = 0
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
     self.wheel_speed_x10 = 0

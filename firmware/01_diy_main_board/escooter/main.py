@@ -182,6 +182,11 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
     int(rear_motor_data.motor_temperature_x10),
     front_motor_temperature_x10,
     int(vars.battery_resistance_mohm),
+    int(vars.battery_resistance_debug_phase),
+    int(vars.battery_resistance_debug_boot_seconds),
+    int(vars.battery_resistance_debug_error_count),
+    int(vars.battery_resistance_debug_sample_count),
+    int(vars.battery_resistance_debug_reference_sample_count),
   )
 
 def encode_lights_message(mask, state):
@@ -284,6 +289,18 @@ async def task_motors_refresh_data():
         vars.battery_resistance_mohm = resistance_mohm
         print("Battery resistance measured: {} mOhm".format(
           resistance_mohm))
+
+    if battery_resistance_estimator is not None:
+      vars.battery_resistance_debug_phase = \
+        battery_resistance_estimator.debug_phase
+      vars.battery_resistance_debug_boot_seconds = \
+        battery_resistance_estimator.debug_boot_qualifying_seconds
+      vars.battery_resistance_debug_error_count = \
+        battery_resistance_estimator.debug_error_count
+      vars.battery_resistance_debug_sample_count = \
+        battery_resistance_estimator.debug_sample_count
+      vars.battery_resistance_debug_reference_sample_count = \
+        battery_resistance_estimator.debug_reference_sample_count
 
     next_wake = time.ticks_add(next_wake, espnow_jittered_period_ms(period_ms))
     remaining = time.ticks_diff(next_wake, time.ticks_ms())

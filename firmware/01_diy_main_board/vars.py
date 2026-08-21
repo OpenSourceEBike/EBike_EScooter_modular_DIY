@@ -70,4 +70,9 @@ class Vars(object):
     self.lights_comm_ok = False
     # -1 until the one motor-side measurement for this boot succeeds.
     self.battery_resistance_mohm = -1
+    self.battery_resistance_debug_phase = -1
+    self.battery_resistance_debug_boot_seconds = 0
+    self.battery_resistance_debug_error_count = 0
+    self.battery_resistance_debug_sample_count = 0
+    self.battery_resistance_debug_reference_sample_count = 0
     

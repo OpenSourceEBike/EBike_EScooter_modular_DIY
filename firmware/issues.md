@@ -1,6 +1,6 @@
 # Firmware Issues Review
 
-Review date: 2026-08-13.
+Review date: 2026-08-17.
 
 Scope: maintained scooter firmware in this checkout: motor, Display, lights,
 automatic power-control board, shared ESP-NOW helpers, runtime configuration,
@@ -13,12 +13,85 @@ decisions remain documented in the relevant pages under `docs/`.
 
 | ID | Probability / evidence | Severity | Open finding |
 | --- | --- | --- | --- |
+| SEC-02 | Certain; unconditional prints in both Wi-Fi connection paths | Medium | Wi-Fi passwords are written verbatim to the serial log. |
+| DEP-01 | Certain when changing the selected config through the updater | Medium | Incremental deployment leaves the previous root config behind, so the next boot aborts. |
+| BRD-02 | Certain; reproduced with the monitor in a host probe | Low | The resistance `retries` counter counts ordinary rejected observations, not retry attempts. |
+| CFG-01 | Certain in the current estimator | Low | `sample_collection_timeout_ms` is validated and documented but no longer affects sampling. |
+| DOC-01 | Certain live-code/document mismatch | Low | The canonical ESP-NOW documents omit the resistance diagnostic frame fields. |
+| BMS-01 | Certain malformed-frame path; runtime frequency unknown | Low | A bad JBD frame terminator consumes one byte beyond that frame. |
 | LT-01 | Known receiver behavior; sender contract normally prevents it | Medium | Lights ownership is selected from `mask`, not enforced from `src`. |
 | SEC-01 | Certain architectural exposure; incident likelihood not measured | High | ESP-NOW command frames are unauthenticated and replayable. |
 | SYS-01 | Certain architectural gap | High | Critical tasks have no supervisor or watchdog recovery. |
 | PWR-01 | Certain protocol gap | Medium | Relay and power configuration are not application-acknowledged. |
 | MOT-01 | Required CAN delay; target timing not measured | Medium | Synchronous post-send delays can still postpone the nominal 20 ms motor cycle. |
 | RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
+
+## Battery-resistance diagnostics and contract
+
+### BRD-02 — `retries` counts observations rather than attempts
+
+**Status:** Open; confirmed by host probe. **Severity:** Low.
+
+After boot qualification reaches its target, every call to `_reset_attempt()`
+increments `_reset_count`. While waiting for the required low-load reference,
+each normal sample at or above 200 W calls `_reset_attempt()`. A probe with one
+qualified boot second followed by ten ordinary high-power observations reported
+`reset_count = 11` while still in state `0`.
+
+**References:**
+
+- `common/battery_resistance.py:98-113`
+- `common/battery_resistance.py:237-242`
+- `common/battery_resistance.py:288-293`
+- `02_diy_display/screens/main.py`
+
+**Impact:** the eventual `retries` value can grow at the precision-telemetry
+rate and looks like repeated failed measurement attempts even when the scooter
+is simply still being ridden above the reference-power threshold.
+
+**Recommended action:** increment once per started-and-aborted reference/load
+window, and expose a separate last-reset reason. Do not count observations
+rejected before a phase has actually started.
+
+### CFG-01 — sample collection timeout is dead configuration
+
+**Status:** Open; introduced by merging sample collection into qualification.
+**Severity:** Low.
+
+`sample_collection_timeout_ms` is still required by validation and copied into
+the monitor, but neither reference nor load sampling reads it after both sample
+windows became rolling windows inside their ten-second qualification phases.
+
+**References:**
+
+- `common/config_battery_resistance.py:13-18`
+- `common/config_battery_resistance.py:50-92`
+- `common/battery_resistance.py:54-62`
+
+**Impact:** changing the setting has no effect, while omitting or invalidating
+it can still disable the estimator. The configuration contract is misleading.
+
+**Recommended action:** remove the setting and its validation, or redefine it
+with an explicit role that is exercised by tests.
+
+### DOC-01 — canonical resistance status frame documentation is stale
+
+**Status:** Open. **Severity:** Low.
+
+The canonical ESP-NOW protocol and architecture pages list the status only
+through `battery_resistance_mohm`; the motor now appends five diagnostic
+integers.
+
+**References:**
+
+- `docs/protocol-contract.md:95-113`
+- `docs/espnow-architecture-spec.md:136-154`
+- `01_diy_main_board/escooter/main.py:169-190`
+
+**Impact:** future firmware or deployment work can use the wrong frame shape.
+
+**Recommended action:** update the canonical protocol/architecture frame shape
+and compatibility wording.
 
 ## Lights and communications
 
@@ -64,6 +137,75 @@ lights, relay shutdown, or power configuration changes.
 **Recommended action:** validate peer MAC ownership, configure encrypted peers,
 and add a replay-resistant counter/nonce if supported by the deployed
 MicroPython ESP-NOW stack.
+
+### SEC-02 — Wi-Fi password is printed verbatim
+
+**Status:** Open. **Severity:** Medium.
+
+Both synchronous and asynchronous Wi-Fi connection attempts print
+`repr(password)` unconditionally. The production charging-time NTP path uses
+the asynchronous function, so every attempted sync writes the configured Wi-Fi
+password to the Display serial output.
+
+**References:**
+
+- `02_diy_display/wifi_time_sync.py:194-203`
+- `02_diy_display/wifi_time_sync.py:223-234`
+- `02_diy_display/escooter/main.py:759-815`
+
+**Impact:** anyone with access to captured serial logs or a connected console
+can recover the network credential. Debug flags do not suppress the output.
+
+**Recommended action:** remove both password prints. If connection diagnostics
+are needed, log only whether a non-empty credential was supplied.
+
+## Deployment integrity
+
+### DEP-01 — selecting a different config leaves two root configs
+
+**Status:** Open. **Severity:** Medium.
+
+The updater copies the selected `config_*.py` and publishes a manifest containing
+only the new selection, but it removes only board-specific entries from the
+hard-coded `OBSOLETE_FILES` list. A previously deployed config with another
+filename remains at the device root. The runtime loader deliberately aborts
+when more than one root config exists.
+
+**References:**
+
+- `scripts/update_firmware.sh:16-21`
+- `scripts/update_firmware.sh:58-102`
+- `common/config_runtime.py:27-53`
+
+**Impact:** switching, for example, from dual-motor to single-motor config with
+the normal update script produces a board that fails at the next boot.
+
+**Recommended action:** before publishing the new manifest, remove every old
+manifest entry matching `/config_*.py` except the selected destination. Treat a
+failed config removal as a deployment failure and do not reset the board.
+
+## BMS stream recovery
+
+### BMS-01 — malformed terminator skips the next byte
+
+**Status:** Open; malformed-input edge. **Severity:** Low.
+
+`_pop_frame()` advances `_head` by the full declared frame length before
+checking the `0x77` terminator. If the terminator is wrong, it advances `_head`
+once more. When the next byte is the `0xDD` start of a valid following frame,
+that start byte is discarded too.
+
+**References:**
+
+- `02_diy_display/bms_jbd.py:396-430`
+
+**Impact:** one malformed notification can also discard the immediately
+following valid JBD frame, extending BMS-current staleness and delaying charging
+recognition or post-NTP charging re-confirmation.
+
+**Recommended action:** after consuming the malformed declared frame, resume at
+the current `_head`; do not increment again. Add a parser test containing a bad
+frame immediately followed by a valid BASIC frame.
 
 ## Runtime supervision and timing
 
@@ -163,10 +305,17 @@ on a fresh matching acknowledgement.
 ## Validation performed
 
 - Syntax compilation succeeded for all 86 Python files in the checkout.
-- Twenty-six host tests passed: battery resistance, persistence, bounded CAN RX,
-  and preservation of the required CAN post-send delay.
+- Thirty-three host tests passed: battery resistance, persistence, bounded CAN
+  RX, precision telemetry, and preservation of the required CAN post-send delay.
+- A targeted monitor probe confirmed that ten ordinary post-qualification
+  observations increased the displayed reset counter to eleven without leaving
+  reference state `0`.
+- The temporary `MAIN` labels measure 91 px and 124 px, both within the 128 px
+  LCD width.
+- A host render probe produced five initial line updates, no updates for an
+  unchanged second render, and one update after changing only motor RX state.
 - `bash -n scripts/update_firmware.sh` passed.
 - `git diff --check` passed.
 - `ruff`, `pyflakes`, and `mpy-cross` are unavailable in this environment.
-- No ESP32-S3, CAN, radio, filesystem power-loss, or target-network timing test
-  was performed.
+- No ESP32-S3 UI timing/heap, CAN, radio, filesystem power-loss, or
+  target-network timing test was performed.

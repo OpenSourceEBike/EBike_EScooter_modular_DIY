@@ -1188,7 +1188,7 @@ async def motor_comms_task(vars):
         vars.rear_motor_temperature_x10 = parts[12]
         vars.front_motor_temperature_x10 = parts[13]
 
-        if len(parts) == 15 and \
+        if len(parts) >= 15 and \
             vars.battery_resistance_enabled and \
             vars.battery_resistance_measurement_available and \
             not vars.battery_resistance_received_this_boot:
@@ -1197,6 +1197,14 @@ async def motor_comms_task(vars):
               battery_resistance_config.max_mohm):
             vars.battery_resistance_received_this_boot = True
             record_battery_resistance_result(vars, resistance_mohm)
+
+        # Newer motor boards append the estimator diagnostic snapshot.
+        if len(parts) >= 20:
+          vars.battery_resistance_debug_phase = parts[15]
+          vars.battery_resistance_debug_boot_seconds = parts[16]
+          vars.battery_resistance_debug_error_count = parts[17]
+          vars.battery_resistance_debug_sample_count = parts[18]
+          vars.battery_resistance_debug_reference_sample_count = parts[19]
 
     vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_RX_COMM_TIMEOUT_MS
     if not vars.motor_board_rx_ok:
