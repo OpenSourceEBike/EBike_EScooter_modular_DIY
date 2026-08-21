@@ -228,7 +228,7 @@ class ScreenManager:
         self.force(ScreenID.CHARGING)
         return
 
-      # Charging entered manually opens the battery-resistance history first.
+      # Charging entered manually opens the battery-resistance history.
       if self.current_is(ScreenID.CHARGING) and \
               not is_charging and \
               not self._charging_entry_is_auto:

@@ -8,7 +8,7 @@ class BatteryResistanceConfig:
     self.boot_qualifying_power_min_w = 200
     self.boot_qualifying_seconds = 60
     self.reference_power_max_w = 200
-    self.reference_qualify_ms = 10000
+    self.reference_qualify_ms = 15000
     self.load_power_min_w = 750
 
     self.load_qualify_ms = 10000

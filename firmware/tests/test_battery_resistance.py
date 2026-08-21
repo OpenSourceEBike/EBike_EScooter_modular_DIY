@@ -165,20 +165,20 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
     self.assertIsNone(monitor.update(7000, 5000, 2000, 0))
     self.assertEqual(monitor.result_mohm, 76)
 
-  def test_default_reference_and_load_require_ten_seconds_each(self):
+  def test_default_reference_qualifies_for_fifteen_seconds_then_load_for_ten(self):
     config = BatteryResistanceConfig()
     config.boot_qualifying_seconds = 0
     monitor = BatteryResistanceMonitor(config)
-    for now in range(0, 10001, 1000):
+    for now in range(0, 15001, 1000):
       self.assertIsNone(monitor.update(now, 5400, 300, 0))
-    self.assertIsNone(monitor.update(10500, 5400, 300, 0))
-    self.assertIsNone(monitor.update(11000, 5400, 300, 0))
-    self.assertIsNone(monitor.update(11100, 5300, 1600, 0))
-    for now in range(12100, 21100, 1000):
+    self.assertIsNone(monitor.update(15500, 5400, 300, 0))
+    self.assertIsNone(monitor.update(16000, 5400, 300, 0))
+    self.assertIsNone(monitor.update(16100, 5300, 1600, 0))
+    for now in range(17100, 26100, 1000):
       self.assertIsNone(monitor.update(now, 5300, 1600, 0))
-    self.assertIsNone(monitor.update(21100, 5300, 1600, 0))
-    self.assertIsNone(monitor.update(21600, 5300, 1600, 0))
-    self.assertEqual(monitor.update(22100, 5300, 1600, 0), 76)
+    self.assertEqual(monitor.update(26100, 5300, 1600, 0), 76)
+    self.assertIsNone(monitor.update(26600, 5300, 1600, 0))
+    self.assertEqual(monitor.result_mohm, 76)
 
   def test_dual_motor_currents_are_summed_and_voltage_is_weighted(self):
     self.assertEqual(

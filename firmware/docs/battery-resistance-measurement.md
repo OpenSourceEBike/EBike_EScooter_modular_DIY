@@ -91,27 +91,30 @@ motor-board boot.
 
 ### 2. Reference qualification and samples
 
-After boot qualification, require ten continuous seconds below 200 W:
+After boot qualification, require 15 continuous seconds below 200 W:
 
 ```text
 reference_power_max_w = 200
-reference_qualify_ms = 10000
+reference_qualify_ms = 15000
 ```
 
 Each elapsed second needs at least one valid observation. An observation at
 200 W or more, regen, malformed data, or a second without a valid observation
-restarts this phase. At its end, while power remains below 200 W, collect three
-fresh aggregate pairs separated by at least 500 ms. Zero total current is valid
-in this phase; in dual-motor mode the equivalent voltage is then the mean of
-the two VESC voltages. Use the independent medians as:
+restarts this phase. During qualification, keep the latest three fresh
+aggregate pairs, separated by at least 500 ms. Zero total current is valid in
+this phase; in dual-motor mode the equivalent voltage is then the mean of the
+two VESC voltages. At the end of the 15 continuous seconds, use the
+independent medians as:
 
 ```text
 Vref = median(Vref_samples)
 Iref = median(Iref_samples)
 ```
 
-The three reference samples must be collected within five seconds. Once they
-are complete, the estimator waits for the high-load phase.
+Once qualification and its rolling samples are complete, the estimator waits
+for the high-load phase. The qualified reference intentionally has no maximum
+age: intermediate observations below the load threshold preserve it until a
+load attempt starts or another reset condition occurs.
 
 ### 3. Ten-second load qualification
 
@@ -125,6 +128,13 @@ ten seconds of valid observed load. During this period:
 
 A failure resets only the current attempt. The estimator can collect a new
 reference and try again in the same boot.
+
+During temporary field diagnosis, the Display `MAIN` screen is replaced by a
+five-line resistance status view. This makes the live estimator phase and its
+rolling sample progress visible while riding; it does not change motor control
+or command a measurement load. The normal resistance-history screen remains
+available from the manual charging-screen flow. Normal riding indicators and
+warnings are intentionally omitted from this temporary diagnostic view.
 
 Continuity means that every elapsed second has at least one valid observation.
 One valid observation in that second is sufficient; the firmware does not
@@ -148,21 +158,23 @@ snapshot as:
 The motor entry point makes one feature call per 50 ms refresh cycle. The
 source frame is VESC-local and no synchronised LISP clock is assumed.
 
-### 4. First three load samples
+### 4. Last three load samples
 
-After the ten-second qualification completes, accept the first three valid
-aggregate samples available, subject to:
+During the ten-second qualification window, accept valid aggregate samples
+subject to:
 
 - at least 500 ms between accepted resistance samples;
 - the same power and freshness rules;
-- all three samples collected within five seconds after qualification.
+- keep only the last three accepted samples in the qualification window.
 
 Examples:
 
-- with fast telemetry: 10.0 s, 10.5 s, and 11.0 s after load start;
-- with one useful observation per second: 10 s, 11 s, and 12 s;
-- if three samples are not available by 15 s after load start: reset the
-  attempt and collect a new reference.
+- with fast telemetry, the rolling window contains the samples closest to the
+  end of the 10-second qualification;
+- with one useful observation per second, the final window is normally at 8 s,
+  9 s, and 10 s after load start;
+- if fewer than three valid samples are accepted by qualification end, reset
+  the attempt and collect a new reference.
 
 For every accepted sample:
 
@@ -177,8 +189,8 @@ positive. Each result must be in the inclusive configured range:
 1 <= R_mOhm <= 2500
 ```
 
-The final result is the median of the three samples. Median is used instead of
-mean so one disturbed voltage sample has less influence.
+The final result is the median of the last three samples. Median is used
+instead of mean so one disturbed voltage sample has less influence.
 
 ## Configuration contract
 
@@ -201,7 +213,7 @@ Implemented sampling settings:
 boot_qualifying_power_min_w = 200
 boot_qualifying_seconds = 60
 reference_power_max_w = 200
-reference_qualify_ms = 10000
+reference_qualify_ms = 15000
 load_power_min_w = 750
 load_qualify_ms = 10000
 sample_count = 3
@@ -235,6 +247,16 @@ Compatibility rules:
   Display boot;
 - repeated copies of the same motor result do not create additional history
   rows or alerts.
+
+For temporary field diagnosis, the status frame appends five more values after
+the result: numeric estimator state, boot-qualification seconds, reset/error
+counter, accepted load-sample count, and accepted reference-sample count. The
+states are `0` reference qualification, `1` waiting for load, `2` load
+qualification, and `3` complete. During state `0`, the reference sample count
+is the rolling set of last accepted reference samples. During state `2`, the
+load sample count is the rolling set of last accepted load samples. During
+temporary field diagnosis, the Display exposes these values on `MAIN` so they
+remain visible while riding.
 
 Motor and Display normally share the scooter power cycle. If only the Display
 resets after the motor has already measured, the repeated result is deliberately
