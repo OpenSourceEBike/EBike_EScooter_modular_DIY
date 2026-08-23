@@ -37,8 +37,8 @@ def aggregate_battery_measurements(pairs):
 class BatteryResistanceMonitor:
   """One passive result per boot from irregular, validated aggregate samples."""
 
-  _REFERENCE_QUALIFY = 0
-  _LOAD_READY = 1
+  _BOOT = 0
+  _REFERENCE_QUALIFY = 1
   _LOAD_QUALIFY = 2
   _COMPLETE = 3
 
@@ -64,7 +64,9 @@ class BatteryResistanceMonitor:
     self._result_mohm = None
     self._samples_mohm = []
     self._reset_count = 0
-    self._attempt_started = False
+    # A retry exists only after a clean reference window has actually begun.
+    # Rejected riding observations before that are normal, not failed attempts.
+    self._attempt_active = False
     self._reset_attempt()
 
   @property
@@ -95,21 +97,34 @@ class BatteryResistanceMonitor:
   def reset_count(self):
     return self._reset_count
 
+  @property
+  def phase_elapsed_seconds(self):
+    """Elapsed whole seconds in the active continuous phase, if any."""
+    if (self._continuous_started_ms is None or
+        self._phase_last_observation_ms is None):
+      return 0
+    elapsed_ms = time.ticks_diff(
+      self._phase_last_observation_ms, self._continuous_started_ms)
+    return max(0, elapsed_ms // 1000)
+
   def _reset_attempt(self):
     # Boot qualification is cumulative. Do not report its normal rejected
     # observations as attempt resets; only count retries after qualification.
-    if self._attempt_started and self._boot_qualifying_seconds >= \
-        self._boot_qualifying_seconds_needed:
+    if self._attempt_active:
       self._reset_count += 1
-    self._attempt_started = True
+    self._attempt_active = False
     self._reference = None
     self._reference_samples = []
     self._reference_qualify_started_ms = None
     self._reference_last_sample_ms = None
+    self._reference_last_sample_second = None
     self._continuous_started_ms = None
+    self._phase_last_observation_ms = None
     self._last_continuous_second = None
-    self._last_accepted_sample_ms = None
-    self._phase = self._REFERENCE_QUALIFY
+    self._last_load_sample_second = None
+    self._phase = (
+      self._BOOT if self._boot_qualifying_seconds <
+      self._boot_qualifying_seconds_needed else self._REFERENCE_QUALIFY)
     del self._samples_mohm[:]
 
   def invalidate(self):
@@ -135,6 +150,7 @@ class BatteryResistanceMonitor:
 
   def _start_continuous_phase(self, now):
     self._continuous_started_ms = now
+    self._phase_last_observation_ms = now
     self._last_continuous_second = 0
 
   def _observe_continuous_second(self, now, qualify_ms):
@@ -146,6 +162,7 @@ class BatteryResistanceMonitor:
       return None
     if second > self._last_continuous_second:
       self._last_continuous_second = second
+    self._phase_last_observation_ms = now
     return elapsed_ms >= qualify_ms
 
   def expire_observation_gap(self, now):
@@ -214,13 +231,36 @@ class BatteryResistanceMonitor:
     return ordered[len(ordered) // 2]
 
   def _reference_sample(self, now, voltage_x100, current_x100):
-    if (self._reference_last_sample_ms is not None and time.ticks_diff(
-        now, self._reference_last_sample_ms) < self._sample_min_interval_ms):
+    if self._reference_qualify_ms <= 0:
+      if (self._reference_last_sample_ms is not None and time.ticks_diff(
+          now, self._reference_last_sample_ms) < self._sample_min_interval_ms):
+        return False
+      self._reference_last_sample_ms = now
+      self._reference_samples.append((voltage_x100, current_x100))
+      if len(self._reference_samples) > self._sample_count:
+        del self._reference_samples[0]
+      return True
+    second = time.ticks_diff(now, self._continuous_started_ms) // 1000
+    if second == self._reference_last_sample_second:
       return False
     self._reference_samples.append((voltage_x100, current_x100))
     if len(self._reference_samples) > self._sample_count:
       del self._reference_samples[0]
-    self._reference_last_sample_ms = now
+    self._reference_last_sample_second = second
+    return True
+
+  def _load_sample(self, now, voltage_x100, current_x100):
+    second = time.ticks_diff(now, self._continuous_started_ms) // 1000
+    if second == self._last_load_sample_second:
+      return False
+    resistance_mohm = self._resistance_sample(voltage_x100, current_x100)
+    if resistance_mohm is None:
+      return False
+    # Only a usable resistance value consumes this elapsed-second slot.
+    self._last_load_sample_second = second
+    self._samples_mohm.append(resistance_mohm)
+    if len(self._samples_mohm) > self._sample_count:
+      del self._samples_mohm[0]
     return True
 
   def _finish_reference(self, now):
@@ -231,43 +271,36 @@ class BatteryResistanceMonitor:
       self._median([sample[0] for sample in self._reference_samples]),
       self._median([sample[1] for sample in self._reference_samples]),
     )
-    self._phase = self._LOAD_READY
+    self._phase = self._LOAD_QUALIFY
+    self._continuous_started_ms = None
+    self._phase_last_observation_ms = None
+    self._last_continuous_second = None
+    self._last_load_sample_second = None
     return True
 
   def _update_reference(self, now, voltage_x100, current_x100):
-    if self._phase == self._REFERENCE_QUALIFY:
-      if not self._power_below(
-          voltage_x100, current_x100, self._reference_power_max_w):
-        self._reset_attempt()
-        return None
-      if self._reference_qualify_started_ms is None:
-        self._reference_qualify_started_ms = now
-        self._start_continuous_phase(now)
-        self._reference_sample(now, voltage_x100, current_x100)
-        if self._reference_qualify_ms <= 0:
-          self._finish_reference(now)
-        return None
-      complete = self._observe_continuous_second(
-        now, self._reference_qualify_ms)
-      if complete is None:
-        self._reset_attempt()
-        return None
-      self._reference_sample(now, voltage_x100, current_x100)
-      if complete:
-        if self._finish_reference(now):
-          return None
-        # A zero-duration qualification is used by tests and deliberately
-        # means "collect three samples immediately", not "finish now".
-        if self._reference_qualify_ms > 0:
-          self._reset_attempt()
-      return None
-
     if not self._power_below(
         voltage_x100, current_x100, self._reference_power_max_w):
       self._reset_attempt()
       return None
-
+    if self._reference_qualify_started_ms is None:
+      self._reference_qualify_started_ms = now
+      self._attempt_active = True
+      self._start_continuous_phase(now)
+      self._reference_sample(now, voltage_x100, current_x100)
+      return None
+    if self._reference_qualify_ms <= 0:
+      self._reference_sample(now, voltage_x100, current_x100)
+      if len(self._reference_samples) >= self._sample_count:
+        self._finish_reference(now)
+      return None
+    complete = self._observe_continuous_second(now, self._reference_qualify_ms)
+    if complete is None:
+      self._reset_attempt()
+      return None
     self._reference_sample(now, voltage_x100, current_x100)
+    if complete and not self._finish_reference(now):
+      self._reset_attempt()
     return None
 
   def update(self, now, voltage_x100, current_x100, boot_ms,
@@ -285,46 +318,31 @@ class BatteryResistanceMonitor:
     if voltage_x100 <= 0 or current_x100 < 0 or bool(regen_active):
       self._reset_attempt()
       return None
-    if not self._boot_is_qualified(now, voltage_x100, current_x100, boot_ms):
-      self._reset_attempt()
+    if self._phase == self._BOOT:
+      if self._boot_is_qualified(now, voltage_x100, current_x100, boot_ms):
+        self._phase = self._REFERENCE_QUALIFY
       return None
 
     if self._phase == self._REFERENCE_QUALIFY:
       return self._update_reference(now, voltage_x100, current_x100)
 
-    if self._phase == self._LOAD_READY:
-      if self._power_at_least(
-          voltage_x100, current_x100, self._load_power_min_w):
-        if self._reference is None:
-          return None
-        self._phase = self._LOAD_QUALIFY
-        self._start_continuous_phase(now)
-        return None
-      return None
-
-    if not self._power_at_least(
-        voltage_x100, current_x100, self._load_power_min_w):
-      self._reset_attempt()
-      return None
-
     if self._phase == self._LOAD_QUALIFY:
+      if self._continuous_started_ms is None:
+        if not self._power_at_least(
+            voltage_x100, current_x100, self._load_power_min_w):
+          return None
+        self._start_continuous_phase(now)
+        self._load_sample(now, voltage_x100, current_x100)
+        return None
+      if not self._power_at_least(
+          voltage_x100, current_x100, self._load_power_min_w):
+        self._reset_attempt()
+        return None
       complete = self._observe_continuous_second(now, self._load_qualify_ms)
       if complete is None:
         self._reset_attempt()
         return None
-      # Keep a rolling window of the last three valid samples while the load
-      # remains qualified. The median therefore represents the stable end of
-      # the qualification period.
-      if (self._last_accepted_sample_ms is None or
-          time.ticks_diff(now, self._last_accepted_sample_ms) >=
-          self._sample_min_interval_ms):
-        resistance_mohm = self._resistance_sample(
-          voltage_x100, current_x100)
-        if resistance_mohm is not None:
-          self._samples_mohm.append(resistance_mohm)
-          if len(self._samples_mohm) > self._sample_count:
-            del self._samples_mohm[0]
-          self._last_accepted_sample_ms = now
+      self._load_sample(now, voltage_x100, current_x100)
 
       if not complete:
         return None
@@ -335,7 +353,6 @@ class BatteryResistanceMonitor:
       ordered = sorted(self._samples_mohm)
       self._result_mohm = ordered[len(ordered) // 2]
       self._completed = True
-      self._reset_attempt()
       return self._result_mohm
 
 
@@ -382,6 +399,10 @@ class BatteryResistanceEstimator:
   @property
   def debug_error_count(self):
     return self._monitor.reset_count
+
+  @property
+  def debug_phase_elapsed_seconds(self):
+    return self._monitor.phase_elapsed_seconds
 
   def _inputs_changed(self, motor_datas):
     count = 0

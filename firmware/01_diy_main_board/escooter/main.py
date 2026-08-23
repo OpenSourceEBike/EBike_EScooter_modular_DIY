@@ -42,11 +42,10 @@ THROTTLE_REARM_ZERO_HOLD_MS = 1000
 system_boot_ms = time.ticks_ms()
 battery_resistance_config_error = validate_battery_resistance_measurement_config(
   battery_resistance_config)
-CAN_SIGNAL_TIMEOUT_MS = 500
-# Project-private command 100 is emitted by the VESC Lisp helper once per
-# second. It is display telemetry, so retain the last valid SOC through
-# transient CAN loss instead of publishing a misleading zero; the fast
-# control/status families retain the 500 ms safety timeout above.
+CAN_LISP_FAST_TIMEOUT_MS = 1000
+CAN_LISP_THERMAL_TIMEOUT_MS = 2000
+# SOC is slow display telemetry, so retain the last valid value through
+# transient CAN loss instead of publishing a misleading zero.
 CAN_SOC_TIMEOUT_MS = 30000
 if battery_resistance_config_error is not None:
   print("Battery resistance measurement disabled:",
@@ -130,11 +129,20 @@ def decode_display_command(msg):
   return None
 
 def _can_timestamp_is_fresh(now, timestamp_ms,
-                            timeout_ms=CAN_SIGNAL_TIMEOUT_MS):
+                            timeout_ms=CAN_LISP_FAST_TIMEOUT_MS):
   return bool(
     timestamp_ms and
     0 <= time.ticks_diff(now, timestamp_ms) < timeout_ms
   )
+
+def _rear_speed_is_fresh(now, motor_data):
+  return _can_timestamp_is_fresh(
+    now, motor_data.lisp_motion_last_update_ms, CAN_LISP_FAST_TIMEOUT_MS)
+
+def _milliamps_to_current_x10(value):
+  # Integer division of a negative value rounds down in Python, whereas CAN
+  # status current values are truncated towards zero.
+  return value // 100 if value >= 0 else -((-value) // 100)
 
 def encode_display_status(vars, rear_motor_data, front_motor_data=None):
   brakes_are_active = 1 if vars.brakes_are_active else 0
@@ -164,7 +172,7 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
 
   now = time.ticks_ms()
   health_bitmap = HEALTH_MOTOR_LIGHTS_TX_OK if vars.lights_comm_ok else 0
-  if _can_timestamp_is_fresh(now, rear_motor_data.status_1_last_update_ms):
+  if _rear_speed_is_fresh(now, rear_motor_data):
     health_bitmap |= HEALTH_MOTOR_REAR_SPEED_VALID
 
   return build_status(
@@ -187,6 +195,9 @@ def encode_display_status(vars, rear_motor_data, front_motor_data=None):
     int(vars.battery_resistance_debug_error_count),
     int(vars.battery_resistance_debug_sample_count),
     int(vars.battery_resistance_debug_reference_sample_count),
+    int(vars.battery_resistance_debug_phase_elapsed_seconds),
+    int(vars.lisp_motion_loss_count),
+    int(vars.lisp_thermal_loss_count),
   )
 
 def encode_lights_message(mask, state):
@@ -265,20 +276,39 @@ async def task_motors_refresh_data():
 
     now = time.ticks_ms()
     for data in motor_data:
-      # Status families arrive independently and can have different periods.
-      # Expire only the values owned by the status family that went stale.
-      if not _can_timestamp_is_fresh(now, data.status_1_last_update_ms):
+      # Each custom LISP family has its own cadence and expiry.
+      if _can_timestamp_is_fresh(
+          now, data.lisp_motion_last_update_ms, CAN_LISP_FAST_TIMEOUT_MS):
+        data.speed_erpm = data.lisp_speed_erpm
+        data.motor_current_x10 = data.lisp_motor_current_x10
+      else:
         data.speed_erpm = 0
         data.wheel_speed = 0
         data.motor_current_x10 = 0
-      if not _can_timestamp_is_fresh(now, data.status_4_last_update_ms):
+
+      if _can_timestamp_is_fresh(
+          now, data.battery_precision_last_update_ms,
+          CAN_LISP_FAST_TIMEOUT_MS):
+        data.battery_voltage_x10 = (
+          data.battery_voltage_measurement_x1000 // 100)
+        data.battery_current_x10 = _milliamps_to_current_x10(
+          data.battery_current_measurement_x1000)
+      else:
+        data.battery_current_x10 = 0
+        data.battery_voltage_x10 = 0
+
+      if _can_timestamp_is_fresh(
+          now, data.lisp_thermal_last_update_ms, CAN_LISP_THERMAL_TIMEOUT_MS):
+        data.vesc_temperature_x10 = data.lisp_vesc_temperature_x10
+        data.motor_temperature_x10 = data.lisp_motor_temperature_x10
+      else:
         data.vesc_temperature_x10 = 0
         data.motor_temperature_x10 = 0
-        data.battery_current_x10 = 0
-      if not _can_timestamp_is_fresh(now, data.status_5_last_update_ms):
-        data.battery_voltage_x10 = 0
-      if not _can_timestamp_is_fresh(
-          now, data.status_7_last_update_ms, CAN_SOC_TIMEOUT_MS):
+
+      if _can_timestamp_is_fresh(
+          now, data.lisp_thermal_last_update_ms, CAN_SOC_TIMEOUT_MS):
+        data.battery_soc_x1000 = data.lisp_battery_soc_x1000
+      else:
         data.battery_soc_x1000 = 0
 
     if battery_resistance_estimator is not None and not \
@@ -289,6 +319,11 @@ async def task_motors_refresh_data():
         vars.battery_resistance_mohm = resistance_mohm
         print("Battery resistance measured: {} mOhm".format(
           resistance_mohm))
+
+    vars.lisp_motion_loss_count = sum(
+      data.lisp_motion_loss_count for data in motor_data)
+    vars.lisp_thermal_loss_count = sum(
+      data.lisp_thermal_loss_count for data in motor_data)
 
     if battery_resistance_estimator is not None:
       vars.battery_resistance_debug_phase = \
@@ -301,6 +336,15 @@ async def task_motors_refresh_data():
         battery_resistance_estimator.debug_sample_count
       vars.battery_resistance_debug_reference_sample_count = \
         battery_resistance_estimator.debug_reference_sample_count
+      vars.battery_resistance_debug_phase_elapsed_seconds = \
+        battery_resistance_estimator.debug_phase_elapsed_seconds
+    else:
+      vars.battery_resistance_debug_phase = -1
+      vars.battery_resistance_debug_boot_seconds = 0
+      vars.battery_resistance_debug_error_count = 0
+      vars.battery_resistance_debug_sample_count = 0
+      vars.battery_resistance_debug_reference_sample_count = 0
+      vars.battery_resistance_debug_phase_elapsed_seconds = 0
 
     next_wake = time.ticks_add(next_wake, espnow_jittered_period_ms(period_ms))
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
@@ -631,7 +675,23 @@ async def task_control_motor_limit_current():
   period_ms = 100
   next_wake = time.ticks_ms()
   while True:
-    # Always use rear wheel speed
+    # The limits are speed-dependent, so do not turn a short command-102 gap
+    # into a false 0 km/h reading. task_motors_refresh_data() still expires
+    # the operational speed for status/UI safety, but the VESC retains the
+    # last limits sent here until a fresh rear speed is available again.
+    #
+    # Recomputing with zero would temporarily select the standstill limits
+    # (notably a much higher rear motor-current limit) and can cause a
+    # noticeable torque spike while the scooter is moving.
+    now = time.ticks_ms()
+    rear_speed_is_fresh = _rear_speed_is_fresh(now, rear_motor.data)
+    if not rear_speed_is_fresh:
+      next_wake = time.ticks_add(next_wake, period_ms)
+      remaining = time.ticks_diff(next_wake, time.ticks_ms())
+      await asyncio.sleep_ms(remaining if remaining > 0 else 0)
+      continue
+
+    # Always use a fresh rear wheel speed.
     wheel_speed = rear_motor.data.wheel_speed
 
     for _motor_data in motor_data:

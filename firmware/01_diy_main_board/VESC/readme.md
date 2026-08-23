@@ -4,20 +4,19 @@ Install [battery_precision_telemetry.lisp](battery_precision_telemetry.lisp)
 in the VESCTool LISP tab on **both** VESCs. Set `vesc-id` to `0` on the rear
 VESC and `1` on the front VESC before running it.
 
-The script sends two project-private extended CAN frames:
+The script sends three project-private extended CAN frames:
 
-- command `100`: battery SOC in the existing ×1000 format, at 1 Hz;
 - command `101`: local VESC input voltage as unsigned 32-bit mV followed by
   input current as signed 32-bit mA, at 10 Hz. Its eight-byte payload supports
   currents beyond the signed-16-bit range while retaining 1 mA resolution.
+- command `102`: electrical RPM as signed 32-bit, motor current as signed
+  ×10 A 16-bit, sequence, and flags, at 10 Hz immediately after `101`.
+- command `103`: VESC temperature ×10 C, motor temperature ×10 C, battery
+  SOC ×1000, sequence, and flags, at 2 Hz.
 
-The motor ESP32 timestamps frame receipt and only combines rear/front command
-`101` samples that arrive in the same short window. This preserves the VESC
-filtered measurement resolution and avoids assuming synchronised Lisp clocks.
-The display retains the last SOC for up to 30 seconds; the shorter 500 ms
-timeout still applies only to fast control/status families.
+The motor ESP32 timestamps every family separately. It consumes only these
+three project-private frames. VESC ID 1 waits 50 ms before starting, which
+separates the two 10 Hz `101`/`102` bursts on the shared CAN bus.
 
-The main boards needs to read periodically data from the VESC like battery voltage and motor current, for that, the following CAN messages should be enabled:
 On App Settings -> General, on CAN Messages Rate 1:
-- Set CAN Status Rate 1 to 10Hz
-- Enable Status 1, 4 and 5
+- Disable Status 1, 4 and 5.

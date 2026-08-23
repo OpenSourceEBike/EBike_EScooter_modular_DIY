@@ -48,6 +48,9 @@ class Vars:
     self.battery_resistance_debug_error_count = 0
     self.battery_resistance_debug_sample_count = 0
     self.battery_resistance_debug_reference_sample_count = 0
+    self.battery_resistance_debug_phase_elapsed_seconds = 0
+    self.lisp_motion_loss_count = 0
+    self.lisp_thermal_loss_count = 0
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
     self.wheel_speed_x10 = 0
@@ -93,9 +96,13 @@ class Vars:
     self.time_string = ''
     self.rtc_time_valid = False
     self.rtc_ntp_sync_valid = False
-    # Wi-Fi/NTP sync is scheduled on each charging entry.
+    # Wi-Fi/NTP sync is scheduled once per confirmed charging session.
     self.rtc_sync_pending = False
     self.rtc_sync_started = False
+    # This is set before scheduling the sync, so a brief loss of BMS current
+    # after the radio handover cannot re-enter CHARGING and start it again.
+    # It is reset only after a confirmed end of the charging session.
+    self.rtc_sync_done_for_charging_session = False
     self.charging_reconfirm_pending = False
     self.charging_reconfirm_started_ms = 0
     self.charging_reconfirm_failed = False

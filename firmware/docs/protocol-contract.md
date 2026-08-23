@@ -95,7 +95,7 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm resistance_phase resistance_boot_seconds resistance_retries resistance_load_samples resistance_reference_samples resistance_phase_seconds motion_can_losses thermal_can_losses
 ```
 
 Status `flags` bit 2 carries `throttle_rearm_required`. Charging state is
@@ -109,6 +109,11 @@ its boot is available, then repeats the measured `1..2500` mOhm value in every
 status. No measurement age, CAN timestamp, or sequence number is added.
 Existing Displays continue to ignore the trailing field; a new Display also
 accepts the previous 14-field status and treats resistance as unavailable.
+
+Newer motor boards append the resistance diagnostic fields and the cumulative
+per-VESC CAN loss totals. `motion_can_losses` counts gaps in command `102` and
+`thermal_can_losses` counts gaps in command `103`; the first received sequence
+in each family establishes the baseline and is not a loss.
 
 The repeated result produces at most one alert per Display boot. An independent
 Display reset clears that local latch, so the still-running motor's repeated
@@ -136,11 +141,12 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
    detection; the motor board does not communicate with the BMS.
 10. Failed lights sends retry with an exponential interval starting at 50 ms
     and capped at 1000 ms; successful sends reset the interval.
-11. Battery-current (`STATUS_4`), battery-voltage (`STATUS_5`), and speed
-    (`STATUS_1`) freshness are tracked independently for each VESC. The
-    resistance estimator instead requires a fresh atomic mV/mA command-`101`
-    LISP sample from every configured VESC; charging standstill detection
-    requires valid rear speed.
+11. VESC telemetry families are tracked independently for each VESC. The
+    LISP helper sends atomic mV/mA command `101`, speed/current command `102`,
+    and slow temperature/SOC command `103`; these are the only VESC telemetry
+    frames consumed by the motor board. The resistance estimator requires fresh
+    command-`101` samples from every configured VESC; charging standstill
+    detection requires valid rear speed.
 12. The optional JBD BMS is not a battery-resistance source. It remains
     Display-local and is used only by unrelated functions such as charging
     detection.

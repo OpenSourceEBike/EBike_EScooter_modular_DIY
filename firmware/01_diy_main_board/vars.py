@@ -75,4 +75,7 @@ class Vars(object):
     self.battery_resistance_debug_error_count = 0
     self.battery_resistance_debug_sample_count = 0
     self.battery_resistance_debug_reference_sample_count = 0
+    self.battery_resistance_debug_phase_elapsed_seconds = 0
+    self.lisp_motion_loss_count = 0
+    self.lisp_thermal_loss_count = 0
     
