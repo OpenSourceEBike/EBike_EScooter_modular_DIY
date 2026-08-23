@@ -764,6 +764,7 @@ async def rtc_sync_task(vars, delay_ms=2000):
   # rider left before the delay expired, leave the session available to retry.
   if not screen_manager.current_is(ScreenID.CHARGING):
     vars.rtc_sync_result = 'idle'
+    vars.rtc_sync_done_for_charging_session = False
     return
   vars.rtc_sync_started = True
   vars.rtc_sync_result = 'pending'
@@ -869,6 +870,7 @@ async def main_task(vars):
   
   motor_power_previous = 0
   charge_seen_ms = None
+  non_charging_seen_ms = None
   stationary_since_ms = None
   was_in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
   was_comms_paused = vars.comms_paused
@@ -900,6 +902,7 @@ async def main_task(vars):
     if was_comms_paused and not vars.comms_paused:
       # Force a new charging hold interval after Wi-Fi/NTP radio recovery.
       charge_seen_ms = None
+      non_charging_seen_ms = None
       stationary_since_ms = None
       vars.battery_is_charging = False
       vars.bms_battery_current_x100 = None
@@ -921,6 +924,7 @@ async def main_task(vars):
       if not vehicle_is_stationary:
         vars.battery_is_charging = False
         charge_seen_ms = None
+        non_charging_seen_ms = None
         stationary_since_ms = None
       elif stationary_since_ms is None:
         stationary_since_ms = now
@@ -932,6 +936,7 @@ async def main_task(vars):
           bms_current_is_post_stop and
           vars.bms_battery_current_x100 > cfg.charge_current_threshold_a_x100
         ):
+          non_charging_seen_ms = None
           if charge_seen_ms is None:
             charge_seen_ms = now
           elif time.ticks_diff(now, charge_seen_ms) >= cfg.charge_detect_hold_ms:
@@ -940,15 +945,36 @@ async def main_task(vars):
             vars.charging_reconfirm_started_ms = 0
             vars.charging_reconfirm_failed = False
         else:
-          vars.battery_is_charging = False
           charge_seen_ms = None
-          vars.charging_reconfirm_pending = False
-          vars.charging_reconfirm_started_ms = 0
-          vars.charging_reconfirm_failed = False
+          # A single fresh non-charging sample is not sufficient to end the
+          # session. This is especially important immediately after BLE has
+          # been restarted for NTP sync: the first BASIC frame can be stale or
+          # incomplete while the BMS connection settles.
+          if bms_current_is_post_stop:
+            if vars.battery_is_charging or vars.charging_reconfirm_pending:
+              if non_charging_seen_ms is None:
+                non_charging_seen_ms = now
+              elif time.ticks_diff(
+                now, non_charging_seen_ms
+              ) >= cfg.charge_detect_hold_ms:
+                vars.battery_is_charging = False
+                vars.charging_reconfirm_pending = False
+                vars.charging_reconfirm_started_ms = 0
+                vars.charging_reconfirm_failed = False
+                # A sustained fresh BMS reading proves this session ended;
+                # permit a sync for the next real charging session.
+                vars.rtc_sync_done_for_charging_session = False
+            else:
+              vars.battery_is_charging = False
       elif bms is None or not bms.is_available():
-        vars.battery_is_charging = False
         charge_seen_ms = None
+        non_charging_seen_ms = None
         stationary_since_ms = None
+        # During post-sync reconfirmation, absence of a BMS frame is unknown,
+        # not proof that charging stopped. Keep the screen latch until fresh
+        # evidence arrives or its explicit timeout handles it.
+        if not vars.charging_reconfirm_pending:
+          vars.battery_is_charging = False
     elif vars.charging_reconfirm_pending:
       # No BMS-backed charging detector is active for this configuration.
       vars.charging_reconfirm_pending = False
@@ -967,9 +993,11 @@ async def main_task(vars):
       cfg.enable_rtc_time and
       in_charging_screen and
       not was_in_charging_screen and
-      not vars.rtc_sync_pending
+      not vars.rtc_sync_pending and
+      not vars.rtc_sync_done_for_charging_session
     ):
       vars.rtc_sync_pending = True
+      vars.rtc_sync_done_for_charging_session = True
       vars.rtc_sync_result = 'pending'
       asyncio.create_task(rtc_sync_task(vars, delay_ms=RTC_SYNC_DELAY_MS))
     was_in_charging_screen = in_charging_screen
@@ -1205,6 +1233,11 @@ async def motor_comms_task(vars):
           vars.battery_resistance_debug_error_count = parts[17]
           vars.battery_resistance_debug_sample_count = parts[18]
           vars.battery_resistance_debug_reference_sample_count = parts[19]
+          if len(parts) >= 21:
+            vars.battery_resistance_debug_phase_elapsed_seconds = parts[20]
+          if len(parts) >= 23:
+            vars.lisp_motion_loss_count = parts[21]
+            vars.lisp_thermal_loss_count = parts[22]
 
     vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_RX_COMM_TIMEOUT_MS
     if not vars.motor_board_rx_ok:

@@ -29,10 +29,9 @@ The calculation uses a project-private VESC LISP CAN frame (command `101`):
 - in dual-motor mode, rear/front receipt timestamps must be close enough to
   represent the same load.
 
-`STATUS_4` and `STATUS_5` remain the normal operational telemetry and retain
-their 500 ms safety timeout. They are deliberately not estimator inputs, so
-their ×0.1-unit CAN quantisation and independent delivery cannot disturb the
-resistance calculation.
+The same atomic `101` pair is also preferred for normal battery voltage/current
+telemetry while it is fresh. It remains the estimator input, so its precision
+and atomic delivery are not reduced for presentation.
 
 The optional JBD BMS is never an input to this calculation. It remains available
 for unrelated Display functions such as charging detection. The optional RTC is
@@ -72,7 +71,21 @@ the aggregate sample invalid.
 
 All timing uses monotonic `ticks_ms()` arithmetic on the motor board.
 
-### 1. Boot qualification
+### State machine
+
+| ID | State | Entry | Exit |
+| --- | --- | --- | --- |
+| 0 | `boot` | Motor-board boot. | Accumulate 60 distinct seconds with valid power at least 200 W. This state is never revisited during that boot. |
+| 1 | `get reference` | `boot` completes, or `get load` fails. | Ten continuous seconds below 200 W with three valid reference samples. |
+| 2 | `get load` | A valid reference is ready. | Ten continuous seconds at or above 750 W with three valid resistance samples; publish their median. |
+| 3 | `complete` | A valid median is published. | Only the next motor-board boot starts another measurement. |
+
+In `get reference` and `get load`, the first valid observation in each elapsed
+second is accepted and later observations in that second are ignored. A missing
+valid observation for a required second, regen, negative current, invalid data,
+or power outside the state threshold resets the attempt to `get reference`.
+
+### 1. `boot`
 
 Before attempting a measurement, accumulate 60 distinct elapsed seconds since
 motor-board boot in which at least one valid aggregate observation has
@@ -89,21 +102,21 @@ observation adds one to the total. Once the total reaches 60, failed attempts
 may be retried. Only the first successful result completes the feature for that
 motor-board boot.
 
-### 2. Reference qualification and samples
+### 2. `get reference`
 
-After boot qualification, require 15 continuous seconds below 200 W:
+After `boot`, require 10 continuous seconds below 200 W:
 
 ```text
 reference_power_max_w = 200
-reference_qualify_ms = 15000
+reference_qualify_ms = 10000
 ```
 
-Each elapsed second needs at least one valid observation. An observation at
-200 W or more, regen, malformed data, or a second without a valid observation
-restarts this phase. During qualification, keep the latest three fresh
-aggregate pairs, separated by at least 500 ms. Zero total current is valid in
+Each elapsed second needs at least one valid observation; later observations in
+the same second are ignored. An observation at 200 W or more, regen, malformed
+data, or a second without a valid observation restarts this phase. During
+qualification, keep the latest three fresh aggregate pairs. Zero total current is valid in
 this phase; in dual-motor mode the equivalent voltage is then the mean of the
-two VESC voltages. At the end of the 15 continuous seconds, use the
+two VESC voltages. At the end of the 10 continuous seconds, use the
 independent medians as:
 
 ```text
@@ -116,7 +129,7 @@ for the high-load phase. The qualified reference intentionally has no maximum
 age: intermediate observations below the load threshold preserve it until a
 load attempt starts or another reset condition occurs.
 
-### 3. Ten-second load qualification
+### 3. `get load`
 
 Starting at the first aggregate sample with `Vequiv * Itotal >= 750 W`, require
 ten seconds of valid observed load. During this period:
@@ -126,8 +139,8 @@ ten seconds of valid observed load. During this period:
 - no configured VESC reports negative battery current;
 - no regen or invalid/stale precision pair is observed.
 
-A failure resets only the current attempt. The estimator can collect a new
-reference and try again in the same boot.
+A failure returns to `get reference`. The estimator can collect a new reference
+and try again in the same boot; it never repeats `boot` qualification.
 
 During temporary field diagnosis, the Display `MAIN` screen is replaced by a
 five-line resistance status view. This makes the live estimator phase and its
@@ -163,7 +176,7 @@ source frame is VESC-local and no synchronised LISP clock is assumed.
 During the ten-second qualification window, accept valid aggregate samples
 subject to:
 
-- at least 500 ms between accepted resistance samples;
+- at most one accepted resistance sample per elapsed second;
 - the same power and freshness rules;
 - keep only the last three accepted samples in the qualification window.
 
@@ -175,6 +188,11 @@ Examples:
   9 s, and 10 s after load start;
 - if fewer than three valid samples are accepted by qualification end, reset
   the attempt and collect a new reference.
+
+An observation consumes the elapsed-second slot only after it produces a
+plausible resistance value. A first observation with no positive voltage drop,
+no positive current step, or an out-of-range result does not prevent a later
+valid observation in that same second from being used.
 
 For every accepted sample:
 
@@ -248,13 +266,14 @@ Compatibility rules:
 - repeated copies of the same motor result do not create additional history
   rows or alerts.
 
-For temporary field diagnosis, the status frame appends five more values after
+For temporary field diagnosis, the status frame appends six more values after
 the result: numeric estimator state, boot-qualification seconds, reset/error
-counter, accepted load-sample count, and accepted reference-sample count. The
-states are `0` reference qualification, `1` waiting for load, `2` load
-qualification, and `3` complete. During state `0`, the reference sample count
-is the rolling set of last accepted reference samples. During state `2`, the
-load sample count is the rolling set of last accepted load samples. During
+counter, accepted load-sample count, accepted reference-sample count, and whole
+seconds elapsed in the active `get reference` or active `get load` window. The
+states are `0` boot, `1` get reference, `2` get load, and `3` complete. During
+state `1`, the reference sample count is the rolling set of last accepted
+reference samples. During state `2`, the load sample count is the rolling set
+of last accepted load samples. During
 temporary field diagnosis, the Display exposes these values on `MAIN` so they
 remain visible while riding.
 

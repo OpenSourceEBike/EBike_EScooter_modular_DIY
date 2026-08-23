@@ -8,12 +8,15 @@ class BatteryResistanceConfig:
     self.boot_qualifying_power_min_w = 200
     self.boot_qualifying_seconds = 60
     self.reference_power_max_w = 200
-    self.reference_qualify_ms = 15000
+    self.reference_qualify_ms = 10000
     self.load_power_min_w = 750
 
     self.load_qualify_ms = 10000
     self.sample_count = 3
-    self.sample_min_interval_ms = 500
+    # Reference and load phases accept at most one observation per elapsed
+    # second. The first valid one is kept; later samples in that second are
+    # ignored.
+    self.sample_min_interval_ms = 1000
     self.sample_collection_timeout_ms = 5000
 
     # Project-private command 101 carries an atomic mV/mA sample per VESC.

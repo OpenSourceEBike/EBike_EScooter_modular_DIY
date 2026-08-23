@@ -10,6 +10,7 @@ class ScreenID:
   POWEROFF  = 3
   MOTOR_BLOCKED = 4
   BATTERY_RESISTANCE = 5
+  BATTERY_RESISTANCE_DEBUG = 6
 
 class ScreenManager:
   def __init__(self, fb, vars):
@@ -23,6 +24,9 @@ class ScreenManager:
       ScreenID.MOTOR_BLOCKED: ("screens.motor_blocked", "MotorBlockedScreen"),
       ScreenID.BATTERY_RESISTANCE: (
         "screens.battery_resistance", "BatteryResistanceScreen"
+      ),
+      ScreenID.BATTERY_RESISTANCE_DEBUG: (
+        "screens.battery_resistance_debug", "BatteryResistanceDebugScreen"
       ),
     }
     self._screen_factories = {
@@ -39,6 +43,9 @@ class ScreenManager:
     self._button_power_click_previous = False
     self._charging_state_previous = False
     self._charging_entry_is_auto = False
+    # Entering CHARGING alternates the next riding screen between the normal
+    # dashboard and the temporary battery-resistance diagnostic view.
+    self._next_main_is_battery_resistance_debug = False
     self._rearm_warning_suppressed_until_ms = 0
 
   def _suppress_rearm_warning(self, duration_ms=1500):
@@ -57,7 +64,15 @@ class ScreenManager:
 
   def current_is(self, screen_id):
     """Fast equality without tuples/strings."""
+    if screen_id == ScreenID.MAIN:
+      return self._current_id in (
+        ScreenID.MAIN, ScreenID.BATTERY_RESISTANCE_DEBUG)
     return self._current_id == screen_id
+
+  def _next_main_screen_id(self):
+    if self._next_main_is_battery_resistance_debug:
+      return ScreenID.BATTERY_RESISTANCE_DEBUG
+    return ScreenID.MAIN
 
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
@@ -96,8 +111,13 @@ class ScreenManager:
 
   def force(self, screen_id):
     """Switch to a screen by numeric ID (no strings!)."""
+    if screen_id == ScreenID.MAIN:
+      screen_id = self._next_main_screen_id()
     if screen_id == self._current_id:
       return
+    if screen_id == ScreenID.CHARGING:
+      self._next_main_is_battery_resistance_debug = \
+        not self._next_main_is_battery_resistance_debug
     if cfg.boot_timing_debug:
       print("[screen] switch {} -> {}".format(self._current_id, screen_id))
     self._current.on_exit()

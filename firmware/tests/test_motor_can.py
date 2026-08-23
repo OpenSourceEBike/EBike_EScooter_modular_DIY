@@ -89,17 +89,54 @@ class MotorCanTimingTests(unittest.TestCase):
     self.assertEqual(self.data.battery_precision_last_update_ms, 1234)
     self.assertEqual(self.data.battery_precision_update_counter, 1)
 
-  def test_standard_status_4_and_5_remain_operational_telemetry(self):
+  def test_standard_status_frames_are_ignored(self):
     self.motor._can.frames = [
+      ((9 << 8) | 10, True, False, b'\x00\x00\x04\xd2\x00\x7b'),
       ((16 << 8) | 10, True, False, b'\x00\x19\x00\x1a\x00\x7b'),
       ((27 << 8) | 10, True, False, b'\x00\x00\x00\x00\x02\x14'),
+      ((100 << 8) | 10, True, False, b'\x03\x6c'),
+    ]
+    self.assertEqual(self.motor.update_motor_data(self.motor), 4)
+    self.assertEqual(self.data.battery_current_x10, 0)
+    self.assertEqual(self.data.battery_voltage_x10, 0)
+    self.assertEqual(self.data.speed_erpm, 0)
+    self.assertEqual(self.data.battery_soc_x1000, 0)
+    self.assertEqual(self.data.last_can_data_ms, 0)
+
+  def test_lisp_motion_and_thermal_frames_are_decoded(self):
+    # Command 102: -123456 ERPM, -12.3 A motor current, sequence 7.
+    # Command 103: 25.0 C VESC, 31.5 C motor, 87.6% SOC, sequence 8.
+    self.motor._can.frames = [
+      ((102 << 8) | 10, True, False,
+       b'\xff\xfe\x1d\xc0\xff\x85\x07\x00'),
+      ((103 << 8) | 10, True, False,
+       b'\x00\xfa\x01\x3b\x03\x6c\x08\x00'),
     ]
     self.assertEqual(self.motor.update_motor_data(self.motor), 2)
-    self.assertEqual(self.data.battery_current_x10, 123)
-    self.assertEqual(self.data.battery_voltage_x10, 532)
-    self.assertEqual(self.data.status_4_last_update_ms, 1234)
-    self.assertEqual(self.data.status_5_last_update_ms, 1234)
-    self.assertEqual(self.data.last_can_data_ms, 1234)
+    self.assertEqual(self.data.lisp_speed_erpm, -123456)
+    self.assertEqual(self.data.lisp_motor_current_x10, -123)
+    self.assertEqual(self.data.lisp_motion_sequence, 7)
+    self.assertEqual(self.data.lisp_motion_last_update_ms, 1234)
+    self.assertEqual(self.data.lisp_vesc_temperature_x10, 250)
+    self.assertEqual(self.data.lisp_motor_temperature_x10, 315)
+    self.assertEqual(self.data.lisp_battery_soc_x1000, 876)
+    self.assertEqual(self.data.lisp_thermal_sequence, 8)
+    self.assertEqual(self.data.lisp_thermal_last_update_ms, 1234)
+
+  def test_lisp_sequence_gaps_are_counted_after_the_first_frame(self):
+    self.motor._can.frames = [
+      ((102 << 8) | 10, True, False,
+       b'\x00\x00\x00\x01\x00\x01\x07\x00'),
+      ((102 << 8) | 10, True, False,
+       b'\x00\x00\x00\x02\x00\x01\x0a\x00'),
+      ((103 << 8) | 10, True, False,
+       b'\x00\xfa\x01\x3b\x03\x6c\x08\x00'),
+      ((103 << 8) | 10, True, False,
+       b'\x00\xfa\x01\x3b\x03\x6c\x0b\x00'),
+    ]
+    self.assertEqual(self.motor.update_motor_data(self.motor), 4)
+    self.assertEqual(self.data.lisp_motion_loss_count, 2)
+    self.assertEqual(self.data.lisp_thermal_loss_count, 2)
 
 
 if __name__ == '__main__':

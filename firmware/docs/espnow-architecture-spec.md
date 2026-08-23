@@ -136,7 +136,7 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm resistance_phase resistance_boot_seconds resistance_retries resistance_load_samples resistance_reference_samples resistance_phase_seconds motion_can_losses thermal_can_losses
 ```
 
 Status `flags` bit 2 carries `throttle_rearm_required`.
@@ -152,6 +152,10 @@ meanings and order remain unchanged; the terminal
 `battery_resistance_mohm` field is `-1` while no result is available and then
 repeats the one `1..2500` mOhm result for the rest of the boot. It carries no
 measurement timestamp, age, or sequence number.
+
+Newer motor boards append six resistance diagnostic values followed by the
+cumulative `102` motion and `103` thermal CAN sequence-gap counters. Older
+Displays safely ignore these trailing values.
 
 The Display latches that repeated result once per Display boot. Repeated frames
 within the same boot do not duplicate history or alerts. If only the Display
@@ -248,9 +252,9 @@ latest command separately for each sender (display and motor board).
 The JBD BMS is never used by the battery-resistance estimator. Motor-side CAN
 measurement continues even while the Display is unavailable or showing
 `m RX!`; only delivery and presentation of the repeated result are delayed.
-Independently phased `STATUS_4`/`STATUS_5` half-pairs are tracked inside the
-motor-side feature module. Pending halves do not reset an attempt, and no
-ESP-NOW payload change is required.
+The estimator uses the atomic command-`101` voltage/current pair from each
+VESC; pending or missing samples do not reset an attempt, and no ESP-NOW
+payload change is required.
 
 - Display motor transmission and power communication timeout: 1500 ms.
 - Display motor-status receive timeout: 2000 ms.

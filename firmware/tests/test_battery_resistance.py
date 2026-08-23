@@ -30,6 +30,7 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
     config.boot_qualifying_seconds = 0
     config.reference_qualify_ms = 0
     config.load_qualify_ms = 5000
+    config.sample_min_interval_ms = 500
     return config
 
   def start_attempt(self, monitor, start_ms=0):
@@ -46,7 +47,7 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
         result = value
     return result
 
-  def test_first_three_samples_at_500_ms_spacing(self):
+  def test_only_one_load_sample_is_accepted_per_second(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
     result = self.feed(monitor, range(1600, 7601, 500))
@@ -59,11 +60,37 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
     result = self.feed(monitor, range(2100, 9101, 1000))
     self.assertEqual(result, 76)
 
+  def test_production_phases_keep_only_first_sample_each_second(self):
+    config = BatteryResistanceConfig()
+    config.boot_qualifying_seconds = 0
+    config.reference_qualify_ms = 2000
+    config.load_qualify_ms = 2000
+    monitor = BatteryResistanceMonitor(config)
+
+    monitor.update(0, 5400, 300, 0)
+    monitor.update(500, 5390, 301, 0)
+    self.assertEqual(monitor.reference_sample_count, 1)
+    monitor.update(1000, 5400, 300, 0)
+    monitor.update(1500, 5390, 301, 0)
+    self.assertEqual(monitor.reference_sample_count, 2)
+    self.assertEqual(monitor.phase_elapsed_seconds, 1)
+    monitor.update(2000, 5400, 300, 0)
+    self.assertEqual(monitor.phase, 2)
+
+    monitor.update(3000, 5300, 1600, 0)
+    monitor.update(3500, 5290, 1601, 0)
+    self.assertEqual(monitor.sample_count, 1)
+    monitor.update(4000, 5300, 1600, 0)
+    monitor.update(5000, 5300, 1600, 0)
+    self.assertEqual(monitor.update(5500, 5290, 1601, 0), None)
+    self.assertEqual(monitor.result_mohm, 76)
+
   def test_boot_qualification_counts_one_valid_power_sample_per_second(self):
     config = BatteryResistanceConfig()
     config.boot_qualifying_seconds = 2
     config.reference_qualify_ms = 0
     config.load_qualify_ms = 5000
+    config.sample_min_interval_ms = 500
     monitor = BatteryResistanceMonitor(config)
     # Two 4 A, 54 V samples in the same elapsed second count only once.
     monitor.update(100, 5400, 400, 0)
@@ -129,6 +156,28 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
         result = value
     self.assertEqual(result, 76)
 
+  def test_later_valid_load_sample_in_same_second_is_accepted(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    self.start_attempt(monitor)
+    # At elapsed second 1, the first observation has no voltage drop.  The
+    # following valid observation must still be eligible for that second.
+    monitor.update(2100, 5400, 1600, 0)
+    monitor.update(2200, 5300, 1600, 0)
+    self.assertEqual(monitor.sample_count, 2)
+
+  def test_retries_count_only_started_reference_or_load_attempts(self):
+    config = self.make_config()
+    config.reference_qualify_ms = 2000
+    monitor = BatteryResistanceMonitor(config)
+    # Normal riding above the reference threshold has not started an attempt.
+    monitor.update(0, 5300, 1600, 0)
+    monitor.update(100, 5300, 1600, 0)
+    self.assertEqual(monitor.reset_count, 0)
+    # A started reference followed by high power is one failed attempt.
+    monitor.update(1000, 5400, 300, 0)
+    monitor.update(1100, 5300, 1600, 0)
+    self.assertEqual(monitor.reset_count, 1)
+
   def test_gap_resets_attempt_but_allows_retry(self):
     monitor = BatteryResistanceMonitor(self.make_config())
     self.start_attempt(monitor)
@@ -165,7 +214,7 @@ class BatteryResistanceMonitorTests(unittest.TestCase):
     self.assertIsNone(monitor.update(7000, 5000, 2000, 0))
     self.assertEqual(monitor.result_mohm, 76)
 
-  def test_default_reference_qualifies_for_fifteen_seconds_then_load_for_ten(self):
+  def test_default_reference_qualifies_for_ten_seconds_then_load_for_ten(self):
     config = BatteryResistanceConfig()
     config.boot_qualifying_seconds = 0
     monitor = BatteryResistanceMonitor(config)
@@ -238,6 +287,7 @@ class BatteryResistanceEstimatorTests(unittest.TestCase):
     config.boot_qualifying_seconds = 0
     config.reference_qualify_ms = 0
     config.load_qualify_ms = 5000
+    config.sample_min_interval_ms = 500
     return BatteryResistanceEstimator(config, 0)
 
   def precision_sample(self, estimator, data, timestamp_ms,

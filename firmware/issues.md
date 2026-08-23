@@ -1,6 +1,6 @@
 # Firmware Issues Review
 
-Review date: 2026-08-17.
+Review date: 2026-08-23.
 
 Scope: maintained scooter firmware in this checkout: motor, Display, lights,
 automatic power-control board, shared ESP-NOW helpers, runtime configuration,
@@ -15,9 +15,7 @@ decisions remain documented in the relevant pages under `docs/`.
 | --- | --- | --- | --- |
 | SEC-02 | Certain; unconditional prints in both Wi-Fi connection paths | Medium | Wi-Fi passwords are written verbatim to the serial log. |
 | DEP-01 | Certain when changing the selected config through the updater | Medium | Incremental deployment leaves the previous root config behind, so the next boot aborts. |
-| BRD-02 | Certain; reproduced with the monitor in a host probe | Low | The resistance `retries` counter counts ordinary rejected observations, not retry attempts. |
 | CFG-01 | Certain in the current estimator | Low | `sample_collection_timeout_ms` is validated and documented but no longer affects sampling. |
-| DOC-01 | Certain live-code/document mismatch | Low | The canonical ESP-NOW documents omit the resistance diagnostic frame fields. |
 | BMS-01 | Certain malformed-frame path; runtime frequency unknown | Low | A bad JBD frame terminator consumes one byte beyond that frame. |
 | LT-01 | Known receiver behavior; sender contract normally prevents it | Medium | Lights ownership is selected from `mask`, not enforced from `src`. |
 | SEC-01 | Certain architectural exposure; incident likelihood not measured | High | ESP-NOW command frames are unauthenticated and replayable. |
@@ -27,31 +25,6 @@ decisions remain documented in the relevant pages under `docs/`.
 | RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
 
 ## Battery-resistance diagnostics and contract
-
-### BRD-02 — `retries` counts observations rather than attempts
-
-**Status:** Open; confirmed by host probe. **Severity:** Low.
-
-After boot qualification reaches its target, every call to `_reset_attempt()`
-increments `_reset_count`. While waiting for the required low-load reference,
-each normal sample at or above 200 W calls `_reset_attempt()`. A probe with one
-qualified boot second followed by ten ordinary high-power observations reported
-`reset_count = 11` while still in state `0`.
-
-**References:**
-
-- `common/battery_resistance.py:98-113`
-- `common/battery_resistance.py:237-242`
-- `common/battery_resistance.py:288-293`
-- `02_diy_display/screens/main.py`
-
-**Impact:** the eventual `retries` value can grow at the precision-telemetry
-rate and looks like repeated failed measurement attempts even when the scooter
-is simply still being ridden above the reference-power threshold.
-
-**Recommended action:** increment once per started-and-aborted reference/load
-window, and expose a separate last-reset reason. Do not count observations
-rejected before a phase has actually started.
 
 ### CFG-01 — sample collection timeout is dead configuration
 
@@ -73,25 +46,6 @@ it can still disable the estimator. The configuration contract is misleading.
 
 **Recommended action:** remove the setting and its validation, or redefine it
 with an explicit role that is exercised by tests.
-
-### DOC-01 — canonical resistance status frame documentation is stale
-
-**Status:** Open. **Severity:** Low.
-
-The canonical ESP-NOW protocol and architecture pages list the status only
-through `battery_resistance_mohm`; the motor now appends five diagnostic
-integers.
-
-**References:**
-
-- `docs/protocol-contract.md:95-113`
-- `docs/espnow-architecture-spec.md:136-154`
-- `01_diy_main_board/escooter/main.py:169-190`
-
-**Impact:** future firmware or deployment work can use the wrong frame shape.
-
-**Recommended action:** update the canonical protocol/architecture frame shape
-and compatibility wording.
 
 ## Lights and communications
 

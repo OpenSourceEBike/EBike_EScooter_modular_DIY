@@ -1,83 +1,449 @@
+# screens/main.py
+import time
+import common.config_runtime as cfg
 from .base import BaseScreen
+from widgets.widget_battery_soc import BatterySOCWidget
+from widgets.widget_motor_power import MotorPowerWidget
+from widgets.widget_progress_bar import ProgressBarWidget
 from widgets.widget_text_box import WidgetTextBox
-from fonts import robotobold12 as font
-
+from fonts import robotobold12 as font_small, robotobold18 as font
+try:
+  from native_fonts import robotobold50 as font_big
+except ImportError:
+  from fonts import robotobold50 as font_big
 
 class MainScreen(BaseScreen):
-  """Temporary riding view for battery-resistance diagnostics."""
-
   NAME = "Main"
-  _STATE_NAMES = {
-    -1: "unavailable",
-    0: "reference qual",
-    1: "waiting load",
-    2: "load qualify",
-    3: "complete",
-  }
 
   def __init__(self, fb):
     super().__init__(fb)
-    self._lines = []
-    self._line_texts = [None] * 5
-    for index in range(5):
-      line = WidgetTextBox(
-        self.fb, self.fb.width, self.fb.width,
-        font=font, align_inside="left"
-      )
-      y = index * 12
-      line.set_box(x1=0, y1=y, x2=self.fb.width - 1, y2=y + 10)
-      self._lines.append(line)
+    self._time_string_previous = ''
+    self._cruise_control_is_active_previous = None
+    self._motor_power_previous = 0
+    self._wheel_speed_x10_previous = 0
+    self._one_second = 0
+    self._brakes_are_active_previous = ''
+    self._lights_state_previous = ''
+    self._warning_queue = []
+    self._warning_current = None
+    self._warning_start_ms = 0
+    self._warning_duration_ms = 2000
+    self._warning_text_previous = ''
+    self._warning_showing_progress_bar = False
+    self._warning_bar_kind = None
+    self._temp_bar_percents = {
+      "vr": 0,
+      "vf": 0,
+      "mr": 0,
+      "mf": 0,
+    }
+    self._one_second = time.ticks_add(time.ticks_ms(), 1000)
+    self._mode_last_seen = None
 
   def on_enter(self):
+    on_enter_start_ms = time.ticks_ms()
     self.clear()
-    self._line_texts = [None] * len(self._lines)
+    self._time_string_previous = None
+    # Reset cached values because the screen instance is reused.
+    # Widgets are recreated blank below, so the first render after re-entering
+    # must redraw the current states even if they did not change while away.
+    self._cruise_control_is_active_previous = None
+    self._motor_power_previous = None
+    self._wheel_speed_x10_previous = None
+    self._brakes_are_active_previous = None
+    self._lights_state_previous = None
+    self._warning_queue = []
+    self._warning_current = None
+    self._warning_start_ms = 0
+    self._warning_duration_ms = 2000
+    self._warning_text_previous = ''
+    self._warning_showing_progress_bar = False
+    self._warning_bar_kind = None
+    self._temp_bar_percents = {
+      "vr": 0,
+      "vf": 0,
+      "mr": 0,
+      "mf": 0,
+    }
+    self._one_second = 0
 
-  def _update_lines(self, texts):
-    for index in range(len(self._lines)):
-      text = texts[index]
-      if text != self._line_texts[index]:
-        self._line_texts[index] = text
-        self._lines[index].update(text)
+    # Motor power widget
+    self._motor_power_widget = MotorPowerWidget(self.fb, self.fb.width, self.fb.width)
+    self._motor_power_widget.update(0)
+
+    # Battery SOC
+    batt_scale = 1
+    # Place at bottom-left, keeping 1px margin
+    batt_x = 1
+    batt_y = self.fb.height - (15 * batt_scale) - 1  # 15px is the unscaled total height
+    self._battery_soc_widget = BatterySOCWidget(self.fb, x=batt_x, y=batt_y, scale=batt_scale)
+    self._battery_soc_widget.draw_contour()
+    self._battery_soc_widget.update(0)
+
+    # Wheel speed
+    self._wheel_speed_widget = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_big,
+      left=0, top=5, right=1, bottom=0,
+      align_inside="right"
+    )
+    self._wheel_speed_widget.set_box(x1=self.fb.width - 55, y1=0, x2=self.fb.width - 1, y2=36)
+    self._wheel_speed_widget.update(0)
+
+    # Lights
+    self._lights_widget = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_small,
+      align_inside="left"
+    )
+    self._lights_widget.set_box(x1=1, y1=37, x2=7, y2=37 + 9)
+    self._lights_widget.update('')
+
+    # Brakes
+    self._brakes_widget = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_small,
+      align_inside="left"
+    )
+    self._brakes_widget.set_box(x1=12, y1=37, x2=19, y2=37 + 9)
+    self._brakes_widget.update('')
+
+    # Warning / progress area
+    self._warning_widget = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_small,
+      align_inside="right"
+    )
+    self._warning_widget.set_box(
+      x1=self.fb.width - 78, y1=38,
+      x2=self.fb.width - 1, y2=38 + 8
+    )
+    self._warning_widget.update('')
+
+    # Progress bar
+    self._progress_bar_widget = ProgressBarWidget(
+      self.fb,
+      x=self.fb.width - 40, y=38,
+      width=40, height=8,
+      label_text="mo",
+      label_font=font_small,
+      label_gap=2,
+      label_dy=-2,
+    )
+    self._progress_bar_widget.draw_contour()
+    self._progress_bar_widget.update(0)
+    self._progress_bar_widget.set_visible(False, clear=True)
+
+    self._mode_last_seen = None
+
+    # Clock
+    if cfg.enable_rtc_time:
+      self._clock_widget = WidgetTextBox(
+        self.fb, self.fb.width, self.fb.width,
+        font=font,
+        align_inside="right",
+      )
+      self._clock_widget.set_box(x1=self.fb.width - 49, y1=self.fb.height - 17, x2=self.fb.width - 6, y2=self.fb.height - 2)
+      self._clock_widget.update('')
+
+    if cfg.boot_timing_debug:
+      elapsed_ms = time.ticks_diff(time.ticks_ms(), on_enter_start_ms)
+      print("[boot screen +{:>4} ms] MainScreen.on_enter".format(elapsed_ms))
 
   def render(self, vars):
-    state = int(getattr(vars, "battery_resistance_debug_phase", -1))
-    texts = [""] * 5
-    texts[0] = "{}: {}".format(
-      state, self._STATE_NAMES.get(state, "unknown"))
-    boot_seconds = int(getattr(
-      vars, "battery_resistance_debug_boot_seconds", 0))
-    error_count = int(getattr(
-      vars, "battery_resistance_debug_error_count", 0))
-    sample_count = int(getattr(
-      vars, "battery_resistance_debug_sample_count", 0))
-    reference_sample_count = int(getattr(
-      vars, "battery_resistance_debug_reference_sample_count", 0))
-    result = getattr(vars, "battery_resistance_last_mohm", None)
-    result = result if result is not None else "na"
-    motor_rx = "ok" if getattr(vars, "motor_board_rx_ok", False) else "FAIL"
+    now = time.ticks_ms()
+    boot_comm_grace_ms = getattr(cfg, "boot_comm_grace_ms", 3000)
+    in_startup_grace = time.ticks_diff(now, getattr(cfg, "system_boot_ms", 0)) < boot_comm_grace_ms
+    comms_paused = bool(getattr(vars, "comms_paused", False))
+    suppress_remote_warnings = in_startup_grace or comms_paused
+    resistance_alert = getattr(
+      vars, "battery_resistance_alert_pending", None)
+    if resistance_alert is not None:
+      vars.battery_resistance_alert_pending = None
+      resistance_mohm, duration_ms = resistance_alert
+      self._enqueue_warning(
+        "R {} mOhm".format(int(resistance_mohm)),
+        duration_ms=duration_ms,
+      )
+    # Motor power
+    if self._motor_power_previous != vars.motor_power_percent:
+      self._motor_power_previous = vars.motor_power_percent
+      self._motor_power_widget.update(vars.motor_power_percent)
 
-    if state == 0:
-      texts[1] = "boot: {:d}/60".format(boot_seconds)
-    elif state == 1:
-      texts[1] = "reference: ok"
-    elif state == 2:
-      texts[1] = "load: qualifying"
-    elif state == 3:
-      texts[1] = "result available"
+    # Brakes
+    if vars.brakes_are_active != self._brakes_are_active_previous:
+      self._brakes_are_active_previous = vars.brakes_are_active
+      brakes = 'B' if vars.brakes_are_active else ''
+      self._brakes_widget.update(brakes)
+
+    # Cruise
+    if vars.cruise_control_is_active != self._cruise_control_is_active_previous:
+      self._cruise_control_is_active_previous = vars.cruise_control_is_active
+      self._wheel_speed_widget.set_invert(vars.cruise_control_is_active)
+      wheel_speed_x10 = self._wheel_speed_x10_previous
+      if wheel_speed_x10 is None:
+        wheel_speed_x10 = abs(vars.wheel_speed_x10)
+        if wheel_speed_x10 > 999:
+          wheel_speed_x10 = 999
+      self._wheel_speed_widget.update(wheel_speed_x10 // 10)
+
+    # Lights
+    lights_active = bool(vars.lights_state)
+    if lights_active != self._lights_state_previous:
+      self._lights_state_previous = lights_active
+      lights = 'L' if lights_active else ''
+      self._lights_widget.update(lights)
+
+    # Remote board errors, derived from health bits / comm booleans.
+    if suppress_remote_warnings:
+      self._suppress_warning("m TX!")
+      self._suppress_warning("m RX!")
+      self._suppress_warning("mlTX!")
+      self._suppress_warning("l TX!")
+      self._suppress_warning("p TX!")
     else:
-      texts[1] = "measure: unavailable"
+      if not vars.motor_board_tx_ok:
+        self._enqueue_warning("m TX!")
+        self._suppress_warning("mlTX!")
+      else:
+        self._suppress_warning("m TX!")
 
-    if state == 0:
-      texts[2] = "200W secs total"
-    elif state != 3:
-      texts[2] = "retries: {:d}".format(error_count)
+      if not vars.motor_board_rx_ok:
+        self._enqueue_warning("m RX!")
+        self._suppress_warning("mlTX!")
+      else:
+        self._suppress_warning("m RX!")
 
-    if state == 0:
-      texts[3] = "last ref: {:d}/3".format(reference_sample_count)
-    elif state == 2:
-      texts[3] = "last samples: {:d}/3".format(sample_count)
-    elif state == 3:
-      texts[3] = "measured: {} mOhm".format(result)
+      if vars.motor_board_rx_ok and vars.motor_board_tx_ok and not vars.motor_lights_tx_ok:
+        self._enqueue_warning("mlTX!")
+      else:
+        self._suppress_warning("mlTX!")
 
-    texts[4] = "motor rx: {}".format(motor_rx)
-    self._update_lines(texts)
+      if not vars.lights_board_comm_ok:
+        self._enqueue_warning("l TX!")
+      else:
+        self._suppress_warning("l TX!")
+
+      if not vars.power_switch_board_comm_ok:
+        self._enqueue_warning("p TX!")
+      else:
+        self._suppress_warning("p TX!")
+
+    # Slow tick (about 1 Hz)
+    if time.ticks_diff(now, self._one_second) >= 0:
+      self._one_second = time.ticks_add(self._one_second, 1000)
+
+      # Battery SOC - only draws if number of bars change
+      self._battery_soc_widget.update(vars.battery_soc_x1000 // 10)
+
+      # Wheel speed
+      wheel_speed_x10 = abs(vars.wheel_speed_x10)
+      if wheel_speed_x10 > 999:
+        wheel_speed_x10 = 999
+
+      if self._wheel_speed_x10_previous != wheel_speed_x10:
+        self._wheel_speed_x10_previous = wheel_speed_x10
+        self._wheel_speed_widget.update(wheel_speed_x10 // 10)
+
+      # Throttle fault warnings (re-enqueued every second while fault persists)
+      if vars.throttle_right_fault:
+        self._enqueue_warning("thr R!")
+      if vars.throttle_left_fault:
+        self._enqueue_warning("thr L!")
+
+      # Time
+      if cfg.enable_rtc_time:
+        if self._time_string_previous != vars.time_string:
+          self._time_string_previous = vars.time_string
+          self._clock_widget.update(vars.time_string)
+
+    # Progress bar (temperature percent)
+    self._update_temp_percents(vars)
+    if self._warning_showing_progress_bar:
+      percent = self._bar_percent(self._warning_bar_kind)
+      if percent <= 0:
+        self._warning_current = None
+        self._warning_showing_progress_bar = False
+        self._warning_bar_kind = None
+        self._progress_bar_widget.set_visible(False, clear=True)
+      else:
+        self._progress_bar_widget.update(percent)
+
+    # Track mode value (enqueue on change)
+    if self._mode_last_seen is None:
+      self._mode_last_seen = vars.mode
+    elif vars.mode != self._mode_last_seen:
+      self._mode_last_seen = vars.mode
+      self._enqueue_warning(self._mode_text_from_vars())
+
+    # Warning queue display (duration is carried by each item).
+    self._tick_warning_queue()
+
+  def _mode_text_from_vars(self):
+    if self._mode_last_seen is None:
+      return ''
+    return f"mode {int(self._mode_last_seen)}"
+
+  def _enqueue_warning(self, text, duration_ms=2000):
+    if text is None or text == '':
+      return
+    if not self._queue_has("text", text):
+      item = ("text", text, max(1, int(duration_ms)))
+      self._warning_queue.append(item)
+
+  def _enqueue_progress_bar(self, kind):
+    self._warning_queue.append(("bar", kind, 2000))
+
+  def _enqueue_temp_bars(self):
+    if self._temp_bar_percents["vr"] > 0:
+      self._enqueue_progress_bar_unique("vr")
+    if self._temp_bar_percents["vf"] > 0:
+      self._enqueue_progress_bar_unique("vf")
+    if self._temp_bar_percents["mr"] > 0:
+      self._enqueue_progress_bar_unique("mr")
+    if self._temp_bar_percents["mf"] > 0:
+      self._enqueue_progress_bar_unique("mf")
+
+  def _queue_has(self, kind, payload):
+    for item in self._warning_queue:
+      if item[0] == kind and item[1] == payload:
+        return True
+    if self._warning_current is not None:
+      return self._warning_current[0] == kind and self._warning_current[1] == payload
+    return False
+
+  def _enqueue_progress_bar_unique(self, kind):
+    if not self._queue_has("bar", kind):
+      self._enqueue_progress_bar(kind)
+
+  def _remove_queue_items(self, kind, payload):
+    if not self._warning_queue:
+      return
+    self._warning_queue = [
+      item for item in self._warning_queue
+      if not (item[0] == kind and item[1] == payload)
+    ]
+
+  def _suppress_warning(self, text):
+    self._remove_queue_items("text", text)
+    if self._warning_current == ("text", text):
+      self._warning_current = None
+      self._warning_start_ms = 0
+      self._warning_duration_ms = 2000
+      self._warning_showing_progress_bar = False
+      self._warning_bar_kind = None
+      self._warning_text_previous = ''
+      self._warning_widget.update('')
+
+  def _bar_percent(self, kind):
+    return self._temp_bar_percents.get(kind, 0)
+
+  def _bar_label(self, kind):
+    labels = {
+      "vr": "vr",
+      "vf": "vf",
+      "mr": "mr",
+      "mf": "mf",
+    }
+    return labels.get(kind, "")
+
+  def _temp_percent(self, temp_x10, min_x10, max_x10):
+    if max_x10 <= min_x10:
+      return 0
+    if temp_x10 <= min_x10:
+      return 0
+    if temp_x10 >= max_x10:
+      return 100
+    return int((temp_x10 - min_x10) * 100 / (max_x10 - min_x10))
+
+  def _update_temp_percents(self, vars):
+    self._temp_bar_percents["vr"] = self._temp_percent(
+      vars.rear_vesc_temperature_x10,
+      cfg.rear_motor_cfg.vesc_min_temperature_x10,
+      cfg.rear_motor_cfg.vesc_max_temperature_x10,
+    )
+    self._temp_bar_percents["mr"] = self._temp_percent(
+      vars.rear_motor_temperature_x10,
+      cfg.rear_motor_cfg.min_temperature_x10,
+      cfg.rear_motor_cfg.max_temperature_x10,
+    )
+
+    if cfg.front_motor_cfg is not None:
+      self._temp_bar_percents["vf"] = self._temp_percent(
+        vars.front_vesc_temperature_x10,
+        cfg.front_motor_cfg.vesc_min_temperature_x10,
+        cfg.front_motor_cfg.vesc_max_temperature_x10,
+      )
+      self._temp_bar_percents["mf"] = self._temp_percent(
+        vars.front_motor_temperature_x10,
+        cfg.front_motor_cfg.min_temperature_x10,
+        cfg.front_motor_cfg.max_temperature_x10,
+      )
+    else:
+      self._temp_bar_percents["vf"] = 0
+      self._temp_bar_percents["mf"] = 0
+
+    for kind in ("vr", "vf", "mr", "mf"):
+      if self._temp_bar_percents[kind] <= 0:
+        self._remove_queue_items("bar", kind)
+
+    if self._warning_bar_kind is not None and self._bar_percent(self._warning_bar_kind) <= 0:
+      self._warning_current = None
+      self._warning_showing_progress_bar = False
+      self._warning_bar_kind = None
+      self._progress_bar_widget.set_visible(False, clear=True)
+
+  def _tick_warning_queue(self):
+    now = time.ticks_ms()
+    if self._warning_current is None:
+      if not self._warning_queue:
+        self._enqueue_temp_bars()
+      while self._warning_queue:
+        kind, payload, duration_ms = self._warning_queue.pop(0)
+        if kind == "bar":
+          percent = self._bar_percent(payload)
+          if percent <= 0:
+            continue
+          self._warning_current = ("bar", payload)
+          self._warning_start_ms = now
+          self._warning_duration_ms = duration_ms
+          self._warning_showing_progress_bar = True
+          self._warning_bar_kind = payload
+          self._warning_widget.set_visible(False, clear=True)
+          self._progress_bar_widget.set_visible(True, clear=True)
+          self._progress_bar_widget.set_label_text(self._bar_label(payload))
+          self._progress_bar_widget.draw_contour()
+          self._progress_bar_widget.update(percent)
+          break
+        else:
+          self._warning_current = ("text", payload)
+          self._warning_start_ms = now
+          self._warning_duration_ms = duration_ms
+          if payload != self._warning_text_previous:
+            self._warning_text_previous = payload
+          self._warning_showing_progress_bar = False
+          self._warning_bar_kind = None
+          self._progress_bar_widget.set_visible(False, clear=True)
+          self._warning_widget.set_visible(True, clear=True)
+          self._warning_widget.update(payload)
+          break
+    else:
+      if time.ticks_diff(now, self._warning_start_ms) > \
+          self._warning_duration_ms:
+        kind, payload = self._warning_current
+        if kind == "bar":
+          if self._bar_percent(payload) > 0:
+            if self._warning_queue:
+              self._enqueue_progress_bar(payload)
+            else:
+              # Keep showing if nothing else is queued
+              self._warning_start_ms = now
+              return
+          else:
+            self._progress_bar_widget.set_visible(False, clear=True)
+            self._warning_showing_progress_bar = False
+            self._warning_bar_kind = None
+        self._warning_current = None
+        if self._warning_text_previous != '':
+          self._warning_text_previous = ''
+          self._warning_widget.update('')
