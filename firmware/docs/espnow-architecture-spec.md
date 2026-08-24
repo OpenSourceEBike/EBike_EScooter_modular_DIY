@@ -157,6 +157,11 @@ Newer motor boards append six resistance diagnostic values followed by the
 cumulative `102` motion and `103` thermal CAN sequence-gap counters. Older
 Displays safely ignore these trailing values.
 
+Resistance diagnostic phases are `0` get reference, `1` ramp, `2` get load, `3`
+collect, `4` complete, and `5` failed. The legacy `resistance_boot_seconds` position remains
+zero; `resistance_retries` is the number of failed load attempts, with five as
+25 as the terminal limit.
+
 The Display latches that repeated result once per Display boot. Repeated frames
 within the same boot do not duplicate history or alerts. If only the Display
 restarts while the motor remains powered, the new local session accepts the
@@ -215,13 +220,17 @@ Expected ownership:
 When enabled, the display schedules one NTP sync on the first transition into
 `CHARGING` after boot. The delay is 2000 ms. If charging is exited before the
 delay expires, the pending one-shot is cancelled and can be retried on a later
-charging entry.
+charging entry. Once the sync starts, the one-shot remains consumed for the
+rest of that display boot. Later BMS-current changes, charging-state exits, and
+new charging entries cannot schedule another sync until the display reboots.
 
 During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop,
 the BLE BMS client is stopped, and the charging screen shows `Wifi time sync`.
 The display rebuilds ESP-NOW and restarts BLE before resuming communications;
-a rebuild failure releases the pause and resets the display board. If fresh BMS
-evidence is not available within 10 seconds after the handoff, the display shows
+a rebuild failure releases the pause and resets the display board. The final
+time-sync success or error replaces the `Charging` title for five seconds after
+radio recovery, then the title returns to `Charging`. If fresh BMS
+evidence is not available within 20 seconds after the handoff, the display shows
 `charging unknown` and requires a power long-press acknowledgement; it does not
 silently report non-charging.
 
@@ -263,7 +272,8 @@ payload change is required.
 - Power-switch heartbeat: 250 ms.
 - Motor-board display-enable timeout: 2000 ms.
 - After every disabled-to-enabled transition, the motor board requires the
-  throttle to return to zero before applying a motor target.
+  throttle to remain inside the zero deadband for 100 continuous milliseconds
+  before applying a motor target.
 - The display keeps the normal MAIN screen during the short zero-throttle
   re-arm window after leaving CHARGING; the `MOTOR_BLOCKED` warning is shown
   only when throttle remains active. Rider lights remain available during that
@@ -275,7 +285,10 @@ The maintained power button is debounced by `thisButton` and uses a 100 ms
 minimum click duration. Durations from 100 ms to below 1000 ms are short clicks;
 durations of 1000 ms or more are long presses. Durations below 100 ms are
 ignored. The power button's click and long-press callbacks are latched until
-the UI task consumes them. The lights input is a maintained switch; its state
+the UI task consumes them. The display shows `Ready` during boot with motor
+enable still disabled; the
+first valid power click transitions to the main dashboard and enables it. The
+lights input is a maintained switch; its state
 is combined with the automatic schedule, with manual ON override as the
 default and `auto_lights_schedule_authoritative = True` available for a
 schedule-authoritative deployment.

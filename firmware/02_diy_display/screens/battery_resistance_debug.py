@@ -9,10 +9,12 @@ class BatteryResistanceDebugScreen(BaseScreen):
   NAME = "Battery resistance debug"
   _STATE_NAMES = {
     -1: "unavailable",
-    0: "boot",
-    1: "get reference",
+    0: "get reference",
+    1: "ramp to load",
     2: "get load",
-    3: "complete",
+    3: "collect samples",
+    4: "complete",
+    5: "failed",
   }
 
   def __init__(self, fb):
@@ -40,12 +42,16 @@ class BatteryResistanceDebugScreen(BaseScreen):
         self._lines[index].update(text)
 
   def render(self, vars):
+    # The debug view already exposes the completed result. Consume the normal
+    # dashboard alert here so it is neither shown nor delayed until a later
+    # return to MainScreen.
+    if getattr(vars, "battery_resistance_alert_pending", None) is not None:
+      vars.battery_resistance_alert_pending = None
+
     state = int(getattr(vars, "battery_resistance_debug_phase", -1))
     texts = [""] * 5
     texts[0] = "{}: {}".format(
       state, self._STATE_NAMES.get(state, "unknown"))
-    boot_seconds = int(getattr(
-      vars, "battery_resistance_debug_boot_seconds", 0))
     error_count = int(getattr(
       vars, "battery_resistance_debug_error_count", 0))
     sample_count = int(getattr(
@@ -56,33 +62,40 @@ class BatteryResistanceDebugScreen(BaseScreen):
       vars, "battery_resistance_debug_phase_elapsed_seconds", 0))
     result = getattr(vars, "battery_resistance_last_mohm", None)
     result = result if result is not None else "na"
-    motor_rx = "ok" if getattr(vars, "motor_board_rx_ok", False) else "FAIL"
-    motion_loss = int(getattr(vars, "lisp_motion_loss_count", 0))
-    thermal_loss = int(getattr(vars, "lisp_thermal_loss_count", 0))
+    if getattr(vars, "motor_board_rx_ok", False):
+      battery_voltage_x10 = int(getattr(vars, "battery_voltage_x10", 0))
+      battery_current_x10 = int(getattr(vars, "battery_current_x10", 0))
+      battery_power_w = int(
+        (battery_voltage_x10 * battery_current_x10) / 100.0)
+      power_text = "power: {:+d} W".format(battery_power_w)
+    else:
+      power_text = "power: na"
 
     if state == 0:
-      texts[1] = "boot: {:d}/60".format(boot_seconds)
+      texts[1] = "ref: -100..100W {:d}/10s".format(phase_elapsed_seconds)
     elif state == 1:
-      texts[1] = "ref: {:d}/10s <200W".format(phase_elapsed_seconds)
+      texts[1] = "ramp: {:d}/3s".format(phase_elapsed_seconds)
     elif state == 2:
-      texts[1] = "load: {:d}/10s >=750W".format(phase_elapsed_seconds)
+      texts[1] = "load: {:d}/15s".format(phase_elapsed_seconds)
     elif state == 3:
+      texts[1] = "collect: {:d}/5".format(sample_count)
+    elif state == 4:
       texts[1] = "result available"
+    elif state == 5:
+      texts[1] = "measurement failed"
     else:
       texts[1] = "measure: unavailable"
 
+    texts[2] = power_text
+
     if state == 0:
-      texts[2] = "200W secs total"
-    elif state != 3:
-      texts[2] = "retries: {:d}".format(error_count)
+      texts[3] = "samples: {:d}/5".format(reference_sample_count)
+    elif state in (1, 2):
+      texts[3] = "samples: {:d}/5".format(sample_count)
+    elif state == 4:
+      texts[3] = "measured: {} moh".format(result)
+    elif state == 5:
+      texts[3] = "attempts: 25/25"
 
-    if state == 1:
-      texts[3] = "last ref: {:d}/3".format(reference_sample_count)
-    elif state == 2:
-      texts[3] = "last samples: {:d}/3".format(sample_count)
-    elif state == 3:
-      texts[3] = "measured: {} mOhm".format(result)
-
-    texts[4] = "CAN m:{} t:{} {}".format(
-      motion_loss, thermal_loss, motor_rx)
+    texts[4] = "retries: {:d}".format(error_count)
     self._update_lines(texts)

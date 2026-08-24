@@ -18,5 +18,10 @@ The motor ESP32 timestamps every family separately. It consumes only these
 three project-private frames. VESC ID 1 waits 50 ms before starting, which
 separates the two 10 Hz `101`/`102` bursts on the shared CAN bus.
 
+The exact same program and payload layout run on both VESCs; only `vesc-id`
+changes. The motor ESP32 ignores front ERPM and SOC instead of storing them,
+while still using both input voltage/current pairs, front motor current, and
+front temperatures.
+
 On App Settings -> General, on CAN Messages Rate 1:
 - Disable Status 1, 4 and 5.

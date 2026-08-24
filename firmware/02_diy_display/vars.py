@@ -96,17 +96,22 @@ class Vars:
     self.time_string = ''
     self.rtc_time_valid = False
     self.rtc_ntp_sync_valid = False
-    # Wi-Fi/NTP sync is scheduled once per confirmed charging session.
+    # Wi-Fi/NTP sync is scheduled once on the first confirmed charging entry
+    # after each display boot.
     self.rtc_sync_pending = False
     self.rtc_sync_started = False
     # This is set before scheduling the sync, so a brief loss of BMS current
-    # after the radio handover cannot re-enter CHARGING and start it again.
-    # It is reset only after a confirmed end of the charging session.
+    # after the radio handover cannot re-enter CHARGING and start it again. It
+    # is reset only if charging is exited before the delayed sync actually
+    # starts; once started, it remains set until the next display boot.
     self.rtc_sync_done_for_charging_session = False
     self.charging_reconfirm_pending = False
     self.charging_reconfirm_started_ms = 0
     self.charging_reconfirm_failed = False
-    # Result of the latest charging-screen Wi-Fi/NTP synchronization.
-    # Values used by the screen: idle, pending, success, fallback, failed.
+    # Result of the latest charging-screen Wi-Fi/NTP synchronization. Final
+    # success/error messages are visible for five seconds after radio recovery.
+    # Values used by the screen: idle, pending, success, ssid_missing,
+    # password_wrong, general_fail.
     self.rtc_sync_result = 'idle'
+    self.rtc_sync_result_started_ms = None
     self.comms_paused = False

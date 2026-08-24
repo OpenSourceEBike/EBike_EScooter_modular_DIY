@@ -34,7 +34,8 @@ class ScreenManager:
     }
     self._screens = {}
 
-    # Start in BOOT
+    # Start on the Ready screen; the motor remains disabled until POWER is
+    # clicked and the screen manager transitions to MAIN.
     self._current_id = ScreenID.BOOT
     self._current = self._get_screen(self._current_id)
     self._current.on_enter()
@@ -129,6 +130,7 @@ class ScreenManager:
 
     button_power_long_click = bool(vars.buttons_state & 0x0200)
     power_click_pending = bool(getattr(vars, "power_click_pending", False))
+    power_click_event = power_click_pending
     power_long_click_pending = bool(
       getattr(vars, "power_long_click_pending", False)
     )
@@ -186,8 +188,8 @@ class ScreenManager:
         self._rearm_warning_suppressed_until_ms, time.ticks_ms()
       ) > 0
     )
-    # The motor board deliberately keeps a one-second re-arm latch after
-    # enabling. Show the warning only when the rider is still requesting
+    # The motor board requires 100 ms continuously inside the zero-throttle
+    # deadband after enabling. Show the warning only while the rider requests
     # throttle; a normal zero-throttle re-enable should remain on MAIN.
     if motor_rearm_required and throttle_active and not rearm_warning_suppressed:
       if not self.current_is(ScreenID.MOTOR_BLOCKED):
@@ -225,7 +227,9 @@ class ScreenManager:
         return
 
     # Click transitions
-    if self._button_power_click_previous != button_power_click:
+    # A latched callback is already a complete click event. Process it even
+    # when the 0x0100 toggle has changed back before this 100 ms UI tick.
+    if power_click_event or self._button_power_click_previous != button_power_click:
       self._button_power_click_previous = button_power_click
 
       # Boot click: if stopped with brakes on, enter Charging first.

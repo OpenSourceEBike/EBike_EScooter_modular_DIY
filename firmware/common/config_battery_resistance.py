@@ -3,21 +3,17 @@ class BatteryResistanceConfig:
 
   def __init__(self):
     # Motor-side passive estimator thresholds use W and ms; result uses mOhm.
-    # Before an attempt, accumulate 60 distinct seconds with at least 200 W.
-    # Samples in the same second count only once and need not be consecutive.
-    self.boot_qualifying_power_min_w = 200
-    self.boot_qualifying_seconds = 60
-    self.reference_power_max_w = 200
+    # Reference is valid only after a continuous neutral-power window.
+    self.reference_power_min_w = -100
+    self.reference_power_max_w = 100
     self.reference_qualify_ms = 10000
     self.load_power_min_w = 750
-
-    self.load_qualify_ms = 10000
-    self.sample_count = 3
-    # Reference and load phases accept at most one observation per elapsed
-    # second. The first valid one is kept; later samples in that second are
-    # ignored.
-    self.sample_min_interval_ms = 1000
-    self.sample_collection_timeout_ms = 5000
+    self.load_transition_timeout_ms = 3000
+    self.load_qualify_ms = 15000
+    self.sample_collection_timeout_ms = 1000
+    # This is the total number of load attempts, including the first one.
+    self.max_attempts = 25
+    self.sample_count = 5
 
     # Project-private command 101 carries an atomic mV/mA sample per VESC.
     self.vesc_precision_sample_max_age_ms = 1500
@@ -53,15 +49,15 @@ def _require_ints(config, names):
 def validate_battery_resistance_measurement_config(config):
   """Validate only settings owned by the motor-side estimator."""
   names = (
-    "boot_qualifying_power_min_w",
-    "boot_qualifying_seconds",
+    "reference_power_min_w",
     "reference_power_max_w",
     "reference_qualify_ms",
     "load_power_min_w",
+    "load_transition_timeout_ms",
     "load_qualify_ms",
-    "sample_count",
-    "sample_min_interval_ms",
     "sample_collection_timeout_ms",
+    "max_attempts",
+    "sample_count",
     "vesc_precision_sample_max_age_ms",
     "dual_vesc_precision_max_skew_ms",
     "min_mohm",
@@ -71,27 +67,24 @@ def validate_battery_resistance_measurement_config(config):
   if error is not None:
     return error
 
-  if config.boot_qualifying_power_min_w < 0:
-    return "boot qualifying power must be >= 0"
-  if config.boot_qualifying_seconds < 0:
-    return "boot_qualifying_seconds must be >= 0"
-  if config.reference_power_max_w < 0:
-    return "reference power must be >= 0"
-  if config.reference_qualify_ms <= 0:
-    return "reference_qualify_ms must be > 0"
+  if config.reference_power_min_w >= config.reference_power_max_w:
+    return "invalid reference power window"
+  if config.reference_qualify_ms != 10000:
+    return "reference_qualify_ms must be 10000"
   if config.load_power_min_w <= 0:
     return "load power must be > 0"
   if config.reference_power_max_w >= config.load_power_min_w:
     return "reference power must be below load power"
-  if config.load_qualify_ms <= 0:
-    return "load_qualify_ms must be > 0"
-  if config.sample_count != 3:
-    return "sample_count must be 3"
-  if config.sample_min_interval_ms <= 0:
-    return "sample_min_interval_ms must be > 0"
-  if config.sample_collection_timeout_ms < (
-      (config.sample_count - 1) * config.sample_min_interval_ms):
-    return "sample collection window is too short"
+  if config.load_transition_timeout_ms != 3000:
+    return "load_transition_timeout_ms must be 3000"
+  if config.load_qualify_ms != 15000:
+    return "load_qualify_ms must be 15000"
+  if config.sample_collection_timeout_ms != 1000:
+    return "sample_collection_timeout_ms must be 1000"
+  if config.max_attempts != 25:
+    return "max_attempts must be 25"
+  if config.sample_count != 5:
+    return "sample_count must be 5"
   if config.vesc_precision_sample_max_age_ms <= 0:
     return "vesc_precision_sample_max_age_ms must be > 0"
   if (config.dual_vesc_precision_max_skew_ms < 0 or

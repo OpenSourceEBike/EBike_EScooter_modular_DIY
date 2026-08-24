@@ -15,7 +15,6 @@ decisions remain documented in the relevant pages under `docs/`.
 | --- | --- | --- | --- |
 | SEC-02 | Certain; unconditional prints in both Wi-Fi connection paths | Medium | Wi-Fi passwords are written verbatim to the serial log. |
 | DEP-01 | Certain when changing the selected config through the updater | Medium | Incremental deployment leaves the previous root config behind, so the next boot aborts. |
-| CFG-01 | Certain in the current estimator | Low | `sample_collection_timeout_ms` is validated and documented but no longer affects sampling. |
 | BMS-01 | Certain malformed-frame path; runtime frequency unknown | Low | A bad JBD frame terminator consumes one byte beyond that frame. |
 | LT-01 | Known receiver behavior; sender contract normally prevents it | Medium | Lights ownership is selected from `mask`, not enforced from `src`. |
 | SEC-01 | Certain architectural exposure; incident likelihood not measured | High | ESP-NOW command frames are unauthenticated and replayable. |
@@ -23,29 +22,6 @@ decisions remain documented in the relevant pages under `docs/`.
 | PWR-01 | Certain protocol gap | Medium | Relay and power configuration are not application-acknowledged. |
 | MOT-01 | Required CAN delay; target timing not measured | Medium | Synchronous post-send delays can still postpone the nominal 20 ms motor cycle. |
 | RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
-
-## Battery-resistance diagnostics and contract
-
-### CFG-01 — sample collection timeout is dead configuration
-
-**Status:** Open; introduced by merging sample collection into qualification.
-**Severity:** Low.
-
-`sample_collection_timeout_ms` is still required by validation and copied into
-the monitor, but neither reference nor load sampling reads it after both sample
-windows became rolling windows inside their ten-second qualification phases.
-
-**References:**
-
-- `common/config_battery_resistance.py:13-18`
-- `common/config_battery_resistance.py:50-92`
-- `common/battery_resistance.py:54-62`
-
-**Impact:** changing the setting has no effect, while omitting or invalidating
-it can still disable the estimator. The configuration contract is misleading.
-
-**Recommended action:** remove the setting and its validation, or redefine it
-with an explicit role that is exercised by tests.
 
 ## Lights and communications
 
@@ -258,16 +234,15 @@ on a fresh matching acknowledgement.
 
 ## Validation performed
 
-- Syntax compilation succeeded for all 86 Python files in the checkout.
-- Thirty-three host tests passed: battery resistance, persistence, bounded CAN
+- Syntax compilation succeeded for all 87 Python files in the checkout.
+- Forty-three host tests passed: battery resistance, persistence, bounded CAN
   RX, precision telemetry, and preservation of the required CAN post-send delay.
-- A targeted monitor probe confirmed that ten ordinary post-qualification
-  observations increased the displayed reset counter to eleven without leaving
-  reference state `0`.
-- The temporary `MAIN` labels measure 91 px and 124 px, both within the 128 px
-  LCD width.
-- A host render probe produced five initial line updates, no updates for an
-  unchanged second render, and one update after changing only motor RX state.
+- Targeted tests cover a successful 25th attempt, terminal 25th failure,
+  retry recovery, mixed-sign dual-VESC currents, asynchronous dual samples, and
+  excessive timestamp skew.
+- `R 2500 moh` measures 63 px in the normal 78 px alert lane.
+- The debug screen consumes the pending result alert without displaying it or
+  delaying it until a later return to the normal dashboard.
 - `bash -n scripts/update_firmware.sh` passed.
 - `git diff --check` passed.
 - `ruff`, `pyflakes`, and `mpy-cross` are unavailable in this environment.

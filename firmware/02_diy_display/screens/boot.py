@@ -56,7 +56,6 @@ class BootScreen(BaseScreen):
     self._battery_soc.hide()
 
   def render(self, vars):
-
     # If negative, means it was not updated yet
     if not self._battery_soc_updated and vars.battery_soc_x1000 >= 0:
       self._battery_soc_updated = True

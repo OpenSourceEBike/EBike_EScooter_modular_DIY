@@ -24,6 +24,9 @@
 ; These are the only telemetry frames consumed by the motor ESP32. VESC ID 1
 ; starts 50 ms later than ID 0, so the two VESCs do not send their 101/102
 ; pairs together.
+; The receiver uses both VESC input voltages/currents for battery aggregation.
+; ERPM and SOC from VESC ID 1 are transmitted in the common layout but ignored
+; by the motor ESP32.
 
 (def vesc-id 0)
 (def precision-command 101)
