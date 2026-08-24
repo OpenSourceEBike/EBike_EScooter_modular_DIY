@@ -309,6 +309,14 @@ two configured persistent paths are:
 - `battery_resistance_summary.csv`;
 - `battery_resistance_history.csv`.
 
+Example CSV snapshots are kept alongside this document:
+
+- [battery_resistance_summary.csv](battery_resistance_summary.csv)
+- [battery_resistance_history.csv](battery_resistance_history.csv)
+
+These are documentation samples, not the runtime files. The firmware creates
+the configured paths on the Display filesystem.
+
 Automatic power-board timeout and abrupt power loss do not flush Display RAM;
 losing the unpersisted result in those cases is an accepted design decision.
 
