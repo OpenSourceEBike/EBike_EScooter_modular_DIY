@@ -111,6 +111,7 @@ POWER_SWITCH_BOARD_COMM_TIMEOUT_MS = 1500
 POWER_SWITCH_HEARTBEAT_MS = 250
 POWER_CONFIG_RETRY_MS = 2000
 RTC_SYNC_DELAY_MS = 2000
+RTC_SYNC_RESULT_DISPLAY_MS = 5000
 # A BMS reconnect can include an 8 s scan plus its first BASIC response.
 # Start this timer only after the Wi-Fi/BLE radio handover has completed.
 CHARGING_RECONFIRM_TIMEOUT_MS = 20000
@@ -760,14 +761,16 @@ async def rtc_sync_task(vars, delay_ms=2000):
   bms_should_resume = False
   await asyncio.sleep_ms(delay_ms)
   vars.rtc_sync_pending = False
-  # The sync belongs to the charging session that scheduled it.  If the
-  # rider left before the delay expired, leave the session available to retry.
+  # If the rider leaves before the delay expires, no sync has started yet, so
+  # leave the one-shot available for a later charging entry in this boot.
   if not screen_manager.current_is(ScreenID.CHARGING):
     vars.rtc_sync_result = 'idle'
+    vars.rtc_sync_result_started_ms = None
     vars.rtc_sync_done_for_charging_session = False
     return
   vars.rtc_sync_started = True
   vars.rtc_sync_result = 'pending'
+  vars.rtc_sync_result_started_ms = None
   vars.charging_reconfirm_failed = False
   # Keep the charging screen latched until fresh BMS data confirms whether
   # charging continued during the Wi-Fi/BLE radio handover. A configuration
@@ -838,8 +841,15 @@ async def rtc_sync_task(vars, delay_ms=2000):
       if vars.charging_reconfirm_pending:
         vars.charging_reconfirm_started_ms = time.ticks_ms()
       vars.comms_paused = False
-    # Allow a fresh sync when the next charging session starts.  The charging
-    # screen remains latched separately until fresh BMS data is evaluated.
+      if vars.rtc_sync_result in (
+        'success', 'ssid_missing', 'password_wrong', 'general_fail'
+      ):
+        # Start the five-second result window only when the radio handoff has
+        # finished and the message can actually be rendered.
+        vars.rtc_sync_result_started_ms = time.ticks_ms()
+    # Once the sync has started, its one-shot latch remains set for the rest of
+    # this boot. The charging screen is latched separately until fresh BMS data
+    # is evaluated.
     vars.rtc_sync_started = False
 
 
@@ -885,6 +895,14 @@ async def main_task(vars):
 
   while True:
     now = time.ticks_ms()
+
+    if (
+      vars.rtc_sync_result_started_ms is not None and
+      time.ticks_diff(now, vars.rtc_sync_result_started_ms) >=
+          RTC_SYNC_RESULT_DISPLAY_MS
+    ):
+      vars.rtc_sync_result = 'idle'
+      vars.rtc_sync_result_started_ms = None
 
     if (
       vars.charging_reconfirm_pending and
@@ -961,9 +979,8 @@ async def main_task(vars):
                 vars.charging_reconfirm_pending = False
                 vars.charging_reconfirm_started_ms = 0
                 vars.charging_reconfirm_failed = False
-                # A sustained fresh BMS reading proves this session ended;
-                # permit a sync for the next real charging session.
-                vars.rtc_sync_done_for_charging_session = False
+                # This ends the detected charging state, but the Wi-Fi/NTP
+                # one-shot remains consumed until the next display boot.
             else:
               vars.battery_is_charging = False
       elif bms is None or not bms.is_available():
@@ -988,6 +1005,7 @@ async def main_task(vars):
         'ssid_missing', 'password_wrong', 'general_fail'
       ):
         vars.rtc_sync_result = 'idle'
+        vars.rtc_sync_result_started_ms = None
 
     if (
       cfg.enable_rtc_time and
@@ -999,6 +1017,7 @@ async def main_task(vars):
       vars.rtc_sync_pending = True
       vars.rtc_sync_done_for_charging_session = True
       vars.rtc_sync_result = 'pending'
+      vars.rtc_sync_result_started_ms = None
       asyncio.create_task(rtc_sync_task(vars, delay_ms=RTC_SYNC_DELAY_MS))
     was_in_charging_screen = in_charging_screen
     
@@ -1019,7 +1038,6 @@ async def main_task(vars):
     # Buttons
     for i in range(len(vars.buttons)):
       vars.buttons[i].tick()
-
     in_idle_screen = (
       screen_manager.current_is(ScreenID.BOOT) or
       screen_manager.current_is(ScreenID.CHARGING) or

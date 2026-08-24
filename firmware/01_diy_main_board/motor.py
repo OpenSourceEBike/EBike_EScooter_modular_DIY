@@ -172,11 +172,17 @@ class Motor(object):
         # Payload: int32 ERPM, int16 motor current x10, sequence, flags.
         elif message_id == 102 and dlc >= 8:
           now = time.ticks_ms()
-          (motor_data.lisp_speed_erpm,
-           motor_data.lisp_motor_current_x10,
-           motor_data.lisp_motion_sequence,
-           motor_data.lisp_motion_flags) = struct.unpack_from(
-             ">lhBB", data, 0)
+          if motor_data is motor_1.data:
+            (motor_data.lisp_speed_erpm,
+             motor_data.lisp_motor_current_x10,
+             motor_data.lisp_motion_sequence,
+             motor_data.lisp_motion_flags) = struct.unpack_from(
+               ">lhBB", data, 0)
+          else:
+            (motor_data.lisp_motor_current_x10,
+             motor_data.lisp_motion_sequence,
+             motor_data.lisp_motion_flags) = struct.unpack_from(
+               ">hBB", data, 4)
           self._record_sequence(
             motor_data, motor_data.lisp_motion_sequence,
             "lisp_motion_sequence_previous", "lisp_motion_loss_count")
@@ -187,12 +193,20 @@ class Motor(object):
         # Payload: VESC temp x10, motor temp x10, SOC x1000, sequence, flags.
         elif message_id == 103 and dlc >= 8:
           now = time.ticks_ms()
-          (motor_data.lisp_vesc_temperature_x10,
-           motor_data.lisp_motor_temperature_x10,
-           motor_data.lisp_battery_soc_x1000,
-           motor_data.lisp_thermal_sequence,
-           motor_data.lisp_thermal_flags) = struct.unpack_from(
-             ">HHHBB", data, 0)
+          if motor_data is motor_1.data:
+            (motor_data.lisp_vesc_temperature_x10,
+             motor_data.lisp_motor_temperature_x10,
+             motor_data.lisp_battery_soc_x1000,
+             motor_data.lisp_thermal_sequence,
+             motor_data.lisp_thermal_flags) = struct.unpack_from(
+               ">HHHBB", data, 0)
+          else:
+            (motor_data.lisp_vesc_temperature_x10,
+             motor_data.lisp_motor_temperature_x10) = struct.unpack_from(
+               ">HH", data, 0)
+            (motor_data.lisp_thermal_sequence,
+             motor_data.lisp_thermal_flags) = struct.unpack_from(
+               ">BB", data, 6)
           self._record_sequence(
             motor_data, motor_data.lisp_thermal_sequence,
             "lisp_thermal_sequence_previous", "lisp_thermal_loss_count")

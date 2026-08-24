@@ -32,7 +32,8 @@ In the active scooter firmware:
 - the display receives motor status and tracks each remote link separately
 - the display owns the optional BLE BMS connection and `battery_is_charging`
 - the optional BMS is not used for battery-resistance measurement
-- the display schedules the one-shot charging NTP sync after boot
+- the display schedules one charging NTP sync per boot; after it starts, later
+  charging-state changes cannot schedule another one
 
 ## Important notes
 

@@ -40,8 +40,9 @@ In the active scooter firmware:
 - The motor board should be the authority for remote-board comms health.
 - It should keep last known communication state separately from pending requests.
 - It should forward a compact health summary to the display instead of exposing raw link detail unless needed.
-- After each disabled-to-enabled transition, throttle release to zero is
-  required before a motor target can be applied.
+- After each disabled-to-enabled transition, throttle release inside the zero
+  deadband for 100 continuous milliseconds is required before a motor target
+  can be applied.
 - Battery-resistance configuration must not control the CAN freshness timeouts
   used by speed, current limits, temperatures, voltage, or SOC.
 - The VESC LISP helper sends project-private command `101` precision
@@ -52,8 +53,12 @@ In the active scooter firmware:
   frame uses 2000 ms and SOC remains valid for 30000 ms.
   Command `101` is an eight-byte big-endian payload: unsigned 32-bit mV
   followed by signed 32-bit mA.
-- The estimator accepts only fresh, atomic command-`101` mV/mA samples from
-  every VESC, with a bounded rear/front receipt-time skew.
+- The same LISP program and eight-byte payload layouts run on both VESCs; only
+  `vesc-id` changes. Rear ERPM and SOC are authoritative. The receiver skips
+  the corresponding front fields without storing them. The estimator combines
+  command-`101` voltage/current pairs from every VESC, using
+  absolute-current-weighted voltage and summed signed current, and requires
+  fresh samples with bounded rear/front receipt-time skew.
 - The 20 ms actuation loop sends one target command per VESC and preserves the
   required 3 ms post-send CAN delay. Motor/battery limit refresh runs at 100 ms,
   and CAN receive drains at most 32 already-queued frames without waiting on an

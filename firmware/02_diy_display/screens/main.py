@@ -1,6 +1,7 @@
 # screens/main.py
 import time
 import common.config_runtime as cfg
+from common.battery_resistance import format_battery_resistance_alert
 from .base import BaseScreen
 from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
@@ -162,7 +163,7 @@ class MainScreen(BaseScreen):
       vars.battery_resistance_alert_pending = None
       resistance_mohm, duration_ms = resistance_alert
       self._enqueue_warning(
-        "R {} mOhm".format(int(resistance_mohm)),
+        format_battery_resistance_alert(resistance_mohm),
         duration_ms=duration_ms,
       )
     # Motor power

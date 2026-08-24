@@ -55,17 +55,23 @@ Battery currents are discharge-positive and are summed:
 Itotal = Irear + Ifront
 ```
 
-The equivalent voltage is current-weighted, so a controller carrying little or
-no current does not receive equal weight:
+The equivalent voltage is weighted by the absolute branch currents, so a
+controller carrying little or no current does not receive equal weight and
+opposite current signs cannot move the result outside the measured branch
+voltages:
 
 ```text
-Vequiv = (Vrear * Irear + Vfront * Ifront) / Itotal
+W = abs(Irear) + abs(Ifront)
+Vequiv = (Vrear * abs(Irear) + Vfront * abs(Ifront)) / W
 ```
 
+If all branch currents are zero, `Vequiv` is the arithmetic mean of their
+voltages. `Itotal` remains the signed sum used for battery power and resistance.
+
 For a single-motor configuration, `Itotal` and `Vequiv` are simply that VESC's
-values. A negative current from either configured VESC, non-positive voltage on
-any configured branch, stale pair, or excessive rear/front timestamp skew makes
-the aggregate sample invalid.
+values. Signed current is preserved so regeneration can be used while acquiring
+the reference. Non-positive voltage on any configured branch, a stale pair, or
+excessive rear/front timestamp skew makes the aggregate sample invalid.
 
 ## Measurement conditions
 
@@ -73,74 +79,61 @@ All timing uses monotonic `ticks_ms()` arithmetic on the motor board.
 
 ### State machine
 
-| ID | State | Entry | Exit |
-| --- | --- | --- | --- |
-| 0 | `boot` | Motor-board boot. | Accumulate 60 distinct seconds with valid power at least 200 W. This state is never revisited during that boot. |
-| 1 | `get reference` | `boot` completes, or `get load` fails. | Ten continuous seconds below 200 W with three valid reference samples. |
-| 2 | `get load` | A valid reference is ready. | Ten continuous seconds at or above 750 W with three valid resistance samples; publish their median. |
-| 3 | `complete` | A valid median is published. | Only the next motor-board boot starts another measurement. |
+| ID | State | Conditions | Required time/samples | Success | Failure or wait |
+| --- | --- | --- | --- | --- | --- |
+| 0 | `get reference` | Power between -100 W and +100 W inclusive. | 10 continuous seconds; retain latest five valid samples. | Freeze the trimmed reference and go to `ramp to load`. | Any value outside the window discards the incomplete reference and restarts. |
+| 1 | `ramp to load` | Power exceeded +100 W. | Reach 750 W within 3 s. | At `>=750 W`, go to `get load`. | Falling back or exceeding 3 s fails the attempt. |
+| 2 | `get load` | Power at least 750 W. | 15 continuous seconds. | Go to `collect samples`. | Power below 750 W, a missed second, or invalid input fails the attempt. |
+| 3 | `collect samples` | Power at least 750 W. | Five valid samples within one second. | Trim min/max, average the middle three, then complete. | Timeout or invalid/low power fails the attempt. |
+| 4 | `complete` | A valid result was published. | One result per boot. | Remain complete. | Next boot only. |
+| 5 | `failed` | 25 attempts failed. | Terminal for this boot. | None. | Next boot only. |
 
-In `get reference` and `get load`, the first valid observation in each elapsed
-second is accepted and later observations in that second are ignored. A missing
-valid observation for a required second, regen, negative current, invalid data,
-or power outside the state threshold resets the attempt to `get reference`.
+There are at most 25 attempts in total, including the first one. An attempt
+begins only when `get load` receives its first sample at or above 750 W. Filling
+the rolling reference and the 3-second ramp do not increment the
+attempt counter.
 
-### 1. `boot`
+### 1. `get reference`
 
-Before attempting a measurement, accumulate 60 distinct elapsed seconds since
-motor-board boot in which at least one valid aggregate observation has
-`Vequiv * Itotal >= 200 W`:
-
-```text
-boot_qualifying_power_min_w = 200
-boot_qualifying_seconds = 60
-```
-
-Several frames in the same elapsed second count as one second. The qualifying
-seconds need not be consecutive: a later second with one valid `>= 200 W`
-observation adds one to the total. Once the total reaches 60, failed attempts
-may be retried. Only the first successful result completes the feature for that
-motor-board boot.
-
-### 2. `get reference`
-
-After `boot`, require 10 continuous seconds below 200 W:
+Reference collection starts immediately after boot:
 
 ```text
-reference_power_max_w = 200
+reference_power_min_w = -100
+reference_power_max_w = 100
 reference_qualify_ms = 10000
 ```
 
-Each elapsed second needs at least one valid observation; later observations in
-the same second are ignored. An observation at 200 W or more, regen, malformed
-data, or a second without a valid observation restarts this phase. During
-qualification, keep the latest three fresh aggregate pairs. Zero total current is valid in
-this phase; in dual-motor mode the equivalent voltage is then the mean of the
-two VESC voltages. At the end of the 10 continuous seconds, use the
-independent medians as:
+While aggregate battery power is between -100 W and +100 W inclusive, keep a rolling buffer of
+the latest five valid aggregate pairs. Consecutive valid telemetry observations
+may all enter the buffer. Negative and zero power are valid. After 10 continuous
+seconds, freeze the buffer. Sort voltage and current independently,
+discard each minimum and maximum, and average each set of three remaining
+values:
 
 ```text
-Vref = median(Vref_samples)
-Iref = median(Iref_samples)
+Vref = mean(sorted(Vref_samples)[1:4])
+Iref = mean(sorted(Iref_samples)[1:4])
 ```
 
-Once qualification and its rolling samples are complete, the estimator waits
-for the high-load phase. The qualified reference intentionally has no maximum
-age: intermediate observations below the load threshold preserve it until a
-load attempt starts or another reset condition occurs.
+If power leaves the window before 10 seconds, the incomplete reference is
+discarded and timing restarts. A frozen reference has
+no maximum age while waiting for load.
 
-### 3. `get load`
+### 2. `get load`
 
 Starting at the first aggregate sample with `Vequiv * Itotal >= 750 W`, require
-ten seconds of valid observed load. During this period:
+20 continuous seconds of observed load. The only power condition in this state
+is:
 
 - every observed aggregate power is at least 750 W;
-- every elapsed second has at least one valid aggregate observation;
-- no configured VESC reports negative battery current;
-- no regen or invalid/stale precision pair is observed.
 
-A failure returns to `get reference`. The estimator can collect a new reference
-and try again in the same boot; it never repeats `boot` qualification.
+Every elapsed second still needs an observation from which aggregate power can
+be measured. Regeneration flags and individual signed currents do not impose an
+additional condition when aggregate power is at least 750 W.
+
+A failure returns to `get reference` and clears the previous reference. After
+the 25th failed load attempt, the estimator enters terminal state `failed` and
+does not try again until the motor board restarts.
 
 During temporary field diagnosis, the Display `MAIN` screen is replaced by a
 five-line resistance status view. This makes the live estimator phase and its
@@ -148,6 +141,12 @@ rolling sample progress visible while riding; it does not change motor control
 or command a measurement load. The normal resistance-history screen remains
 available from the manual charging-screen flow. Normal riding indicators and
 warnings are intentionally omitted from this temporary diagnostic view.
+
+The five lines show estimator state, phase progress, signed live battery power,
+sample/result progress, and `retries`. Live power uses the Display's fresh motor
+status voltage/current pair and is formatted with an explicit sign; it shows
+`power: na` while motor-board status is not fresh. The former CAN loss/status
+line is deliberately omitted to keep `retries` visible.
 
 Continuity means that every elapsed second has at least one valid observation.
 One valid observation in that second is sufficient; the firmware does not
@@ -163,36 +162,36 @@ snapshot as:
 
 - pending: one VESC pair is missing, stale, or temporarily over-skew; preserve
   the attempt until the active phase misses a required elapsed second;
-- invalid: malformed values, negative current, impossible timestamps, regen,
-  or a coherent invalid aggregate; cancel only the current attempt;
+- invalid: malformed values, impossible timestamps, non-positive voltage, or a
+  coherent invalid aggregate; cancel only the current attempt. Signed current
+  and the regen flag do not independently reject an otherwise measurable pair;
 - valid: all configured VESC pairs and rear/front timestamps are coherent;
   advance the monitor.
 
 The motor entry point makes one feature call per 50 ms refresh cycle. The
 source frame is VESC-local and no synchronised LISP clock is assumed.
 
-### 4. Last three load samples
+### 3. Last five load samples
 
-During the ten-second qualification window, accept valid aggregate samples
+During the 20-second qualification window, accept valid aggregate samples
 subject to:
 
-- at most one accepted resistance sample per elapsed second;
 - the same power and freshness rules;
-- keep only the last three accepted samples in the qualification window.
+- no additional minimum interval between samples;
+- keep only the last five accepted samples in the qualification window.
 
 Examples:
 
-- with fast telemetry, the rolling window contains the samples closest to the
-  end of the 10-second qualification;
-- with one useful observation per second, the final window is normally at 8 s,
-  9 s, and 10 s after load start;
-- if fewer than three valid samples are accepted by qualification end, reset
+- the rolling window follows the actual source-update cadence; with two 10 Hz
+  VESC streams staggered in time, five consecutive aggregate observations can
+  cover only approximately the final quarter-second of qualification;
+- if fewer than five valid samples are accepted by qualification end, reset
   the attempt and collect a new reference.
 
-An observation consumes the elapsed-second slot only after it produces a
-plausible resistance value. A first observation with no positive voltage drop,
-no positive current step, or an out-of-range result does not prevent a later
-valid observation in that same second from being used.
+An observation enters the rolling buffer only after it produces a plausible
+resistance value. An observation with no positive voltage drop, no positive
+current step, or an out-of-range result does not prevent the immediately next
+valid observation from being used.
 
 For every accepted sample:
 
@@ -207,17 +206,18 @@ positive. Each result must be in the inclusive configured range:
 1 <= R_mOhm <= 2500
 ```
 
-The final result is the median of the last three samples. Median is used
-instead of mean so one disturbed voltage sample has less influence.
+Sort the last five resistance samples, discard the minimum and maximum, and use
+the integer mean of the remaining three as the final result. This trimmed mean
+prevents either extreme from dominating the one-result-per-boot measurement.
 
 ## Configuration contract
 
 `common/config_battery_resistance.py` contains the shared settings. Ownership
 and validation are split:
 
-- the motor board validates boot qualification, power thresholds,
-  freshness/skew, qualification duration, sample spacing/collection timeout,
-  sample count, and resistance range;
+- the motor board validates power thresholds, the fixed total attempt limit,
+  freshness/skew, fixed qualification duration, sample count,
+  and resistance range;
 - the Display validates only accepted result range, alert duration, filenames,
   and history size.
 
@@ -228,15 +228,15 @@ must not disable motor-side measurement or abort Display boot.
 Implemented sampling settings:
 
 ```text
-boot_qualifying_power_min_w = 200
-boot_qualifying_seconds = 60
-reference_power_max_w = 200
-reference_qualify_ms = 15000
+reference_power_min_w = -100
+reference_power_max_w = 100
+reference_qualify_ms = 10000
 load_power_min_w = 750
-load_qualify_ms = 10000
-sample_count = 3
-sample_min_interval_ms = 500
-sample_collection_timeout_ms = 5000
+load_transition_timeout_ms = 3000
+load_qualify_ms = 15000
+sample_collection_timeout_ms = 1000
+max_attempts = 25
+sample_count = 5
 vesc_precision_sample_max_age_ms = 1500
 dual_vesc_precision_max_skew_ms = 250
 min_mohm = 1
@@ -267,13 +267,12 @@ Compatibility rules:
   rows or alerts.
 
 For temporary field diagnosis, the status frame appends six more values after
-the result: numeric estimator state, boot-qualification seconds, reset/error
-counter, accepted load-sample count, accepted reference-sample count, and whole
-seconds elapsed in the active `get reference` or active `get load` window. The
-states are `0` boot, `1` get reference, `2` get load, and `3` complete. During
-state `1`, the reference sample count is the rolling set of last accepted
-reference samples. During state `2`, the load sample count is the rolling set
-of last accepted load samples. During
+the result: numeric estimator state, a legacy reserved zero, failed-load count,
+accepted load-sample count, accepted reference-sample count, and whole seconds
+elapsed in an active phase. The states are `0` get reference, `1` ramp, `2` get
+load, `3` collect, `4` complete, and `5` failed. During state `0`, the reference sample
+count is the rolling set of last accepted reference samples. During states `2`
+and `3`, the load sample count is the rolling set of accepted load samples. During
 temporary field diagnosis, the Display exposes these values on `MAIN` so they
 remain visible while riding.
 
@@ -343,13 +342,16 @@ The dedicated screen shows:
 On first receipt of a valid motor result, enqueue the normal-priority alert:
 
 ```text
-R <value> mOhm
+R <value> moh
 ```
 
-The default alert duration is five seconds. Repeated motor status frames must
-not enqueue the alert again. The latch is per Display boot: if only the Display
-restarts while the motor remains powered and keeps repeating its result, the
-new Display session accepts it once and shows one new alert.
+The default alert duration is five seconds and it is shown only by the normal
+dashboard. The temporary resistance-debug dashboard already shows the result
+in its state-specific lines, so it consumes the event without displaying or
+delaying an alert. Repeated motor status frames must not enqueue the alert
+again. The latch is per Display boot: if only the Display restarts while the
+motor remains powered and keeps repeating its result, the new Display session
+accepts it once and shows one new alert when the normal dashboard is active.
 
 The screen is part of the existing manual stopped/brakes-on flow: a click moves
 from `CHARGING` to `BATTERY_RESISTANCE`, and the next click returns to `BOOT`.
@@ -362,7 +364,7 @@ For embedded robustness and host testability, new failure handling should stay
 inside feature-specific modules. The target boundary is:
 
 - `common/battery_resistance.py`: input freshness/skew classification,
-  variable-interval tracking, attempt state, aggregation, and median;
+  variable-interval tracking, attempt state, aggregation, and trimmed mean;
 - `common/config_battery_resistance.py`: all feature thresholds and validation;
 - a feature-local Display persistence module: summary/CSV parsing, bounded
   history writing, and shutdown save state;

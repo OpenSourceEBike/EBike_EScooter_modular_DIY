@@ -38,7 +38,7 @@ LIGHTS_TX_COMM_TIMEOUT_MS = 1500
 LIGHTS_HEARTBEAT_MS = 250
 LIGHTS_RETRY_MS = 50
 LIGHTS_RETRY_MAX_MS = 1000
-THROTTLE_REARM_ZERO_HOLD_MS = 1000
+THROTTLE_REARM_ZERO_HOLD_MS = 100
 system_boot_ms = time.ticks_ms()
 battery_resistance_config_error = validate_battery_resistance_measurement_config(
   battery_resistance_config)
@@ -276,26 +276,31 @@ async def task_motors_refresh_data():
 
     now = time.ticks_ms()
     for data in motor_data:
+      is_rear = data is rear_motor_data
       # Each custom LISP family has its own cadence and expiry.
       if _can_timestamp_is_fresh(
           now, data.lisp_motion_last_update_ms, CAN_LISP_FAST_TIMEOUT_MS):
-        data.speed_erpm = data.lisp_speed_erpm
+        if is_rear:
+          data.speed_erpm = data.lisp_speed_erpm
         data.motor_current_x10 = data.lisp_motor_current_x10
       else:
-        data.speed_erpm = 0
-        data.wheel_speed = 0
+        if is_rear:
+          data.speed_erpm = 0
+          data.wheel_speed = 0
         data.motor_current_x10 = 0
 
       if _can_timestamp_is_fresh(
           now, data.battery_precision_last_update_ms,
           CAN_LISP_FAST_TIMEOUT_MS):
-        data.battery_voltage_x10 = (
-          data.battery_voltage_measurement_x1000 // 100)
+        if is_rear:
+          data.battery_voltage_x10 = (
+            data.battery_voltage_measurement_x1000 // 100)
         data.battery_current_x10 = _milliamps_to_current_x10(
           data.battery_current_measurement_x1000)
       else:
         data.battery_current_x10 = 0
-        data.battery_voltage_x10 = 0
+        if is_rear:
+          data.battery_voltage_x10 = 0
 
       if _can_timestamp_is_fresh(
           now, data.lisp_thermal_last_update_ms, CAN_LISP_THERMAL_TIMEOUT_MS):
@@ -305,14 +310,15 @@ async def task_motors_refresh_data():
         data.vesc_temperature_x10 = 0
         data.motor_temperature_x10 = 0
 
-      if _can_timestamp_is_fresh(
-          now, data.lisp_thermal_last_update_ms, CAN_SOC_TIMEOUT_MS):
-        data.battery_soc_x1000 = data.lisp_battery_soc_x1000
-      else:
-        data.battery_soc_x1000 = 0
+      if is_rear:
+        if _can_timestamp_is_fresh(
+            now, data.lisp_thermal_last_update_ms, CAN_SOC_TIMEOUT_MS):
+          data.battery_soc_x1000 = data.lisp_battery_soc_x1000
+        else:
+          data.battery_soc_x1000 = 0
 
     if battery_resistance_estimator is not None and not \
-        battery_resistance_estimator.completed:
+        battery_resistance_estimator.finished:
       resistance_mohm = battery_resistance_estimator.update(
         now, motor_data, vars.regen_braking_is_active)
       if resistance_mohm is not None:
@@ -578,7 +584,7 @@ async def task_control_motor():
           throttle_rearm_required = False
           throttle_rearm_zero_since_ms = None
       else:
-        # The one-second zero-throttle window must be continuous.
+        # The 100 ms zero-throttle window must be continuous.
         throttle_rearm_zero_since_ms = None
 
     if throttle_1_disabled and (throttle_2 is None or throttle_2_disabled):

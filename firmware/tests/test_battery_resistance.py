@@ -1,7 +1,8 @@
+import os
+import importlib.util
+import tempfile
 import time
 import unittest
-import os
-import tempfile
 from types import SimpleNamespace
 
 
@@ -12,6 +13,7 @@ from common.battery_resistance import (
   BatteryResistanceEstimator,
   BatteryResistanceMonitor,
   aggregate_battery_measurements,
+  format_battery_resistance_alert,
 )
 from common.config_battery_resistance import (
   BatteryResistanceConfig,
@@ -27,244 +29,229 @@ from common.battery_resistance_persistence import (
 class BatteryResistanceMonitorTests(unittest.TestCase):
   def make_config(self):
     config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = 0
-    config.reference_qualify_ms = 0
-    config.load_qualify_ms = 5000
-    config.sample_min_interval_ms = 500
+    config.reference_qualify_ms = 1000
+    config.load_qualify_ms = 4000
     return config
 
-  def start_attempt(self, monitor, start_ms=0):
-    monitor.update(start_ms, 5400, 300, 0)
-    monitor.update(start_ms + 500, 5400, 300, 0)
-    monitor.update(start_ms + 1000, 5400, 300, 0)
-    monitor.update(start_ms + 1100, 5300, 1600, 0)
+  def collect_reference(self, monitor, start_ms=0, voltage_x100=5400,
+                        current_x100=0):
+    for index in range(11):
+      monitor.update(
+        start_ms + (index * 100), voltage_x100, current_x100, 0)
+    return start_ms + 1000
 
-  def feed(self, monitor, times_ms, voltage_x100=5300, current_x100=1600):
-    result = None
-    for now in times_ms:
-      value = monitor.update(now, voltage_x100, current_x100, 0)
-      if value is not None:
-        result = value
-    return result
+  def start_load(self, monitor, start_ms=0):
+    trigger_ms = self.collect_reference(monitor, start_ms)
+    monitor.update(trigger_ms + 100, 5400, 500, 0)
+    load_start = trigger_ms + 200
+    monitor.update(load_start, 5300, 1600, 0)
+    return load_start
 
-  def test_only_one_load_sample_is_accepted_per_second(self):
+  def test_starts_in_reference_and_keeps_latest_five_samples(self):
     monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    result = self.feed(monitor, range(1600, 7601, 500))
-    self.assertEqual(result, 76)
+    for index in range(11):
+      monitor.update(index * 100, 5300 + (index * 10), 0, 0)
+    self.assertEqual(monitor.phase, 1)
+    self.assertEqual(monitor.reference_sample_count, 5)
+
+    monitor.update(1100, 5400, 500, 0)
+    self.assertEqual(monitor.phase, 1)
+    self.assertEqual(monitor._reference[1], 5380)
+
+  def test_exactly_100_w_freezes_reference(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    self.collect_reference(monitor)
+    self.assertEqual(monitor.phase, 1)
+
+  def test_valid_reference_waits_at_zero_power_without_retrying(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    reference_end = self.collect_reference(monitor)
+    for timestamp in (reference_end + 100, reference_end + 1000,
+                      reference_end + 2000):
+      monitor.update(timestamp, 5400, 0, 0)
+    self.assertEqual(monitor.phase, 1)
+    self.assertEqual(monitor.reset_count, 0)
+    self.assertEqual(monitor._attempt_count, 0)
+
+  def test_reference_phase_elapsed_seconds_tracks_neutral_observations(self):
+    config = self.make_config()
+    config.reference_qualify_ms = 2000
+    monitor = BatteryResistanceMonitor(config)
+    monitor.update(0, 5400, 0, 0)
+    monitor.update(500, 5400, 0, 0)
+    self.assertEqual(monitor.phase_elapsed_seconds, 0)
+    monitor.update(1000, 5400, 0, 0)
+    self.assertEqual(monitor.phase_elapsed_seconds, 1)
+
+  def test_reference_does_not_freeze_until_five_samples_exist(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    for timestamp in (0, 100, 200, 300, 400):
+      monitor.update(timestamp, 5400, 0, 0)
+    monitor.update(500, 5400, 500, 0)
+    self.assertEqual(monitor.phase, 0)
+    self.assertEqual(monitor.reference_sample_count, 0)
+    self.assertEqual(monitor.reset_count, 0)
+
+  def test_waiting_between_100_and_750_w_does_not_start_attempt(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    trigger_ms = self.collect_reference(monitor)
+    monitor.update(trigger_ms + 100, 5400, 500, 0)
+    monitor.update(trigger_ms + 500, 5300, 500, 0)
+    self.assertEqual(monitor.phase, 1)
+    self.assertEqual(monitor.phase_elapsed_seconds, 0)
+    self.assertEqual(monitor.reset_count, 0)
+
+  def test_load_completes_after_continuous_window(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    start_ms = self.start_load(monitor)
+    result = None
+    for offset in (1000, 2000, 3000, 4000, 4100, 4200, 4300, 4400):
+      result = monitor.update(start_ms + offset, 5300, 1600, 0)
+    self.assertEqual(result, 62)
+    self.assertTrue(monitor.completed)
+    self.assertEqual(monitor.phase, 4)
+
+  def test_load_uses_trimmed_mean_of_five_samples(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    start_ms = self.start_load(monitor)
+    for offset in (1000, 2000, 3000, 4000):
+      monitor.update(start_ms + offset, 5300, 1600, 0)
+    result = None
+    for offset, voltage in zip((4100, 4200, 4300, 4400),
+                               (5336, 5304, 5272, 5240)):
+      result = monitor.update(start_ms + offset, voltage, 1600, 0)
+    self.assertEqual(result, 67)
+
+  def test_reference_uses_trimmed_mean_of_five_samples(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    for timestamp, voltage in zip(
+        range(0, 1100, 100),
+        (5300, 5400, 5500, 5600, 5700, 5300, 5400, 5500, 5600, 5700, 5500)):
+      monitor.update(timestamp, voltage, 0, 0)
+    self.assertEqual(monitor._reference[1:], (5533, 0))
+
+  def test_power_drop_consumes_one_attempt_and_restarts_reference(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    start_ms = self.start_load(monitor)
+    monitor.update(start_ms + 1000, 5300, 1400, 0)
+    self.assertEqual(monitor.phase, 0)
+    self.assertEqual(monitor.reset_count, 1)
+    self.assertEqual(monitor.reference_sample_count, 0)
+
+  def test_retry_can_complete_after_a_failed_attempt(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    start_ms = self.start_load(monitor)
+    monitor.update(start_ms + 1000, 5300, 1400, 0)
+
+    start_ms = self.start_load(monitor, start_ms + 2000)
+    result = None
+    for offset in (1000, 2000, 3000, 4000, 4100, 4200, 4300, 4400):
+      result = monitor.update(start_ms + offset, 5300, 1600, 0)
+    self.assertEqual(result, 62)
+    self.assertEqual(monitor.reset_count, 1)
     self.assertTrue(monitor.completed)
 
-  def test_one_observation_per_second_is_enough(self):
+  def test_consecutive_valid_resistance_samples_are_accepted(self):
     monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    result = self.feed(monitor, range(2100, 9101, 1000))
-    self.assertEqual(result, 76)
-
-  def test_production_phases_keep_only_first_sample_each_second(self):
-    config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = 0
-    config.reference_qualify_ms = 2000
-    config.load_qualify_ms = 2000
-    monitor = BatteryResistanceMonitor(config)
-
-    monitor.update(0, 5400, 300, 0)
-    monitor.update(500, 5390, 301, 0)
-    self.assertEqual(monitor.reference_sample_count, 1)
-    monitor.update(1000, 5400, 300, 0)
-    monitor.update(1500, 5390, 301, 0)
-    self.assertEqual(monitor.reference_sample_count, 2)
-    self.assertEqual(monitor.phase_elapsed_seconds, 1)
-    monitor.update(2000, 5400, 300, 0)
-    self.assertEqual(monitor.phase, 2)
-
-    monitor.update(3000, 5300, 1600, 0)
-    monitor.update(3500, 5290, 1601, 0)
-    self.assertEqual(monitor.sample_count, 1)
-    monitor.update(4000, 5300, 1600, 0)
-    monitor.update(5000, 5300, 1600, 0)
-    self.assertEqual(monitor.update(5500, 5290, 1601, 0), None)
-    self.assertEqual(monitor.result_mohm, 76)
-
-  def test_boot_qualification_counts_one_valid_power_sample_per_second(self):
-    config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = 2
-    config.reference_qualify_ms = 0
-    config.load_qualify_ms = 5000
-    config.sample_min_interval_ms = 500
-    monitor = BatteryResistanceMonitor(config)
-    # Two 4 A, 54 V samples in the same elapsed second count only once.
-    monitor.update(100, 5400, 400, 0)
-    monitor.update(900, 5400, 400, 0)
-    self.assertFalse(monitor.completed)
-
-    # A qualifying sample in the next second enables reference qualification.
-    monitor.update(1100, 5400, 400, 0)
-    monitor.update(1200, 5400, 300, 0)
-    monitor.update(1700, 5400, 300, 0)
-    monitor.update(2200, 5400, 300, 0)
-    monitor.update(2300, 5300, 1600, 0)
-    result = None
-    for now in range(2800, 8801, 500):
-      value = monitor.update(now, 5300, 1600, 0)
-      if value is not None:
-        result = value
-    self.assertEqual(result, 76)
-
-  def test_reference_qualification_requires_continuous_low_power(self):
-    config = self.make_config()
-    config.reference_qualify_ms = 2000
-    monitor = BatteryResistanceMonitor(config)
-    monitor.update(100, 5400, 300, 0)
-    monitor.update(900, 5300, 1600, 0)
-    monitor.update(1100, 5400, 300, 0)
-    monitor.update(2100, 5400, 300, 0)
-    monitor.update(3100, 5400, 300, 0)
-    monitor.update(3600, 5400, 300, 0)
-    monitor.update(4100, 5400, 300, 0)
-    monitor.update(4200, 5300, 1600, 0)
-    self.assertEqual(
-      self.feed(monitor, range(4700, 10701, 500)),
-      76,
-    )
-
-  def test_reference_qualification_restarts_when_one_second_is_missing(self):
-    config = self.make_config()
-    config.reference_qualify_ms = 2000
-    monitor = BatteryResistanceMonitor(config)
-    monitor.update(0, 5400, 300, 0)
-    monitor.update(2000, 5400, 300, 0)
-
-    monitor.update(2100, 5400, 300, 0)
-    monitor.update(3100, 5400, 300, 0)
-    monitor.update(4100, 5400, 300, 0)
-    monitor.update(4600, 5400, 300, 0)
-    monitor.update(5100, 5400, 300, 0)
-    monitor.update(5200, 5300, 1600, 0)
-    self.assertEqual(
-      self.feed(monitor, range(5700, 11701, 500)),
-      76,
-    )
-
-  def test_one_implausible_calculation_is_skipped(self):
-    monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    result = None
-    for now in range(1600, 8101, 500):
-      voltage = 5500 if now == 6100 else 5300
-      value = monitor.update(now, voltage, 1600, 0)
-      if value is not None:
-        result = value
-    self.assertEqual(result, 76)
-
-  def test_later_valid_load_sample_in_same_second_is_accepted(self):
-    monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    # At elapsed second 1, the first observation has no voltage drop.  The
-    # following valid observation must still be eligible for that second.
-    monitor.update(2100, 5400, 1600, 0)
-    monitor.update(2200, 5300, 1600, 0)
+    start_ms = self.start_load(monitor)
+    for offset in (1000, 2000, 3000, 4000):
+      monitor.update(start_ms + offset, 5300, 1600, 0)
+    monitor.update(start_ms + 4100, 5300, 1600, 0)
     self.assertEqual(monitor.sample_count, 2)
+    monitor.update(start_ms + 4200, 5300, 1600, 0)
+    self.assertEqual(monitor.sample_count, 3)
 
-  def test_retries_count_only_started_reference_or_load_attempts(self):
-    config = self.make_config()
-    config.reference_qualify_ms = 2000
-    monitor = BatteryResistanceMonitor(config)
-    # Normal riding above the reference threshold has not started an attempt.
-    monitor.update(0, 5300, 1600, 0)
-    monitor.update(100, 5300, 1600, 0)
-    self.assertEqual(monitor.reset_count, 0)
-    # A started reference followed by high power is one failed attempt.
-    monitor.update(1000, 5400, 300, 0)
-    monitor.update(1100, 5300, 1600, 0)
+  def test_observation_gap_consumes_one_attempt(self):
+    monitor = BatteryResistanceMonitor(self.make_config())
+    start_ms = self.start_load(monitor)
+    self.assertTrue(monitor.expire_observation_gap(start_ms + 2001))
+    self.assertEqual(monitor.phase, 0)
     self.assertEqual(monitor.reset_count, 1)
 
-  def test_gap_resets_attempt_but_allows_retry(self):
+  def test_twenty_fifth_failed_attempt_is_terminal(self):
     monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    monitor.update(2100, 5300, 1600, 0)
-    self.assertTrue(monitor.expire_observation_gap(4101))
+    now = 0
+    for attempt in range(25):
+      start_ms = self.start_load(monitor, now)
+      monitor.update(start_ms + 1000, 5300, 1400, 0)
+      now = start_ms + 2000
+      self.assertEqual(monitor.reset_count, attempt + 1)
+    self.assertTrue(monitor.failed)
+    self.assertTrue(monitor.finished)
+    self.assertFalse(monitor.completed)
+    self.assertEqual(monitor.phase, 5)
 
-    self.start_attempt(monitor, 3800)
-    result = self.feed(monitor, range(5400, 11401, 500))
-    self.assertEqual(result, 76)
-
-  def test_power_drop_resets_attempt_but_allows_retry(self):
+  def test_twenty_fifth_attempt_can_still_succeed(self):
     monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    monitor.update(2100, 5300, 1400, 0)
+    now = 0
+    for _ in range(24):
+      start_ms = self.start_load(monitor, now)
+      monitor.update(start_ms + 1000, 5300, 1400, 0)
+      now = start_ms + 2000
 
-    self.start_attempt(monitor, 2200)
-    result = self.feed(monitor, range(3800, 9801, 500))
-    self.assertEqual(result, 76)
+    start_ms = self.start_load(monitor, now)
+    result = None
+    for offset in (1000, 2000, 3000, 4000, 4100, 4200, 4300, 4400):
+      result = monitor.update(start_ms + offset, 5300, 1600, 0)
+    self.assertEqual(result, 62)
+    self.assertEqual(monitor.reset_count, 24)
+    self.assertTrue(monitor.completed)
+    self.assertFalse(monitor.failed)
 
-  def test_below_load_and_regen_reset_only_current_attempt(self):
-    for current, regen in ((1400, False), (1600, True)):
-      monitor = BatteryResistanceMonitor(self.make_config())
-      self.start_attempt(monitor)
-      monitor.update(2100, 5300, current, 0, regen_active=regen)
-      self.start_attempt(monitor, 2200)
-      result = self.feed(monitor, range(3800, 9801, 500))
-      self.assertEqual(result, 76)
-
-  def test_completed_result_is_stable(self):
+  def test_invalid_input_before_load_does_not_consume_attempt(self):
     monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    result = self.feed(monitor, range(1600, 7601, 500))
-    self.assertEqual(result, 76)
-    self.assertIsNone(monitor.update(7000, 5000, 2000, 0))
-    self.assertEqual(monitor.result_mohm, 76)
+    monitor.update(0, 5400.0, 100, 0)
+    self.assertEqual(monitor.reset_count, 0)
+    self.assertEqual(monitor.phase, 0)
 
-  def test_default_reference_qualifies_for_ten_seconds_then_load_for_ten(self):
+  def test_default_configuration_matches_measurement_contract(self):
     config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = 0
-    monitor = BatteryResistanceMonitor(config)
-    for now in range(0, 15001, 1000):
-      self.assertIsNone(monitor.update(now, 5400, 300, 0))
-    self.assertIsNone(monitor.update(15500, 5400, 300, 0))
-    self.assertIsNone(monitor.update(16000, 5400, 300, 0))
-    self.assertIsNone(monitor.update(16100, 5300, 1600, 0))
-    for now in range(17100, 26100, 1000):
-      self.assertIsNone(monitor.update(now, 5300, 1600, 0))
-    self.assertEqual(monitor.update(26100, 5300, 1600, 0), 76)
-    self.assertIsNone(monitor.update(26600, 5300, 1600, 0))
-    self.assertEqual(monitor.result_mohm, 76)
+    self.assertEqual(config.reference_power_min_w, -100)
+    self.assertEqual(config.reference_power_max_w, 100)
+    self.assertEqual(config.load_power_min_w, 750)
+    self.assertEqual(config.reference_qualify_ms, 10000)
+    self.assertEqual(config.load_transition_timeout_ms, 3000)
+    self.assertEqual(config.load_qualify_ms, 15000)
+    self.assertEqual(config.max_attempts, 25)
 
-  def test_dual_motor_currents_are_summed_and_voltage_is_weighted(self):
+  def test_default_load_starts_at_exactly_750_w_and_runs_fifteen_seconds(self):
+    monitor = BatteryResistanceMonitor(BatteryResistanceConfig())
+    for timestamp_ms in range(0, 10001, 1000):
+      monitor.update(timestamp_ms, 5400, 0, 0)
+    monitor.update(10100, 5400, 500, 0)
+    monitor.update(10200, 5000, 1500, 0)
+    for timestamp_ms in range(11200, 25200, 1000):
+      self.assertIsNone(monitor.update(timestamp_ms, 5000, 1500, 0))
+    monitor.update(25200, 5000, 1500, 0)
+    self.assertEqual(monitor.phase, 3)
+
+  def test_aggregate_combines_dual_motor_values(self):
     self.assertEqual(
       aggregate_battery_measurements(((540, 100), (530, 200))),
       (5330, 3000),
     )
-
-  def test_zero_current_reference_uses_mean_dual_vesc_voltage(self):
     self.assertEqual(
       aggregate_battery_measurements(((540, 0), (530, 0))),
       (5350, 0),
     )
+    self.assertEqual(
+      aggregate_battery_measurements(((540, -100), (530, -200))),
+      (5330, -3000),
+    )
 
-  def test_invalid_or_regen_branch_rejects_dual_motor_sample(self):
-    self.assertIsNone(
-      aggregate_battery_measurements(((540, 100), (530, -1))))
+  def test_mixed_sign_currents_keep_voltage_between_branch_voltages(self):
+    self.assertEqual(
+      aggregate_battery_measurements(((540, 100), (539, -90))),
+      (5390, 100),
+    )
+
+  def test_malformed_aggregate_input_is_rejected(self):
     self.assertIsNone(
       aggregate_battery_measurements(((540, 0), (0, 0))))
     self.assertIsNone(
-      aggregate_battery_measurements(((540, 100), (None, None))))
-
-  def test_coercible_but_malformed_input_is_rejected(self):
-    self.assertIsNone(
       aggregate_battery_measurements(((540.0, 100), (530, 200))))
     self.assertIsNone(
-      aggregate_battery_measurements((("540", 100), (530, 200))))
-
-    monitor = BatteryResistanceMonitor(self.make_config())
-    self.start_attempt(monitor)
-    monitor.update(1600, 5300.0, 1600, 0)
-    self.assertFalse(monitor.completed)
-
-    self.start_attempt(monitor, 1700)
-    self.assertEqual(
-      self.feed(monitor, range(3300, 9301, 500)),
-      76,
-    )
+      aggregate_battery_measurements(((540, 100), (530, None))))
 
 
 class FakeMotorData:
@@ -284,10 +271,8 @@ class FakeMotorData:
 class BatteryResistanceEstimatorTests(unittest.TestCase):
   def make_estimator(self):
     config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = 0
-    config.reference_qualify_ms = 0
-    config.load_qualify_ms = 5000
-    config.sample_min_interval_ms = 500
+    config.reference_qualify_ms = 1000
+    config.load_qualify_ms = 4000
     return BatteryResistanceEstimator(config, 0)
 
   def precision_sample(self, estimator, data, timestamp_ms,
@@ -295,97 +280,139 @@ class BatteryResistanceEstimatorTests(unittest.TestCase):
     data.precision(timestamp_ms, voltage_x1000, current_x1000)
     return estimator.update(timestamp_ms, (data,))
 
-  def dual_precision_sample(self, estimator, rear, front, start_ms,
+  def start_attempt(self, estimator, data, start_ms=100):
+    for offset in range(0, 1100, 100):
+      self.precision_sample(
+        estimator, data, start_ms + offset, 0, 54000)
+    self.precision_sample(estimator, data, start_ms + 1100, 5000, 54000)
+    return self.precision_sample(
+      estimator, data, start_ms + 1200, 16000, 53000)
+
+  def dual_precision_sample(self, estimator, rear, front, timestamp_ms,
                             rear_current_x1000, front_current_x1000,
                             rear_voltage_x1000, front_voltage_x1000):
-    rear.precision(start_ms, rear_voltage_x1000, rear_current_x1000)
-    estimator.update(start_ms, (rear, front))
-    front.precision(start_ms + 20, front_voltage_x1000, front_current_x1000)
-    return estimator.update(start_ms + 20, (rear, front))
-
-  def start_precision_attempt(self, estimator, data, start_ms=100):
-    self.precision_sample(estimator, data, start_ms, 3000, 54000)
-    self.precision_sample(estimator, data, start_ms + 500, 3000, 54000)
-    self.precision_sample(estimator, data, start_ms + 1000, 3000, 54000)
-    return self.precision_sample(
-      estimator, data, start_ms + 1100, 16000, 53000)
-
-  def start_dual_precision_attempt(self, estimator, rear, front, start_ms=100):
-    for timestamp_ms in (start_ms, start_ms + 500, start_ms + 1000):
-      self.dual_precision_sample(
-        estimator, rear, front, timestamp_ms, 1000, 2000, 54000, 54000)
-    return self.dual_precision_sample(
-      estimator, rear, front, start_ms + 1100, 6000, 10000, 53000, 53000)
+    rear.precision(
+      timestamp_ms, rear_voltage_x1000, rear_current_x1000)
+    estimator.update(timestamp_ms, (rear, front))
+    front.precision(
+      timestamp_ms + 20, front_voltage_x1000, front_current_x1000)
+    return estimator.update(timestamp_ms + 20, (rear, front))
 
   def test_atomic_precision_samples_complete_attempt(self):
     estimator = self.make_estimator()
     data = FakeMotorData()
-    self.start_precision_attempt(estimator, data)
-
+    self.start_attempt(estimator, data)
     result = None
-    for timestamp_ms in range(2200, 9001, 1000):
-      value = self.precision_sample(
+    for timestamp_ms in range(2200, 6201, 1000):
+      result = self.precision_sample(
         estimator, data, timestamp_ms, 16000, 53000)
-      if value is not None:
-        result = value
-    self.assertEqual(result, 76)
+    for timestamp_ms in (6300, 6400, 6500, 6600):
+      result = self.precision_sample(estimator, data, timestamp_ms, 16000, 53000)
+    self.assertEqual(result, 62)
     self.assertTrue(estimator.completed)
 
-  def test_zero_current_precision_reference_is_accepted(self):
+  def test_unchanged_input_gap_fails_active_attempt(self):
     estimator = self.make_estimator()
     data = FakeMotorData()
-    for timestamp_ms in (100, 600, 1100):
-      self.precision_sample(estimator, data, timestamp_ms, 0, 54000)
-    self.precision_sample(estimator, data, 1200, 16000, 53000)
+    self.start_attempt(estimator, data)
+    estimator.update(3601, (data,))
+    self.assertEqual(estimator.debug_error_count, 1)
+    self.assertEqual(estimator.debug_phase, 0)
 
+  def test_zero_current_reference_is_accepted(self):
+    estimator = self.make_estimator()
+    data = FakeMotorData()
+    for timestamp_ms in range(100, 1101, 100):
+      self.precision_sample(estimator, data, timestamp_ms, 0, 54000)
+    self.precision_sample(estimator, data, 1200, 5000, 54000)
+    self.precision_sample(estimator, data, 1300, 16000, 53000)
     result = None
-    for timestamp_ms in range(2200, 9001, 1000):
-      value = self.precision_sample(
+    for timestamp_ms in (2400, 3400, 4400, 5400):
+      result = self.precision_sample(
         estimator, data, timestamp_ms, 16000, 53000)
-      if value is not None:
-        result = value
+    for timestamp_ms in (5500, 5600, 5700, 5800):
+      result = self.precision_sample(estimator, data, timestamp_ms, 16000, 53000)
     self.assertEqual(result, 62)
 
-  def test_current_drop_resets_active_precision_attempt(self):
-    estimator = self.make_estimator()
-    data = FakeMotorData()
-    self.start_precision_attempt(estimator, data)
-
-    self.precision_sample(estimator, data, 2000, 14000, 53000)
-    for timestamp_ms in range(3000, 9001, 1000):
-      self.precision_sample(estimator, data, timestamp_ms, 16000, 53000)
-    self.assertFalse(estimator.completed)
-
-    self.start_precision_attempt(estimator, data, 10000)
-    result = None
-    for timestamp_ms in range(12100, 19101, 1000):
-      value = self.precision_sample(
-        estimator, data, timestamp_ms, 16000, 53000)
-      if value is not None:
-        result = value
-    self.assertEqual(result, 76)
-
-  def test_dual_vesc_precision_samples_complete(self):
+  def test_dual_vesc_async_samples_complete_measurement(self):
     estimator = self.make_estimator()
     rear = FakeMotorData()
     front = FakeMotorData()
-    self.start_dual_precision_attempt(estimator, rear, front)
+    for timestamp_ms in range(100, 1101, 100):
+      self.dual_precision_sample(
+        estimator, rear, front, timestamp_ms,
+        0, 0, 54000, 53900)
+    self.dual_precision_sample(
+      estimator, rear, front, 1200,
+      5000, 5000, 54000, 54000)
+    self.dual_precision_sample(
+      estimator, rear, front, 1300,
+      16000, 16000, 53000, 53000)
 
     result = None
-    for start_ms in range(2200, 9001, 1000):
-      value = self.dual_precision_sample(
-        estimator, rear, front, start_ms, 6000, 10000, 53000, 53000)
-      if value is not None:
-        result = value
-    self.assertEqual(result, 76)
+    for timestamp_ms in (2300, 3300, 4300, 5300, 5400, 5500, 5600, 5700):
+      result = self.dual_precision_sample(
+        estimator, rear, front, timestamp_ms,
+        16000, 16000, 53000, 53000)
+    self.assertEqual(estimator.result_mohm, 29)
+    self.assertTrue(estimator.completed)
+
+  def test_front_voltage_and_current_are_required(self):
+    estimator = self.make_estimator()
+    rear = FakeMotorData()
+    front = FakeMotorData()
+    rear.precision(100, 54000, 0)
+    front.precision(120, None, 0)
+    estimator.update(120, (rear, front))
+    self.assertEqual(estimator.debug_reference_sample_count, 0)
+
+    front.precision(220, 54000, 0)
+    estimator.update(220, (rear, front))
+    self.assertEqual(estimator.debug_reference_sample_count, 1)
+    self.assertEqual(estimator.debug_error_count, 0)
+
+  def test_dual_vesc_excessive_skew_remains_pending(self):
+    estimator = self.make_estimator()
+    rear = FakeMotorData()
+    front = FakeMotorData()
+    rear.precision(100, 54000, 0)
+    front.precision(400, 54000, 1000)
+    estimator.update(400, (rear, front))
+    self.assertEqual(estimator.debug_phase, 0)
+    self.assertEqual(estimator.debug_reference_sample_count, 0)
+    self.assertEqual(estimator.debug_error_count, 0)
 
 
 class BatteryResistanceConfigTests(unittest.TestCase):
+  def test_production_config_requires_five_samples(self):
+    config = BatteryResistanceConfig()
+    self.assertIsNone(
+      validate_battery_resistance_measurement_config(config))
+    config.sample_count = 3
+    self.assertEqual(
+      validate_battery_resistance_measurement_config(config),
+      "sample_count must be 5",
+    )
+
   def test_non_integer_measurement_value_is_rejected(self):
     config = BatteryResistanceConfig()
-    config.boot_qualifying_seconds = float("nan")
+    config.max_attempts = float("nan")
     self.assertIsNotNone(
       validate_battery_resistance_measurement_config(config))
+
+  def test_measurement_timing_and_attempt_count_are_fixed(self):
+    config = BatteryResistanceConfig()
+    config.load_qualify_ms = 19999
+    self.assertEqual(
+      validate_battery_resistance_measurement_config(config),
+      "load_qualify_ms must be 15000",
+    )
+    config.load_qualify_ms = 15000
+    config.max_attempts = 24
+    self.assertEqual(
+      validate_battery_resistance_measurement_config(config),
+      "max_attempts must be 25",
+    )
 
   def test_dual_vesc_skew_cannot_exceed_source_age(self):
     config = BatteryResistanceConfig()
@@ -399,6 +426,28 @@ class BatteryResistanceConfigTests(unittest.TestCase):
     config.summary_file_path = "resistance.csv"
     config.history_file_path = "resistance.csv.tmp"
     self.assertIsNotNone(validate_battery_resistance_display_config(config))
+
+
+class BatteryResistanceAlertLayoutTests(unittest.TestCase):
+  def load_font(self, filename):
+    path = os.path.join(
+      os.path.dirname(os.path.dirname(__file__)),
+      '02_diy_display', 'fonts', filename,
+    )
+    spec = importlib.util.spec_from_file_location(filename, path)
+    font = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(font)
+    return font
+
+  def text_width(self, font, text):
+    return sum(font.get_ch(character)[2] for character in text)
+
+  def test_alert_uses_requested_compact_text_and_fits_main_screen(self):
+    text = format_battery_resistance_alert(2500)
+    self.assertEqual(text, 'R 2500 moh')
+    self.assertLessEqual(self.text_width(
+      self.load_font('robotobold12.py'), text), 78)
+
 
 class BatteryResistancePersistenceTests(unittest.TestCase):
   def setUp(self):
@@ -433,16 +482,12 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
     old = self.state(last=80, minimum=70, maximum=100)
     self.save_summary_only(old)
     os.remove(self.config.summary_file_path)
-
     lines = (
       'kind,resistance_mohm,timestamp\n',
-      'last,84,na\n',
-      'min,70,na\n',
-      'max,100,na\n',
+      'last,84,na\n', 'min,70,na\n', 'max,100,na\n',
     )
     with open(self.config.summary_file_path + '.tmp', 'w') as temporary:
       temporary.writelines(lines)
-
     loaded = self.state(last=None, minimum=None, maximum=None)
     self.assertTrue(load_battery_resistance_history(loaded, self.config))
     self.assertEqual(loaded.battery_resistance_last_mohm, 84)
@@ -453,7 +498,6 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
     self.save_summary_only(old)
     with open(self.config.summary_file_path, 'r') as summary:
       original_summary = summary.read()
-
     new = self.state(last=84, minimum=70, maximum=100, dirty=True)
     self.config.history_file_path = os.path.join(
       self.temporary_directory.name, 'missing', 'history.csv')
@@ -468,10 +512,8 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
     self.config.summary_file_path = os.path.join(
       missing_directory, 'summary.csv')
     state = self.state(last=84, minimum=70, maximum=100, dirty=True)
-
     self.assertFalse(save_battery_resistance_history(state, self.config))
     self.assertTrue(state.battery_resistance_history_row_saved)
-
     loaded = self.state(last=None, minimum=None, maximum=None)
     self.assertTrue(load_battery_resistance_history(loaded, self.config))
     self.assertEqual(loaded.battery_resistance_last_mohm, 84)
@@ -483,11 +525,9 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
     self.config.summary_file_path = os.path.join(
       missing_directory, 'summary.csv')
     state = self.state(last=84, minimum=70, maximum=100, dirty=True)
-
     self.assertFalse(save_battery_resistance_history(state, self.config))
     os.mkdir(missing_directory)
     self.assertTrue(save_battery_resistance_history(state, self.config))
-
     with open(self.config.history_file_path, 'r') as history:
       self.assertEqual(len(history.readlines()), 2)
     self.assertFalse(state.battery_resistance_history_dirty)
@@ -498,7 +538,6 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
       history.write('timestamp,resistance_mohm\n')
       history.write('na,83\n')
       history.write('na,9')
-
     loaded = self.state(last=None, minimum=None, maximum=None)
     self.assertTrue(load_battery_resistance_history(loaded, self.config))
     self.assertEqual(loaded.battery_resistance_last_mohm, 83)
@@ -510,10 +549,8 @@ class BatteryResistancePersistenceTests(unittest.TestCase):
       history.write('timestamp,resistance_mohm\n')
       history.write('na,80\n')
       history.write('na,9')
-
     state = self.state(last=83, minimum=80, maximum=83, dirty=True)
     self.assertTrue(save_battery_resistance_history(state, self.config))
-
     loaded = self.state(last=None, minimum=None, maximum=None)
     self.assertTrue(load_battery_resistance_history(loaded, self.config))
     self.assertEqual(loaded.battery_resistance_last_mohm, 83)
