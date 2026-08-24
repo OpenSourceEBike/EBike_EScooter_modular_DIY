@@ -940,7 +940,10 @@ async def main_task(vars):
         not vars.regen_braking_is_active
       )
       if not vehicle_is_stationary:
-        vars.battery_is_charging = False
+        # Do not drop an already confirmed charging session because one
+        # telemetry cycle is stale (or the wheel/brake state is transiently
+        # unavailable). Exit Charging only after fresh stationary BMS data
+        # stays below the threshold for the configured hold interval.
         charge_seen_ms = None
         non_charging_seen_ms = None
         stationary_since_ms = None
@@ -990,8 +993,9 @@ async def main_task(vars):
         # During post-sync reconfirmation, absence of a BMS frame is unknown,
         # not proof that charging stopped. Keep the screen latch until fresh
         # evidence arrives or its explicit timeout handles it.
-        if not vars.charging_reconfirm_pending:
-          vars.battery_is_charging = False
+        # The same rule applies during a normal charging session: a missing
+        # BMS frame is not fresh evidence that charging has stopped.
+        pass
     elif vars.charging_reconfirm_pending:
       # No BMS-backed charging detector is active for this configuration.
       vars.charging_reconfirm_pending = False
