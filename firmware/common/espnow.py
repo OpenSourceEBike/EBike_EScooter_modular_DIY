@@ -2,6 +2,17 @@ import network
 import espnow
 import urandom
 
+ESPNOW_RX_MAX_PACKETS = 32
+
+
+def _receive_packet_limit(max_packets):
+  """Return a non-zero finite packet budget for one cooperative receive pass."""
+  try:
+    return max(1, int(max_packets))
+  except (TypeError, ValueError):
+    return ESPNOW_RX_MAX_PACKETS
+
+
 def espnow_jittered_period_ms(period_ms, jitter_ms=20):
   """Return a bounded random period for periodic ESP-NOW transmissions."""
   if jitter_ms <= 0:
@@ -74,11 +85,12 @@ def espnow_init(channel: int, local_mac, debug=False, strict=False):
   return sta, esp
 
 
-def espnow_recv_all(esp, debug=False):
-  """Drain the ESP-NOW queue and return all (host, msg) packets seen."""
+def espnow_recv_all(esp, debug=False, max_packets=ESPNOW_RX_MAX_PACKETS):
+  """Read up to max_packets and return the packets seen in this pass."""
   packets = []
+  packet_limit = _receive_packet_limit(max_packets)
   try:
-    while True:
+    while len(packets) < packet_limit:
       host, msg = esp.recv(0)
       if not msg:
         break
@@ -135,15 +147,18 @@ class ESPNowComms:
         print("ESP-NOW add_peer error for {}: {}".format(self._peer, e))
     return self._peer_added
 
-  def get_latest_data_by_source(self):
-    """Drain the receive queue and keep only the latest packet per source."""
+  def get_latest_data_by_source(self, max_packets=ESPNOW_RX_MAX_PACKETS):
+    """Read a bounded queue slice and keep its latest packet per source."""
     latest_by_source = {}
+    packet_limit = _receive_packet_limit(max_packets)
+    received = 0
 
     try:
-      while True:
+      while received < packet_limit:
         host, msg = self._esp.recv(0)
         if not msg:
           break
+        received += 1
 
         if self._decoder is None:
           continue
@@ -173,15 +188,18 @@ class ESPNowComms:
 
     return latest_by_source
 
-  def get_latest_data_with_host(self):
-    """Drain the receive queue and return only the latest valid decoded packet."""
+  def get_latest_data_with_host(self, max_packets=ESPNOW_RX_MAX_PACKETS):
+    """Read a bounded queue slice and return its latest valid packet."""
     latest_packet = None
+    packet_limit = _receive_packet_limit(max_packets)
+    received = 0
 
     try:
-      while True:
+      while received < packet_limit:
         host, msg = self._esp.recv(0)
         if not msg:
           break
+        received += 1
 
         if self._decoder is None:
           continue

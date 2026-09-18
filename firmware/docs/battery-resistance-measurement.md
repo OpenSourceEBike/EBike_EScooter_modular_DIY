@@ -53,6 +53,11 @@ protection, expired load event, or Wi-Fi/NTP radio handover resets the
 in-progress estimator. Normal charging detection, motor telemetry, and traction
 remain independent.
 
+If the BMS is absent during startup, the client makes two immediate reconnect
+attempts and then waits 30 seconds before automatically starting a new bounded
+scan sequence. Three consecutive unexpected client `tick()` failures also
+enter that recovery path.
+
 ## Persistence and validation
 
 Results are Display-local and use separate files:
@@ -62,8 +67,13 @@ bms_battery_resistance_history.csv
 bms_battery_resistance_summary.csv
 ```
 
-Rows retain the reference/load voltage and current used by the accepted result.
-Existing VESC-derived history files are neither read nor overwritten.
+Rows retain only timestamp, measured resistance, and the first JBD NTC value in
+degrees Celsius times 100 (`bms_temperature_c_x100`). If no NTC value is
+available, the temperature is stored as `na`. Existing six-column BMS history
+files are migrated to this format without dropping valid timestamp/resistance
+records; their temperature is `na`. A complete migration temporary file is
+recovered and published on the next persistence attempt after a reset or power
+loss during the rename.
 
 Host tests cover a known 35 mOhm step, duplicate BASIC timestamps, regeneration
 rejection, active-protection rejection, power-window/load-threshold behavior,

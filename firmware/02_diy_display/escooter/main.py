@@ -295,9 +295,15 @@ if cfg.has_jbd_bms:
       if bms.is_connected() and bms.is_basic_fresh(3000):
         voltage_x100 = bms.get_battery_voltage_x100()
         current_x100 = bms.get_current_a_x100()
+        temps_c_x100 = bms.get_temps_c_x100()
+        try:
+          bms_temperature_c_x100 = int(temps_c_x100[0])
+        except (IndexError, TypeError, ValueError):
+          bms_temperature_c_x100 = None
         basic_timestamp_ms = bms.last_basic_data_ms
         vars.bms_battery_current_x100 = current_x100
         vars.bms_battery_voltage_x100 = voltage_x100
+        vars.bms_temperature_c_x100 = bms_temperature_c_x100
         vars.bms_battery_current_last_update_ms = basic_timestamp_ms
         if (basic_timestamp_ms != last_basic_timestamp_ms and
             voltage_x100 is not None and current_x100 is not None):
@@ -324,10 +330,12 @@ if cfg.has_jbd_bms:
                bms_resistance_estimator.state_sample_progress())
             if result is not None:
               resistance_mohm, metadata = result
-              record_battery_resistance_result(vars, resistance_mohm, metadata)
+              record_battery_resistance_result(
+                vars, resistance_mohm, metadata, bms_temperature_c_x100)
       else:
         vars.bms_battery_current_x100 = None
         vars.bms_battery_voltage_x100 = None
+        vars.bms_temperature_c_x100 = None
         vars.bms_battery_current_last_update_ms = 0
         last_basic_timestamp_ms = 0
         bms_resistance_estimator.reset()
@@ -528,10 +536,13 @@ def _battery_resistance_timestamp(vars):
   except Exception:
     return 0
 
-def record_battery_resistance_result(vars, resistance_mohm, metadata=None):
+def record_battery_resistance_result(
+    vars, resistance_mohm, metadata=None, bms_temperature_c_x100=None):
   timestamp = _battery_resistance_timestamp(vars)
   vars.battery_resistance_last_mohm = resistance_mohm
   vars.battery_resistance_last_timestamp = timestamp
+  vars.battery_resistance_last_bms_temperature_c_x100 = (
+    bms_temperature_c_x100)
   vars.battery_resistance_measurement = dict(metadata or {})
   save_minimum = (
     vars.battery_resistance_min_mohm is None or

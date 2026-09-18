@@ -250,13 +250,16 @@ latest command separately for each sender (display and motor board).
 | Display → power-switch board | Motion/power configuration: threshold, rate, AC mode, timeout and wait period | Only when values change; on send failure, retry every 2000 ms | Processed approximately every 20 ms; valid values are persisted by the power-switch board. |
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
 | Lights board → other boards | — | Does not send ESP-NOW frames | Receives and applies commands only. |
-| JBD BMS → display | BLE pack voltage/current for charging detection and passive resistance diagnostic | Basic/cell queries currently alternate at about 1 Hz | Only unique, fresh BASIC frames enter the resistance estimator; BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with at most two retries before the BMS is marked unavailable. |
+| JBD BMS → display | BLE pack voltage/current for charging detection and passive resistance diagnostic | Basic/cell queries currently alternate at about 1 Hz | Only unique, fresh BASIC frames enter the resistance estimator; BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with two immediate retries followed by a 30 s automatic rescan backoff. |
 
 The JBD BMS is the sole battery-resistance source. The Display accepts three
 reference BASIC frames inside -250 W to +250 W, then a discharge of at least
 750 W, discards one settling frame and averages three load frames at or below
 -750 W. This is effective BMS-side DC resistance, not
 instantaneous cell impedance.
+
+Each shared ESP-NOW receive pass reads at most 32 queued packets. Remaining
+packets are deferred to the next cooperative pass; packet order is retained.
 
 - Display motor transmission and power communication timeout: 1500 ms.
 - Display motor-status receive timeout: 5000 ms.
@@ -279,13 +282,19 @@ minimum click duration. Durations from 100 ms to below 1000 ms are short clicks;
 durations of 1000 ms or more are long presses. Durations below 100 ms are
 ignored. The power button's click and long-press callbacks are latched until
 the UI task consumes them. The Display starts on `Ready` with motor enable
-inactive. The first valid POWER click enables the motor and opens the
-battery-resistance dashboard in place of `MAIN`; this replacement inherits the
-normal dashboard timeout, lights, charging and shutdown behaviour. The
-lights input is a maintained switch; its state
+inactive. A long press is required to leave `Ready`: with brakes active at
+confirmed zero speed it opens manual `CHARGING`; otherwise it enables the
+motor and opens the battery-resistance dashboard in place of `MAIN` when the
+optional JBD feature is enabled. A non-BMS profile keeps `MAIN`. This
+replacement inherits the normal dashboard timeout, lights, charging and
+shutdown behaviour. The lights input is a maintained switch; its state
 is combined with the automatic schedule, with manual ON override as the
 default and `auto_lights_schedule_authoritative = True` available for a
 schedule-authoritative deployment.
+
+A long press on the enabled battery-resistance dashboard opens the ordinary
+`MAIN` dashboard. From `MAIN`, long press powers off only when fresh wheel
+telemetry confirms zero speed; braking while moving is not sufficient.
 
 This avoids conflicting writes from multiple firmware modules.
 

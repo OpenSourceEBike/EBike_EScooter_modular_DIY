@@ -15,6 +15,7 @@ class ScreenID:
 class ScreenManager:
   def __init__(self, fb, vars):
     self.fb = fb
+    self._vars = vars
 
     self._screen_specs = {
       ScreenID.BOOT: ("screens.boot", "BootScreen"),
@@ -66,7 +67,11 @@ class ScreenManager:
     return self._current_id == screen_id
 
   def _next_main_screen_id(self):
-    return ScreenID.BATTERY_RESISTANCE
+    # A non-BMS profile deliberately disables the estimator. Keep its normal
+    # dashboard instead of presenting that intentional configuration as B ERR.
+    if getattr(self._vars, 'battery_resistance_enabled', True):
+      return ScreenID.BATTERY_RESISTANCE
+    return ScreenID.MAIN
 
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
@@ -103,9 +108,9 @@ class ScreenManager:
     except Exception:
       pass
 
-  def force(self, screen_id):
+  def force(self, screen_id, allow_main=False):
     """Switch to a screen by numeric ID (no strings!)."""
-    if screen_id == ScreenID.MAIN:
+    if screen_id == ScreenID.MAIN and not allow_main:
       screen_id = self._next_main_screen_id()
     if screen_id == self._current_id:
       return
@@ -191,7 +196,13 @@ class ScreenManager:
     
     button_power_click = bool(vars.buttons_state & 0x0100)
     is_charging = vars.battery_is_charging
-    wheel_stopped = (vars.wheel_speed_x10 == 0)
+    # A zero left after motor telemetry expires is not evidence that the
+    # scooter has stopped. Power-off and manual charging require a fresh,
+    # confirmed zero speed.
+    wheel_stopped = (
+      bool(getattr(vars, 'wheel_speed_telemetry_valid', False)) and
+      vars.wheel_speed_x10 == 0
+    )
     brakes_on = bool(vars.brakes_are_active)
 
     # If Charging state changed
@@ -221,19 +232,6 @@ class ScreenManager:
     # when the 0x0100 toggle has changed back before this 100 ms UI tick.
     if power_click_event or self._button_power_click_previous != button_power_click:
       self._button_power_click_previous = button_power_click
-
-      # Boot click: if stopped with brakes on, enter Charging first.
-      if self.current_is(ScreenID.BOOT):
-        if wheel_stopped and brakes_on:
-          self._charging_entry_is_auto = False
-          vars.motor_enable_state = False
-          self.force(ScreenID.CHARGING)
-          return
-
-        self._charging_entry_is_auto = False
-        vars.motor_enable_state = True
-        self.force(ScreenID.MAIN)
-        return
 
       # Go to Charging
       if self.current_is(self._next_main_screen_id()) and \
@@ -270,9 +268,30 @@ class ScreenManager:
     if self._button_power_long_click_previous != button_power_long_click:
       self._button_power_long_click_previous = button_power_long_click
 
-      # Go to Power off when stopped, or allow a brake-assisted shutdown while rolling.
-      if self.current_is(self._next_main_screen_id()) and \
-          (wheel_stopped or brakes_on):
+      # Ready is a deliberate safety gate: entering either riding mode or
+      # the manual charging flow requires a long press, never a short click.
+      if self.current_is(ScreenID.BOOT):
+        if wheel_stopped and brakes_on:
+          self._charging_entry_is_auto = False
+          vars.motor_enable_state = False
+          self.force(ScreenID.CHARGING)
+          return
+
+        self._charging_entry_is_auto = False
+        vars.motor_enable_state = True
+        self.force(ScreenID.MAIN)
+        return
+
+      # The resistance dashboard is the normal post-Ready view. Its long
+      # press deliberately exposes the ordinary MAIN dashboard; this is a UI
+      # transition, not a shutdown, so it is safe while moving.
+      if self.current_is(ScreenID.BATTERY_RESISTANCE):
+        self.force(ScreenID.MAIN, allow_main=True)
+        return
+
+      # A brake input is not proof of a stationary scooter. Do not remove
+      # system power until wheel telemetry confirms that it has stopped.
+      if self.current_is(ScreenID.MAIN) and wheel_stopped:
         vars.motor_enable_state = False
         vars.shutdown_request = True
         self.force(ScreenID.POWEROFF)

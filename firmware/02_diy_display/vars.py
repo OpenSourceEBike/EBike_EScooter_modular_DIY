@@ -23,6 +23,7 @@ class Vars:
     self.battery_soc_x1000 = -1 # -1 means value is invalid
     self.bms_battery_voltage_x100 = None
     self.bms_battery_current_x100 = None
+    self.bms_temperature_c_x100 = None
     # Timestamp of the BASIC BMS frame that supplied the current above.  This
     # lets charging detection reject a regeneration sample captured before the
     # scooter came to a stop.
@@ -32,6 +33,7 @@ class Vars:
     # seconds, or zero when no valid RTC is available.
     self.battery_resistance_last_mohm = None
     self.battery_resistance_last_timestamp = 0
+    self.battery_resistance_last_bms_temperature_c_x100 = None
     self.battery_resistance_min_mohm = None
     self.battery_resistance_min_timestamp = 0
     self.battery_resistance_max_mohm = None
@@ -43,6 +45,7 @@ class Vars:
     # not. A recovered summary is repaired at the next explicit shutdown.
     self.battery_resistance_history_row_saved = False
     self.battery_resistance_summary_repair_pending = False
+    self.battery_resistance_history_migration_repair_pending = False
     # One-shot (resistance_mohm, duration_ms) consumed by MainScreen.
     self.battery_resistance_alert_pending = None
     self.battery_resistance_enabled = True

@@ -23,6 +23,10 @@ _IRQ_GATTC_NOTIFY                = const(18)
 
 MAX_RECONNECT_ATTEMPTS = 2
 CONNECT_TIMEOUT_MS = 8000
+# Do not keep the BLE radio continuously busy when the BMS is absent, but do
+# recover automatically if it becomes available after boot.
+RECONNECT_BACKOFF_MS = 30000
+MAX_CONSECUTIVE_TICK_EXCEPTIONS = 3
 
 # ===== BLE UUIDs exposed by JBD over GATT =====
 SVC_UUID    = bluetooth.UUID(0xFF00)
@@ -143,8 +147,10 @@ class JbdBmsClient:
     self._connecting = False
     self._connect_deadline_ms = 0
     self._retry_count = 0
+    self._retry_after_ms = 0
     self._unavailable = False
     self._started = False
+    self._tick_exception_count = 0
 
     self._buf = bytearray()
     self._head = 0
@@ -161,8 +167,10 @@ class JbdBmsClient:
     self.ble.irq(self._irq)
     self._scan_ms = scan_ms
     self._retry_count = 0
+    self._retry_after_ms = 0
     self._unavailable = False
     self._started = True
+    self._tick_exception_count = 0
     self._reset_state()
     self._scan(scan_ms)
 
@@ -176,6 +184,8 @@ class JbdBmsClient:
     # Block disconnect/scan IRQs from starting another retry while stopping.
     self._unavailable = True
     self._started = False
+    self._retry_after_ms = 0
+    self._tick_exception_count = 0
     try:
       self.ble.gap_scan(None)
     except:
@@ -195,6 +205,17 @@ class JbdBmsClient:
   def tick(self):
     try:
       if self._unavailable:
+        # A failed initial scan must not leave the BMS disabled until the next
+        # Display reboot. Re-enter the normal bounded retry sequence after a
+        # slow backoff, which also keeps BLE activity low while it is absent.
+        if (not self._started or
+            time.ticks_diff(time.ticks_ms(), self._retry_after_ms) < 0):
+          return
+        self._unavailable = False
+        self._retry_count = 0
+        self._retry_after_ms = 0
+        self._reset_state()
+        self._scan(self._scan_ms)
         return
 
       if self._connecting:
@@ -228,9 +249,15 @@ class JbdBmsClient:
       if self.last_data_ms and time.ticks_diff(t, self.last_data_ms) > (self.query_period_ms * 3):
         self._handle_connection_failure("stale data")
 
+      self._tick_exception_count = 0
+
     except Exception as ex:
+      self._tick_exception_count += 1
       if self.debug:
         print("tick exception:", ex)
+      if self._tick_exception_count >= MAX_CONSECUTIVE_TICK_EXCEPTIONS:
+        self._tick_exception_count = 0
+        self._handle_connection_failure("repeated tick exception")
 
   # Connection/data health
 
@@ -317,9 +344,11 @@ class JbdBmsClient:
       return
     if self._retry_count >= MAX_RECONNECT_ATTEMPTS:
       self._unavailable = True
+      self._retry_after_ms = time.ticks_add(
+        time.ticks_ms(), RECONNECT_BACKOFF_MS)
       if self.debug:
-        print("BMS unavailable after {} retries ({})".format(
-          MAX_RECONNECT_ATTEMPTS, reason))
+        print("BMS unavailable after {} retries ({}); retrying in {} ms".format(
+          MAX_RECONNECT_ATTEMPTS, reason, RECONNECT_BACKOFF_MS))
       return
     self._retry_count += 1
     if self.debug:

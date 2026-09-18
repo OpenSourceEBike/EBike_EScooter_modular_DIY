@@ -164,9 +164,16 @@ The maintained power button uses the shared `thisButton` driver:
 - Long press: 1000 ms inclusive.
 - Presses shorter than 100 ms are ignored.
 - Power click and long-press events are latched until the UI task consumes them.
-- The Display always starts in `Ready` with the motor disabled. After the
-  normal POWER enable action, the battery-resistance dashboard replaces
-  `MAIN` and follows the same timeout, lights, charging and shutdown rules.
+- The Display always starts in `Ready` with the motor disabled. A long press
+  is required to leave it: with brakes active at confirmed zero speed it opens
+  manual `CHARGING`; otherwise it enables the motor. When the JBD resistance
+  feature is enabled, that action opens its dashboard in place of `MAIN`; a
+  deliberately non-BMS profile opens the normal `MAIN` dashboard instead.
+  Both follow the same timeout, lights, charging and shutdown rules.
+- Long press on the enabled battery-resistance dashboard opens the ordinary
+  `MAIN` dashboard without changing motor enable. From `MAIN`, long press
+  requests power-off only after fresh wheel telemetry confirms zero speed.
+  Applying the brakes while moving is not a shutdown condition.
 
 The lights input is a maintained switch, not a momentary click. Its stable
 state is combined with the automatic schedule according to

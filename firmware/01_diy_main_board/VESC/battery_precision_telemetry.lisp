@@ -12,6 +12,5 @@
                 (shr (bitwise-and battsoc 0xff00) 8)
                 (bitwise-and battsoc 0xFF)))
         (can-send-eid canid canmsg)
-        (timeout-reset)
         (sleep 1.0)
 })

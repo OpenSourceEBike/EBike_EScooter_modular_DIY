@@ -1,2 +1,2 @@
-timestamp,resistance_mohm,before_voltage_x100,before_current_x100,after_voltage_x100,after_current_x100
-2026-08-24T00:40:39,35,5381,-130,5170,-6130
+timestamp,resistance_mohm,bms_temperature_c_x100
+2026-08-24T00:40:39,35,2735

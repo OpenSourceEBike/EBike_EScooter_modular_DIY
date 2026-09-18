@@ -7,7 +7,8 @@ except ImportError:
 
 
 _SUMMARY_HEADER = 'kind,resistance_mohm,timestamp'
-_HISTORY_HEADER = (
+_HISTORY_HEADER = 'timestamp,resistance_mohm,bms_temperature_c_x100\n'
+_LEGACY_HISTORY_HEADER = (
   'timestamp,resistance_mohm,before_voltage_x100,before_current_x100,'
   'after_voltage_x100,after_current_x100\n')
 
@@ -78,7 +79,11 @@ def _read_history(path, config):
   try:
     with open(path, 'r') as history:
       header = history.readline()
-      if header != _HISTORY_HEADER:
+      if header == _HISTORY_HEADER:
+        field_count = 3
+      elif header == _LEGACY_HISTORY_HEADER:
+        field_count = 6
+      else:
         return None
       for line in history:
         # A reset during append may leave a syntactically plausible prefix
@@ -87,7 +92,7 @@ def _read_history(path, config):
         if not line.endswith('\n'):
           continue
         parts = line.strip().split(',')
-        if len(parts) != 6:
+        if len(parts) != field_count:
           continue
         timestamp, value = parts[0], parts[1]
         try:
@@ -130,6 +135,7 @@ def _merge_summary_and_history(summary, history):
 def _apply_summary(state, summary):
   state.battery_resistance_last_mohm = summary['last'][0]
   state.battery_resistance_last_timestamp = summary['last'][1]
+  state.battery_resistance_last_bms_temperature_c_x100 = None
   state.battery_resistance_min_mohm = summary['min'][0]
   state.battery_resistance_min_timestamp = summary['min'][1]
   state.battery_resistance_max_mohm = summary['max'][0]
@@ -152,7 +158,20 @@ def load_battery_resistance_history(state, config):
       summary = candidate
       break
 
-  history = _read_history(config.history_file_path, config)
+  history_path = None
+  history = None
+  # Migration writes a complete new generation before it removes the legacy
+  # file. Treat that temporary generation as boot-recoverable, just as the
+  # summary transaction treats its .tmp file.
+  for candidate_path in (
+      config.history_file_path + '.migrate.tmp',
+      config.history_file_path,
+  ):
+    candidate = _read_history(candidate_path, config)
+    if candidate is not None:
+      history_path = candidate_path
+      history = candidate
+      break
   merged = _merge_summary_and_history(summary, history)
   if merged is None:
     return False
@@ -160,6 +179,9 @@ def load_battery_resistance_history(state, config):
   _apply_summary(state, merged)
   state.battery_resistance_summary_repair_pending = (
     summary_path != path or merged != summary
+  )
+  state.battery_resistance_history_migration_repair_pending = (
+    history_path == config.history_file_path + '.migrate.tmp'
   )
   return True
 
@@ -192,17 +214,82 @@ def _history_tail_is_complete(path, current_size):
     return False
 
 
+def _migrate_legacy_history(path, config):
+  """Rewrite the prior six-column BMS format without dropping valid rows."""
+  current_size = _file_size(path)
+  if current_size is None:
+    return False
+  if current_size == 0:
+    return True
+  try:
+    with open(path, 'r') as history:
+      header = history.readline()
+      if header == _HISTORY_HEADER:
+        return True
+      if header != _LEGACY_HISTORY_HEADER:
+        return False
+      rows = []
+      for line in history:
+        if not line.endswith('\n'):
+          continue
+        parts = line.strip().split(',')
+        if len(parts) != 6:
+          continue
+        try:
+          resistance_mohm = int(parts[1])
+        except ValueError:
+          continue
+        if _valid_value(config, resistance_mohm):
+          rows.append((parts[0], resistance_mohm))
+  except (OSError, ValueError):
+    return False
+
+  temporary_path = path + '.migrate.tmp'
+  try:
+    with open(temporary_path, 'w') as migrated:
+      migrated.write(_HISTORY_HEADER)
+      for timestamp, resistance_mohm in rows:
+        migrated.write('{},{},na\n'.format(timestamp, resistance_mohm))
+  except OSError:
+    return False
+  if not _remove_if_present(path):
+    return False
+  try:
+    _fs.rename(temporary_path, path)
+  except OSError:
+    return False
+  return True
+
+
+def _recover_migrated_history(path, config):
+  """Publish a complete migration generation left by a reset or power loss."""
+  temporary_path = path + '.migrate.tmp'
+  if _read_history(temporary_path, config) is None:
+    return True
+  if not _remove_if_present(path):
+    return False
+  try:
+    _fs.rename(temporary_path, path)
+  except OSError:
+    return False
+  return True
+
+
 def _append_history(state, config):
   if state.battery_resistance_last_mohm is None:
     return True
-  metadata = getattr(state, 'battery_resistance_measurement', {})
+  if not _recover_migrated_history(config.history_file_path, config):
+    return False
+  if not _migrate_legacy_history(config.history_file_path, config):
+    return False
+  temperature_c_x100 = getattr(
+    state, 'battery_resistance_last_bms_temperature_c_x100', None)
+  if not isinstance(temperature_c_x100, int):
+    temperature_c_x100 = 'na'
   row_values = (
     _timestamp_to_csv(state.battery_resistance_last_timestamp),
     state.battery_resistance_last_mohm,
-    int(metadata.get('before_voltage_x100', 0)),
-    int(metadata.get('before_current_x100', 0)),
-    int(metadata.get('after_voltage_x100', 0)),
-    int(metadata.get('after_current_x100', 0)),
+    temperature_c_x100,
   )
   row = ','.join(str(value) for value in row_values) + '\n'
   path = config.history_file_path
@@ -283,8 +370,15 @@ def save_battery_resistance_history(state, config):
   dirty = bool(state.battery_resistance_history_dirty)
   repair = bool(getattr(
     state, 'battery_resistance_summary_repair_pending', False))
-  if not dirty and not repair:
+  migration_repair = bool(getattr(
+    state, 'battery_resistance_history_migration_repair_pending', False))
+  if not dirty and not repair and not migration_repair:
     return True
+
+  if migration_repair:
+    if not _recover_migrated_history(config.history_file_path, config):
+      return False
+    state.battery_resistance_history_migration_repair_pending = False
 
   row_saved = bool(getattr(
     state, 'battery_resistance_history_row_saved', False))
@@ -299,4 +393,5 @@ def save_battery_resistance_history(state, config):
   state.battery_resistance_history_dirty = False
   state.battery_resistance_history_row_saved = False
   state.battery_resistance_summary_repair_pending = False
+  state.battery_resistance_history_migration_repair_pending = False
   return True

@@ -24,6 +24,7 @@ below are recorded solely to prevent them being reintroduced as issues.
 | PWR-01 | Certain protocol gap | Medium | Relay and power configuration are not application-acknowledged. |
 | MOT-01 | Required CAN delay; target timing not measured | Medium | Synchronous post-send delays can still postpone the nominal 20 ms motor cycle. |
 | RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
+| BMS-05 | Certain data mapping; physical NTC order is not configured | Low | Logged “BMS temperature” is always the first unnamed JBD NTC. |
 
 ## Intentional design decisions (not issues)
 
@@ -155,6 +156,28 @@ recognition or post-NTP charging re-confirmation.
 the current `_head`; do not increment again. Add a parser test containing a bad
 frame immediately followed by a valid BASIC frame.
 
+### BMS-05 — the logged BMS temperature has no selected-sensor contract
+
+**Status:** Open. **Severity:** Low.
+
+The JBD parser exposes an ordered but unnamed list of NTC readings. The history
+writer records `temps_c_x100[0]` and labels it `bms_temperature_c_x100`; the
+configuration has no sensor-index or physical-sensor mapping.
+
+**References:**
+
+- `02_diy_display/bms_jbd.py:500-523`
+- `02_diy_display/escooter/main.py:298-306`
+- `common/battery_resistance_persistence.py:278-295`
+
+**Impact:** on a pack where NTC 1 is a cell, cable, or enclosure probe rather
+than the desired BMS probe, the CSV uses a plausible but incorrectly labelled
+temperature. Resistance-versus-temperature analysis then becomes misleading.
+
+**Recommended action:** add a named, validated
+`bms_temperature_sensor_index` configuration value and document its physical
+probe for each deployed BMS. Store `na` when that sensor is absent.
+
 ## Runtime supervision and timing
 
 ### SYS-01 — no supervisor or watchdog recovery
@@ -253,10 +276,11 @@ on a fresh matching acknowledgement.
 
 ## Validation performed
 
-- Syntax compilation succeeded for all 91 Python files in the checkout.
-- Twenty-one host tests passed: BMS resistance configuration and state-machine
-  behavior, operational CAN telemetry decode, Motor Board timing, telemetry
-  helpers, and battery-resistance screen navigation.
+- Syntax compilation succeeded for all 92 Python files in the checkout.
+- Thirty-three host tests passed: BMS resistance configuration and state-machine
+  behavior, BMS recovery, history format/migration recovery, bounded ESP-NOW
+  receive helpers, operational CAN telemetry decode, Motor Board timing,
+  telemetry helpers, and battery-resistance screen navigation.
 - Targeted BMS tests cover a known 35 mOhm step, duplicate BASIC timestamp
   rejection, regeneration not starting a discharge event, active-protection
   rejection, power-window/load-threshold behavior, variable sustained load,
@@ -264,6 +288,10 @@ on a fresh matching acknowledgement.
 - Motor CAN tests cover standard VESC Status 1/4/5 and rear SOC command `99`;
   a former private precision command is ignored. Telemetry tests cover the
   unavailable-temperature sentinel after Status-4 expiry.
+- Screen navigation tests require long press to leave `Ready`, move from the
+  resistance dashboard to `MAIN` on long press, reject power-off from `MAIN`
+  with moving or stale wheel telemetry, require fresh zero wheel speed, and
+  keep `MAIN` in a deliberately non-BMS profile.
 - `git diff --check` passed.
 - No live JBD BLE/BASIC cadence, ESP32-S3 UI timing/heap, CAN, radio,
   filesystem power-loss, or target-network timing test was performed.
