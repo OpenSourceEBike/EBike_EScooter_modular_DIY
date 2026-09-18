@@ -274,13 +274,6 @@ class JbdBmsClient:
       return None
     return (d["cap_rem_ah_x100"], d["cap_full_ah_x100"])
 
-  def get_mosfets(self):
-    """Returns (chg_on, dsg_on) as booleans or None."""
-    d = self._last_basic
-    if not d:
-      return None
-    return (bool(d["fet_chg"]), bool(d["fet_dsg"]))
-
   def get_cells_x1000(self):
     """Returns list[int] of per-cell voltages in V×1000 (millivolts), or None."""
     return self._last_cells_x1000
@@ -454,8 +447,7 @@ class JbdBmsClient:
     """
     Parse 0x03 BASIC frame into a dict with *_x100 fields where applicable:
           voltage_v_x100, current_a_x100, cap_rem_ah_x100, cap_full_ah_x100,
-          soc_pct, cycle_cnt, fet_chg, fet_dsg, temps_c_x100[], prot_list,
-          balance_cells[], cells
+          soc_pct, cycle_cnt, temps_c_x100[], prot_list, balance_cells[], cells
     """
     if (not self._frame_ok(f)) or (f[1] != 0x03):
       return None
@@ -472,7 +464,6 @@ class JbdBmsClient:
     bal_bytes        = d[12:16]
     prot_bits        = _u16(d[16], d[17])
     soc_pct          = d[19]                   # 0..100
-    fet_flags        = d[20]                   # bit0=CHG, bit1=DSG
     cells            = d[21]
     ntc_count        = d[22]
 
@@ -488,16 +479,12 @@ class JbdBmsClient:
 
     y, m, day = _decode_prod_date(prod_date)
     prot_list = _recognized_protections(prot_bits)
-    fet_chg   = 1 if (fet_flags & 0x01) else 0
-    fet_dsg   = 1 if (fet_flags & 0x02) else 0
     balancing = _balance_cells_from_bitmap(bal_bytes, cells)
 
     return {
       "voltage_v_x100": voltage_v_x100,
       "current_a_x100": current_a_x100,
       "soc_pct": soc_pct,
-      "fet_chg": fet_chg,
-      "fet_dsg": fet_dsg,
       "cycle_cnt": cycle_cnt,
       "cap_rem_ah_x100": cap_rem_ah_x100,
       "cap_full_ah_x100": cap_full_ah_x100,

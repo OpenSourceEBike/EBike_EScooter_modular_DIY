@@ -35,10 +35,13 @@ import uasyncio as asyncio
 import machine
 import esp32
 from common.utils import map_range
-from common.config_battery_resistance import (
-  battery_resistance_config,
-  validate_battery_resistance_display_config,
-  validate_battery_resistance_measurement_config,
+from common.config_bms_battery_resistance import (
+  bms_battery_resistance_config,
+  validate_bms_battery_resistance_config,
+)
+from common.bms_battery_resistance import (
+  BmsBatteryResistanceEstimator,
+  bms_resistance_rejection_reason,
 )
 from common.battery_resistance_persistence import (
   load_battery_resistance_history,
@@ -51,7 +54,10 @@ from common.espnow_protocol import (
   BOARD_LIGHTS,
   BOARD_MOTOR,
   BOARD_POWER_SWITCH,
+  HEALTH_MOTOR_FRONT_BATTERY_VALID,
+  HEALTH_MOTOR_FRONT_SPEED_VALID,
   HEALTH_MOTOR_LIGHTS_TX_OK,
+  HEALTH_MOTOR_REAR_BATTERY_VALID,
   HEALTH_MOTOR_REAR_SPEED_VALID,
   MSG_COMMAND,
   MSG_STATUS,
@@ -71,24 +77,17 @@ from common.espnow import (
 )
 
 vars = Vars.Vars()
-battery_resistance_display_config_error = validate_battery_resistance_display_config(
-  battery_resistance_config)
-battery_resistance_measurement_config_error = \
-  validate_battery_resistance_measurement_config(battery_resistance_config)
-vars.battery_resistance_enabled = battery_resistance_display_config_error is None
-vars.battery_resistance_measurement_available = (
-  battery_resistance_measurement_config_error is None)
-vars.battery_resistance_config_error = (
-  battery_resistance_display_config_error or
-  battery_resistance_measurement_config_error or
-  ''
-)
+_bms_resistance_config_error = validate_bms_battery_resistance_config(
+  bms_battery_resistance_config)
+vars.battery_resistance_enabled = bool(
+  cfg.has_jbd_bms and _bms_resistance_config_error is None)
+vars.battery_resistance_config_error = _bms_resistance_config_error or (
+  '' if cfg.has_jbd_bms else 'JBD BMS disabled')
 if not vars.battery_resistance_enabled:
-  print("Battery resistance display disabled:",
-        battery_resistance_display_config_error)
-elif not vars.battery_resistance_measurement_available:
-  print("Battery resistance measurement unavailable:",
-        battery_resistance_measurement_config_error)
+  print("BMS battery resistance disabled:",
+        vars.battery_resistance_config_error)
+bms_resistance_estimator = BmsBatteryResistanceEstimator(
+  bms_battery_resistance_config)
 boot_log("Vars initialized")
 
 my_mac_address = cfg.mac_address_display
@@ -102,7 +101,7 @@ configure_wifi_radio(_sta, cfg.wifi_tx_power_dbm["display"], "display", debug=ES
 
 DISPLAY_LIGHTS_MASK = IO_BITS_MASK & ~REAR_BRAKE_BIT
 MOTOR_BOARD_TX_COMM_TIMEOUT_MS = 1500
-MOTOR_BOARD_RX_COMM_TIMEOUT_MS = 2000
+MOTOR_BOARD_RX_COMM_TIMEOUT_MS = 5000
 LIGHTS_BOARD_TX_COMM_TIMEOUT_MS = 1500
 LIGHTS_HEARTBEAT_MS = 250
 LIGHTS_RETRY_MS = 50
@@ -156,6 +155,7 @@ def _display_lights_state():
   if (
     not (
       screen_manager.current_is(ScreenID.MAIN) or
+      screen_manager.current_is(ScreenID.BATTERY_RESISTANCE) or
       screen_manager.current_is(ScreenID.MOTOR_BLOCKED)
     ) or
     not vars.motor_enable_state
@@ -290,13 +290,52 @@ if cfg.has_jbd_bms:
   async def bms_read_task(bms, vars):
     period_ms = 1000
     next_wake = time.ticks_ms()
+    last_basic_timestamp_ms = 0
     while True:
       if bms.is_connected() and bms.is_basic_fresh(3000):
-        vars.bms_battery_current_x100 = bms.get_current_a_x100()
-        vars.bms_battery_current_last_update_ms = bms.last_basic_data_ms
+        voltage_x100 = bms.get_battery_voltage_x100()
+        current_x100 = bms.get_current_a_x100()
+        basic_timestamp_ms = bms.last_basic_data_ms
+        vars.bms_battery_current_x100 = current_x100
+        vars.bms_battery_voltage_x100 = voltage_x100
+        vars.bms_battery_current_last_update_ms = basic_timestamp_ms
+        if (basic_timestamp_ms != last_basic_timestamp_ms and
+            voltage_x100 is not None and current_x100 is not None):
+          last_basic_timestamp_ms = basic_timestamp_ms
+          if vars.battery_resistance_enabled and not vars.comms_paused:
+            try:
+              rejection_reason = bms_resistance_rejection_reason(
+                bms.get_protections())
+            except Exception:
+              rejection_reason = 'BMS protection state unavailable'
+            vars.battery_resistance_rejection_reason = rejection_reason
+            if rejection_reason:
+              bms_resistance_estimator.reset(basic_timestamp_ms)
+              result = None
+            else:
+              result = bms_resistance_estimator.update(
+                basic_timestamp_ms, voltage_x100, current_x100)
+            vars.battery_resistance_state = bms_resistance_estimator.state
+            elapsed_ms = time.ticks_diff(
+              basic_timestamp_ms, bms_resistance_estimator.state_started_ms)
+            vars.battery_resistance_state_seconds = max(0, elapsed_ms // 1000)
+            (vars.battery_resistance_state_samples,
+             vars.battery_resistance_state_samples_required) = (
+               bms_resistance_estimator.state_sample_progress())
+            if result is not None:
+              resistance_mohm, metadata = result
+              record_battery_resistance_result(vars, resistance_mohm, metadata)
       else:
         vars.bms_battery_current_x100 = None
+        vars.bms_battery_voltage_x100 = None
         vars.bms_battery_current_last_update_ms = 0
+        last_basic_timestamp_ms = 0
+        bms_resistance_estimator.reset()
+        vars.battery_resistance_state = -1
+        vars.battery_resistance_state_seconds = 0
+        vars.battery_resistance_state_samples = 0
+        vars.battery_resistance_state_samples_required = 0
+        vars.battery_resistance_rejection_reason = ''
       next_wake = time.ticks_add(next_wake, period_ms)
       remaining = time.ticks_diff(next_wake, time.ticks_ms())
       await asyncio.sleep_ms(remaining if remaining > 0 else 0)
@@ -364,6 +403,17 @@ def _rebuild_espnow_stack():
   vars.motor_board_tx_ok = False
   vars.motor_board_rx_ok = False
   vars.motor_lights_tx_ok = False
+  vars.rear_speed_telemetry_valid = False
+  vars.front_speed_telemetry_valid = False
+  vars.wheel_speed_telemetry_valid = False
+  vars.wheel_speed_fallback_active = False
+  vars.rear_battery_telemetry_valid = False
+  vars.front_battery_telemetry_valid = False
+  vars.battery_resistance_state = -1
+  vars.battery_resistance_state_seconds = 0
+  vars.battery_resistance_state_samples = 0
+  vars.battery_resistance_state_samples_required = 0
+  bms_resistance_estimator.reset(now)
   vars.lights_board_comm_ok = False
   vars.power_switch_board_comm_ok = False
   vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_TX_COMM_TIMEOUT_MS)
@@ -413,7 +463,7 @@ def _rebuild_espnow_stack():
 
 screen_manager = ScreenManager(fb, vars)
 screen_manager.render(vars)
-boot_log("Boot screen rendered")
+boot_log("Initial screen rendered")
 
 BUTTON_PINS = [
   cfg.power_button_pin,
@@ -478,10 +528,11 @@ def _battery_resistance_timestamp(vars):
   except Exception:
     return 0
 
-def record_battery_resistance_result(vars, resistance_mohm):
+def record_battery_resistance_result(vars, resistance_mohm, metadata=None):
   timestamp = _battery_resistance_timestamp(vars)
   vars.battery_resistance_last_mohm = resistance_mohm
   vars.battery_resistance_last_timestamp = timestamp
+  vars.battery_resistance_measurement = dict(metadata or {})
   save_minimum = (
     vars.battery_resistance_min_mohm is None or
     resistance_mohm < vars.battery_resistance_min_mohm
@@ -499,7 +550,7 @@ def record_battery_resistance_result(vars, resistance_mohm):
   vars.battery_resistance_history_dirty = True
   vars.battery_resistance_alert_pending = (
     resistance_mohm,
-    int(battery_resistance_config.alert_duration_ms),
+    int(bms_battery_resistance_config.alert_duration_ms),
   )
 
 if cfg.enable_rtc_time:
@@ -512,7 +563,7 @@ if cfg.enable_rtc_time:
   boot_log("RTC object initialized")
 
 if vars.battery_resistance_enabled:
-  load_battery_resistance_history(vars, battery_resistance_config)
+  load_battery_resistance_history(vars, bms_battery_resistance_config)
 
 def filter_motor_power(p):
   if p < 0:
@@ -934,7 +985,7 @@ async def main_task(vars):
     if cfg.has_jbd_bms and not vars.rtc_sync_pending and not vars.comms_paused:
       vehicle_is_stationary = (
         vars.motor_board_rx_ok and
-        vars.rear_speed_telemetry_valid and
+        vars.wheel_speed_telemetry_valid and
         vars.wheel_speed_x10 == 0 and
         not vars.brakes_are_active and
         not vars.regen_braking_is_active
@@ -1001,7 +1052,12 @@ async def main_task(vars):
       vars.charging_reconfirm_pending = False
       vars.charging_reconfirm_started_ms = 0
 
-    in_main_screen = screen_manager.current_is(ScreenID.MAIN)
+    # BATTERY_RESISTANCE is the scooter's active dashboard replacement for
+    # MAIN and must inherit the same inactivity safety policy.
+    in_main_screen = (
+      screen_manager.current_is(ScreenID.MAIN) or
+      screen_manager.current_is(ScreenID.BATTERY_RESISTANCE)
+    )
     in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
 
     if was_in_charging_screen and not in_charging_screen:
@@ -1089,7 +1145,7 @@ async def main_task(vars):
     # Shutdown
     if vars.shutdown_request:
       if not save_battery_resistance_history(
-          vars, battery_resistance_config):
+          vars, bms_battery_resistance_config):
         print("Battery resistance history save failed")
       vars.turn_off_relay = True
       vars.motor_enable_state = False
@@ -1218,6 +1274,18 @@ async def motor_comms_task(vars):
         vars.motor_lights_tx_ok = bool(health_bitmap & HEALTH_MOTOR_LIGHTS_TX_OK)
         vars.rear_speed_telemetry_valid = bool(
           health_bitmap & HEALTH_MOTOR_REAR_SPEED_VALID)
+        vars.front_speed_telemetry_valid = bool(
+          health_bitmap & HEALTH_MOTOR_FRONT_SPEED_VALID)
+        vars.wheel_speed_telemetry_valid = bool(
+          vars.rear_speed_telemetry_valid or
+          vars.front_speed_telemetry_valid)
+        vars.wheel_speed_fallback_active = bool(
+          not vars.rear_speed_telemetry_valid and
+          vars.front_speed_telemetry_valid)
+        vars.rear_battery_telemetry_valid = bool(
+          health_bitmap & HEALTH_MOTOR_REAR_BATTERY_VALID)
+        vars.front_battery_telemetry_valid = bool(
+          health_bitmap & HEALTH_MOTOR_FRONT_BATTERY_VALID)
 
         vars.battery_voltage_x10 = parts[4]
         vars.battery_current_x10 = parts[5]
@@ -1238,34 +1306,15 @@ async def motor_comms_task(vars):
         vars.rear_motor_temperature_x10 = parts[12]
         vars.front_motor_temperature_x10 = parts[13]
 
-        if len(parts) >= 15 and \
-            vars.battery_resistance_enabled and \
-            vars.battery_resistance_measurement_available and \
-            not vars.battery_resistance_received_this_boot:
-          resistance_mohm = parts[14]
-          if (battery_resistance_config.min_mohm <= resistance_mohm <=
-              battery_resistance_config.max_mohm):
-            vars.battery_resistance_received_this_boot = True
-            record_battery_resistance_result(vars, resistance_mohm)
-
-        # Newer motor boards append the estimator diagnostic snapshot.
-        if len(parts) >= 20:
-          vars.battery_resistance_debug_phase = parts[15]
-          vars.battery_resistance_debug_boot_seconds = parts[16]
-          vars.battery_resistance_debug_error_count = parts[17]
-          vars.battery_resistance_debug_sample_count = parts[18]
-          vars.battery_resistance_debug_reference_sample_count = parts[19]
-          if len(parts) >= 21:
-            vars.battery_resistance_debug_phase_elapsed_seconds = parts[20]
-          if len(parts) >= 23:
-            vars.lisp_motion_loss_count = parts[21]
-            vars.lisp_thermal_loss_count = parts[22]
-
     vars.motor_board_rx_ok = time.ticks_diff(now, vars.motor_board_rx_last_ok_ms) < MOTOR_BOARD_RX_COMM_TIMEOUT_MS
     if not vars.motor_board_rx_ok:
       vars.motor_lights_tx_ok = False
       vars.rear_speed_telemetry_valid = False
-
+      vars.front_speed_telemetry_valid = False
+      vars.wheel_speed_telemetry_valid = False
+      vars.wheel_speed_fallback_active = False
+      vars.rear_battery_telemetry_valid = False
+      vars.front_battery_telemetry_valid = False
     # Control loop time
     next_wake = time.ticks_add(next_wake, period_ms)
     remaining = time.ticks_diff(next_wake, time.ticks_ms())

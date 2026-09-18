@@ -15,7 +15,13 @@ class Vars:
     self.battery_voltage_x10 = 0
     self.battery_current_x10 = 0
     self.rear_speed_telemetry_valid = False
+    self.front_speed_telemetry_valid = False
+    self.wheel_speed_telemetry_valid = False
+    self.wheel_speed_fallback_active = False
+    self.rear_battery_telemetry_valid = False
+    self.front_battery_telemetry_valid = False
     self.battery_soc_x1000 = -1 # -1 means value is invalid
+    self.bms_battery_voltage_x100 = None
     self.bms_battery_current_x100 = None
     # Timestamp of the BASIC BMS frame that supplied the current above.  This
     # lets charging detection reject a regeneration sample captured before the
@@ -30,27 +36,23 @@ class Vars:
     self.battery_resistance_min_timestamp = 0
     self.battery_resistance_max_mohm = None
     self.battery_resistance_max_timestamp = 0
+    self.battery_resistance_measurement = {}
     self.battery_resistance_history_dirty = False
     # Shutdown persistence transaction state. The row flag prevents a retry
     # from appending twice after history succeeded but summary publication did
     # not. A recovered summary is repaired at the next explicit shutdown.
     self.battery_resistance_history_row_saved = False
     self.battery_resistance_summary_repair_pending = False
-    # Prevent repeated motor status frames from duplicating alert/history state.
-    self.battery_resistance_received_this_boot = False
     # One-shot (resistance_mohm, duration_ms) consumed by MainScreen.
     self.battery_resistance_alert_pending = None
     self.battery_resistance_enabled = True
-    self.battery_resistance_measurement_available = True
     self.battery_resistance_config_error = ''
-    self.battery_resistance_debug_phase = -1
-    self.battery_resistance_debug_boot_seconds = 0
-    self.battery_resistance_debug_error_count = 0
-    self.battery_resistance_debug_sample_count = 0
-    self.battery_resistance_debug_reference_sample_count = 0
-    self.battery_resistance_debug_phase_elapsed_seconds = 0
-    self.lisp_motion_loss_count = 0
-    self.lisp_thermal_loss_count = 0
+    # BMS estimator phases: reference, settle, load, complete.
+    self.battery_resistance_state = -1
+    self.battery_resistance_state_seconds = 0
+    self.battery_resistance_state_samples = 0
+    self.battery_resistance_state_samples_required = 0
+    self.battery_resistance_rejection_reason = ''
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
     self.wheel_speed_x10 = 0

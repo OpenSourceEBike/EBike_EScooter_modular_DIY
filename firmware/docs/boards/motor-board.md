@@ -18,8 +18,6 @@ Typical motor-board duties include:
 - reading brake, throttle, speed, and torque inputs
 - computing motor current and speed targets
 - sending motor state back to the display
-- owning the passive battery-resistance estimator from direct VESC CAN
-  voltage/current telemetry
 - requesting light state updates when needed
 - requesting power-switch actions when needed
 
@@ -30,10 +28,7 @@ In the active scooter firmware:
 - the display sends motor commands directly
 - the motor board sends only `REAR_BRAKE_BIT` to the lights board
 - the motor board does not communicate with the BMS or report charging state
-- the optional JBD BMS is not used for battery-resistance measurement
 - the motor board drops drive enable after 2000 ms without a display command
-- the motor board performs at most one
-  successful measurement per boot and repeats that result in motor status
 
 ## Important notes
 
@@ -43,26 +38,23 @@ In the active scooter firmware:
 - After each disabled-to-enabled transition, throttle release inside the zero
   deadband for 100 continuous milliseconds is required before a motor target
   can be applied.
-- Battery-resistance configuration must not control the CAN freshness timeouts
-  used by speed, current limits, temperatures, voltage, or SOC.
-- The VESC LISP helper sends project-private command `101` precision
-  voltage/current and command `102` speed/motor-current at 10 Hz, adjacent in
-  each sample cycle. Command `103` supplies temperatures and SOC at 2 Hz.
-  These are the only VESC telemetry frames consumed by the motor board. Speed
-  and precision battery telemetry use a 1000 ms timeout; the slow temperature
-  frame uses 2000 ms and SOC remains valid for 30000 ms.
-  Command `101` is an eight-byte big-endian payload: unsigned 32-bit mV
-  followed by signed 32-bit mA.
-- The same LISP program and eight-byte payload layouts run on both VESCs; only
-  `vesc-id` changes. Rear ERPM and SOC are authoritative. The receiver skips
-  the corresponding front fields without storing them. The estimator combines
-  command-`101` voltage/current pairs from every VESC, using
-  absolute-current-weighted voltage and summed signed current, and requires
-  fresh samples with bounded rear/front receipt-time skew.
+- VESC standard Status 1, 4 and 5 at 10 Hz provide ERPM/motor current,
+  temperatures/input current, and pack voltage respectively. Status 1 and 5
+  use a 1000 ms freshness timeout; temperatures are retained for 2000 ms.
+- The rear VESC LispBM helper sends only SOC x1000 as project-private command
+  `99`, once per second. Rear SOC remains authoritative and is retained for
+  30000 ms. Front SOC is ignored.
+- Status-4 temperatures outside -50.0..200.0 C are published as unavailable
+  (`-2550`). Rear ERPM is the primary speed source; fresh front ERPM is a
+  Display-only fallback. Normal battery status combines fresh Status-4/5
+  branches using absolute-current-weighted voltage and summed signed current.
+- Battery resistance is no longer a Motor Board/VESC responsibility. The
+  board relays normal VESC Status 1/4/5 telemetry; the Display
+  estimates passive DC resistance from its local JBD Bluetooth BASIC samples.
 - The 20 ms actuation loop sends one target command per VESC and preserves the
   required 3 ms post-send CAN delay. Motor/battery limit refresh runs at 100 ms,
-  and CAN receive drains at most 32 already-queued frames without waiting on an
-  empty queue.
+  CAN receive drains at most 32 already-queued frames every 20 ms without
+  waiting on an empty queue.
 
 ## Code areas
 

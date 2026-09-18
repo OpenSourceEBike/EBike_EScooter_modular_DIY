@@ -136,36 +136,30 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm resistance_phase resistance_boot_seconds resistance_retries resistance_load_samples resistance_reference_samples resistance_phase_seconds motion_can_losses thermal_can_losses
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
 ```
 
 Status `flags` bit 2 carries `throttle_rearm_required`.
 `battery_is_charging` is display-local state derived from the optional BLE BMS
 and is not transported in motor status.
 
-Motor-status health bits also report whether rear speed is fresh. VESC status
-families have independent timestamps; receiving one family does not refresh the
-others.
+Motor-status health bits report link and per-source telemetry validity:
 
-The battery-resistance estimator runs on the motor board. Existing field
-meanings and order remain unchanged; the terminal
-`battery_resistance_mohm` field is `-1` while no result is available and then
-repeats the one `1..2500` mOhm result for the rest of the boot. It carries no
-measurement timestamp, age, or sequence number.
+- bit 0: motor-to-lights transmission is healthy;
+- bit 4: rear speed is fresh;
+- bit 5: front speed is fresh;
+- bit 6: rear Status-4/5 battery voltage/current is fresh;
+- bit 7: front Status-4/5 battery voltage/current is fresh.
 
-Newer motor boards append six resistance diagnostic values followed by the
-cumulative `102` motion and `103` thermal CAN sequence-gap counters. Older
-Displays safely ignore these trailing values.
+The status speed uses fresh rear ERPM first and fresh front ERPM only as a
+Display fallback. Battery status aggregates only the fresh branches. VESC
+status families have independent timestamps; receiving one family does not
+refresh the others.
 
-Resistance diagnostic phases are `0` get reference, `1` ramp, `2` get load, `3`
-collect, `4` complete, and `5` failed. The legacy `resistance_boot_seconds` position remains
-zero; `resistance_retries` is the number of failed load attempts, with five as
-25 as the terminal limit.
-
-The Display latches that repeated result once per Display boot. Repeated frames
-within the same boot do not duplicate history or alerts. If only the Display
-restarts while the motor remains powered, the new local session accepts the
-result once and shows one new alert.
+Battery resistance is not part of this ESP-NOW status. The Display derives its
+own passive BMS diagnostic from unique, fresh JBD BASIC voltage/current frames;
+it resets the in-progress estimate when BLE is stale or the radio is handed to
+Wi-Fi/NTP. Motor telemetry and traction remain independent.
 
 Power-switch to sender config echo/status:
 
@@ -249,24 +243,23 @@ latest command separately for each sender (display and motor board).
 | Sender → receiver | Information | Send period | Receiver processing / expiry |
 | --- | --- | --- | --- |
 | Display → motor board | Motor command: `motor_enable`, buttons, lights and relay-off request | 100 ms (10 Hz) | Queue drained every 250 ms; the last valid queued command is applied. If `motor_enable` is absent for 2000 ms, the motor board disables the motors. |
-| Motor board → display | System status: battery, current, SOC, speed, temperatures, flags and lights-link health; also repeats the motor-side battery-resistance result | 100 ms (10 Hz) | Processed in the display 250 ms communications loop; the latest queued status is applied. The display marks received motor status stale after 2000 ms. |
+| Motor board → display | System status: battery, current, SOC, rear-primary/front-fallback speed, per-source telemetry validity, temperatures, flags and lights-link health | 100 ms (10 Hz) | Processed in the display 250 ms communications loop; the latest queued status is applied. The display marks received motor status stale after 5000 ms. |
 | Display → lights board | Rider-light request: low beam, tail and turn signals; excludes the brake bit | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest display command is applied. Display-owned outputs are reset after 20000 ms without a display message. Display TX health expires after 1500 ms without a successful send. |
 | Motor board → lights board | Brake-light state: `REAR_BRAKE_BIT` only | Every 250 ms (4 Hz), immediately on state change; failed sends retry with a 50 ms initial interval doubling to a 1000 ms cap | Queue drained every 25 ms; latest motor command is applied independently of the display command. Motor TX health expires after 1500 ms without a successful send; the brake output is cleared after 2000 ms without a motor heartbeat. |
 | Display → power-switch board | Relay command: `turn_off` | Every 250 ms (4 Hz), and once immediately when the state changes | Processed approximately every 20 ms. The display considers its last successful send valid for 1500 ms. |
 | Display → power-switch board | Motion/power configuration: threshold, rate, AC mode, timeout and wait period | Only when values change; on send failure, retry every 2000 ms | Processed approximately every 20 ms; valid values are persisted by the power-switch board. |
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
 | Lights board → other boards | — | Does not send ESP-NOW frames | Receives and applies commands only. |
-| JBD BMS → display | BLE battery current used for local charging detection | Basic/cell queries currently alternate at about 1 Hz | BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with at most two retries before the BMS is marked unavailable. |
+| JBD BMS → display | BLE pack voltage/current for charging detection and passive resistance diagnostic | Basic/cell queries currently alternate at about 1 Hz | Only unique, fresh BASIC frames enter the resistance estimator; BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with at most two retries before the BMS is marked unavailable. |
 
-The JBD BMS is never used by the battery-resistance estimator. Motor-side CAN
-measurement continues even while the Display is unavailable or showing
-`m RX!`; only delivery and presentation of the repeated result are delayed.
-The estimator uses the atomic command-`101` voltage/current pair from each
-VESC; pending or missing samples do not reset an attempt, and no ESP-NOW
-payload change is required.
+The JBD BMS is the sole battery-resistance source. The Display accepts three
+reference BASIC frames inside -250 W to +250 W, then a discharge of at least
+750 W, discards one settling frame and averages three load frames at or below
+-750 W. This is effective BMS-side DC resistance, not
+instantaneous cell impedance.
 
 - Display motor transmission and power communication timeout: 1500 ms.
-- Display motor-status receive timeout: 2000 ms.
+- Display motor-status receive timeout: 5000 ms.
 - Display-to-lights and motor-to-lights TX health timeout: 1500 ms.
 - Lights-board motor heartbeat timeout: 2000 ms.
 - Power-switch heartbeat: 250 ms.
@@ -285,9 +278,10 @@ The maintained power button is debounced by `thisButton` and uses a 100 ms
 minimum click duration. Durations from 100 ms to below 1000 ms are short clicks;
 durations of 1000 ms or more are long presses. Durations below 100 ms are
 ignored. The power button's click and long-press callbacks are latched until
-the UI task consumes them. The display shows `Ready` during boot with motor
-enable still disabled; the
-first valid power click transitions to the main dashboard and enables it. The
+the UI task consumes them. The Display starts on `Ready` with motor enable
+inactive. The first valid POWER click enables the motor and opens the
+battery-resistance dashboard in place of `MAIN`; this replacement inherits the
+normal dashboard timeout, lights, charging and shutdown behaviour. The
 lights input is a maintained switch; its state
 is combined with the automatic schedule, with manual ON override as the
 default and `auto_lights_schedule_authoritative = True` available for a

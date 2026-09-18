@@ -7,7 +7,9 @@ except ImportError:
 
 
 _SUMMARY_HEADER = 'kind,resistance_mohm,timestamp'
-_HISTORY_HEADER = 'timestamp,resistance_mohm\n'
+_HISTORY_HEADER = (
+  'timestamp,resistance_mohm,before_voltage_x100,before_current_x100,'
+  'after_voltage_x100,after_current_x100\n')
 
 
 def _timestamp_from_csv(value):
@@ -75,7 +77,8 @@ def _read_history(path, config):
   result = None
   try:
     with open(path, 'r') as history:
-      if history.readline() != _HISTORY_HEADER:
+      header = history.readline()
+      if header != _HISTORY_HEADER:
         return None
       for line in history:
         # A reset during append may leave a syntactically plausible prefix
@@ -84,9 +87,9 @@ def _read_history(path, config):
         if not line.endswith('\n'):
           continue
         parts = line.strip().split(',')
-        if len(parts) != 2:
+        if len(parts) != 6:
           continue
-        timestamp, value = parts
+        timestamp, value = parts[0], parts[1]
         try:
           resistance_mohm = int(value)
         except ValueError:
@@ -131,6 +134,7 @@ def _apply_summary(state, summary):
   state.battery_resistance_min_timestamp = summary['min'][1]
   state.battery_resistance_max_mohm = summary['max'][0]
   state.battery_resistance_max_timestamp = summary['max'][1]
+  state.battery_resistance_measurement = {}
 
 
 def load_battery_resistance_history(state, config):
@@ -191,10 +195,16 @@ def _history_tail_is_complete(path, current_size):
 def _append_history(state, config):
   if state.battery_resistance_last_mohm is None:
     return True
-  row = '{},{}\n'.format(
+  metadata = getattr(state, 'battery_resistance_measurement', {})
+  row_values = (
     _timestamp_to_csv(state.battery_resistance_last_timestamp),
     state.battery_resistance_last_mohm,
+    int(metadata.get('before_voltage_x100', 0)),
+    int(metadata.get('before_current_x100', 0)),
+    int(metadata.get('after_voltage_x100', 0)),
+    int(metadata.get('after_current_x100', 0)),
   )
+  row = ','.join(str(value) for value in row_values) + '\n'
   path = config.history_file_path
   current_size = _file_size(path)
   if current_size is None:

@@ -57,6 +57,9 @@ Health bits:
 
 - `HEALTH_MOTOR_LIGHTS_TX_OK = 1 << 0`
 - `HEALTH_MOTOR_REAR_SPEED_VALID = 1 << 4`
+- `HEALTH_MOTOR_FRONT_SPEED_VALID = 1 << 5`
+- `HEALTH_MOTOR_REAR_BATTERY_VALID = 1 << 6`
+- `HEALTH_MOTOR_FRONT_BATTERY_VALID = 1 << 7`
 
 ## Current Frame Shapes
 
@@ -95,7 +98,7 @@ MSG_COMMAND src dst=BOARD_POWER_SWITCH POWER_CONFIG_CMD motion_threshold motion_
 Motor to display status:
 
 ```text
-MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10 battery_resistance_mohm resistance_phase resistance_boot_seconds resistance_retries resistance_load_samples resistance_reference_samples resistance_phase_seconds motion_can_losses thermal_can_losses
+MSG_STATUS src=BOARD_MOTOR dst=BOARD_DISPLAY health battery_voltage_x10 battery_current_x10 battery_soc_x1000 motor_current_x10 wheel_speed_x10 flags rear_vesc_temp_x10 front_vesc_temp_x10 rear_motor_temp_x10 front_motor_temp_x10
 ```
 
 Status `flags` bit 2 carries `throttle_rearm_required`. The motor board clears
@@ -105,25 +108,13 @@ connection and is not sent by the motor board.
 
 ### Battery-resistance result
 
-The estimator runs on the motor board. It sends `-1` until the one result for
-its boot is available, then repeats the measured `1..2500` mOhm value in every
-status. No measurement age, CAN timestamp, or sequence number is added.
-
-Diagnostic phases are `0` get reference, `1` ramp, `2` get load, `3` collect,
-`4` complete, and `5`
-failed. `resistance_boot_seconds` is retained as a reserved zero for packet
-compatibility; `resistance_retries` counts failed load attempts, up to 25.
-Existing Displays continue to ignore the trailing field; a new Display also
-accepts the previous 14-field status and treats resistance as unavailable.
-
-Newer motor boards append the resistance diagnostic fields and the cumulative
-per-VESC CAN loss totals. `motion_can_losses` counts gaps in command `102` and
-`thermal_can_losses` counts gaps in command `103`; the first received sequence
-in each family establishes the baseline and is not a loss.
-
-The repeated result produces at most one alert per Display boot. An independent
-Display reset clears that local latch, so the still-running motor's repeated
-result is accepted once and alerts once in the new Display session.
+Battery resistance is Display-local and derived only from fresh JBD Bluetooth
+BASIC voltage/current samples. It is neither sent by a VESC nor part of the
+Motor Board ESP-NOW status. The BMS estimator requires three reference samples
+inside -250 W to +250 W, a discharge of at least 750 W, one discarded settling
+sample, and three load samples at or below -750 W. Its
+result is effective DC resistance at the BMS measurement point; it does not
+control traction or charging protection.
 
 Power-switch to sender config echo/status:
 
@@ -147,19 +138,22 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
    detection; the motor board does not communicate with the BMS.
 10. Failed lights sends retry with an exponential interval starting at 50 ms
     and capped at 1000 ms; successful sends reset the interval.
-11. VESC telemetry families are tracked independently for each VESC. The
-    LISP helper sends atomic mV/mA command `101`, speed/current command `102`,
-    and slow temperature/SOC command `103`; these are the only VESC telemetry
-    frames consumed by the motor board. The same LISP program and eight-byte
-    layouts run on both VESCs; only `vesc-id` changes. ERPM and SOC are sourced
-    only from the rear VESC, while the receiver skips those front fields without
-    storing them. The resistance estimator combines command-`101`
-    voltage/current from every configured VESC using absolute-current-weighted
-    voltage and summed signed current, and requires fresh samples from all of
-    them. Charging standstill detection requires valid rear speed.
-12. The optional JBD BMS is not a battery-resistance source. It remains
-    Display-local and is used only by unrelated functions such as charging
-    detection.
+11. VESC standard CAN Status 1, 4 and 5 provide ERPM/motor current,
+    temperatures/input current and pack voltage at 10 Hz. The rear-only
+    LispBM helper sends SOC x1000 as command `99` once per second. Rear ERPM
+    is primary and fresh front ERPM is a Display-only fallback; rear SOC
+    remains authoritative and front SOC is ignored. Normal battery status
+    aggregates only fresh Status-4/5 branches using absolute-current-weighted
+    voltage and summed signed current. Charging standstill detection requires
+    a valid selected speed source, rear or front.
+12. The optional JBD BMS remains Display-local. Its fresh BASIC frames also
+    feed the passive BMS resistance diagnostic; stale, duplicate, charging or
+    regenerating frames cannot produce a resistance result.
+
+Motor-status `health` bits are bit 0 motor-to-lights TX healthy, bit 4 rear
+speed valid, bit 5 front speed valid, bit 6 rear standard battery telemetry
+valid, and bit 7 front standard battery telemetry valid. Receivers that do not
+know the newer validity bits can continue ignoring them.
 
 ## Display button contract
 
@@ -170,8 +164,9 @@ The maintained power button uses the shared `thisButton` driver:
 - Long press: 1000 ms inclusive.
 - Presses shorter than 100 ms are ignored.
 - Power click and long-press events are latched until the UI task consumes them.
-- The boot screen shows `Ready`; the motor remains disabled until a valid POWER
-  click transitions to the main dashboard and enables it.
+- The Display always starts in `Ready` with the motor disabled. After the
+  normal POWER enable action, the battery-resistance dashboard replaces
+  `MAIN` and follows the same timeout, lights, charging and shutdown rules.
 
 The lights input is a maintained switch, not a momentary click. Its stable
 state is combined with the automatic schedule according to

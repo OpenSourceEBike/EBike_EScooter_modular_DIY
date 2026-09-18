@@ -4,19 +4,9 @@ from fonts import robotobold12 as font
 
 
 class BatteryResistanceDebugScreen(BaseScreen):
-  """Temporary riding view for battery-resistance diagnostics."""
+  """Optional BMS snapshot view for diagnosis outside normal navigation."""
 
   NAME = "Battery resistance debug"
-  _STATE_NAMES = {
-    -1: "unavailable",
-    0: "get reference",
-    1: "ramp to load",
-    2: "get load",
-    3: "collect samples",
-    4: "complete",
-    5: "failed",
-  }
-
   def __init__(self, fb):
     super().__init__(fb)
     self._lines = []
@@ -48,54 +38,18 @@ class BatteryResistanceDebugScreen(BaseScreen):
     if getattr(vars, "battery_resistance_alert_pending", None) is not None:
       vars.battery_resistance_alert_pending = None
 
-    state = int(getattr(vars, "battery_resistance_debug_phase", -1))
     texts = [""] * 5
-    texts[0] = "{}: {}".format(
-      state, self._STATE_NAMES.get(state, "unknown"))
-    error_count = int(getattr(
-      vars, "battery_resistance_debug_error_count", 0))
-    sample_count = int(getattr(
-      vars, "battery_resistance_debug_sample_count", 0))
-    reference_sample_count = int(getattr(
-      vars, "battery_resistance_debug_reference_sample_count", 0))
-    phase_elapsed_seconds = int(getattr(
-      vars, "battery_resistance_debug_phase_elapsed_seconds", 0))
+    texts[0] = "Battery resistance"
     result = getattr(vars, "battery_resistance_last_mohm", None)
     result = result if result is not None else "na"
-    if getattr(vars, "motor_board_rx_ok", False):
-      battery_voltage_x10 = int(getattr(vars, "battery_voltage_x10", 0))
-      battery_current_x10 = int(getattr(vars, "battery_current_x10", 0))
-      battery_power_w = int(
-        (battery_voltage_x10 * battery_current_x10) / 100.0)
-      power_text = "power: {:+d} W".format(battery_power_w)
-    else:
-      power_text = "power: na"
-
-    if state == 0:
-      texts[1] = "ref: -100..100W {:d}/10s".format(phase_elapsed_seconds)
-    elif state == 1:
-      texts[1] = "ramp: {:d}/3s".format(phase_elapsed_seconds)
-    elif state == 2:
-      texts[1] = "load: {:d}/15s".format(phase_elapsed_seconds)
-    elif state == 3:
-      texts[1] = "collect: {:d}/5".format(sample_count)
-    elif state == 4:
-      texts[1] = "result available"
-    elif state == 5:
-      texts[1] = "measurement failed"
-    else:
-      texts[1] = "measure: unavailable"
-
-    texts[2] = power_text
-
-    if state == 0:
-      texts[3] = "samples: {:d}/5".format(reference_sample_count)
-    elif state in (1, 2):
-      texts[3] = "samples: {:d}/5".format(sample_count)
-    elif state == 4:
-      texts[3] = "measured: {} moh".format(result)
-    elif state == 5:
-      texts[3] = "attempts: 25/25"
-
-    texts[4] = "retries: {:d}".format(error_count)
+    metadata = getattr(vars, "battery_resistance_measurement", {})
+    texts[1] = "BMS R: {} moh".format(result)
+    texts[2] = "V: {}>{}".format(
+      metadata.get("before_voltage_x100", "na"),
+      metadata.get("after_voltage_x100", "na"))
+    texts[3] = "I: {}>{}".format(
+      metadata.get("before_current_x100", "na"),
+      metadata.get("after_current_x100", "na"))
+    rejection_reason = getattr(vars, "battery_resistance_rejection_reason", "")
+    texts[4] = "Reject: " + rejection_reason if rejection_reason else "BASIC x100"
     self._update_lines(texts)

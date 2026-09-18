@@ -1,3 +1,6 @@
+TEMPERATURE_NOT_AVAILABLE_X10 = -2550
+
+
 class Cfg(object):
   def __init__(self):
     self.throttle_1_adc_min = 0
@@ -68,14 +71,4 @@ class Vars(object):
     self.turn_off_relay = False
     self.display_comm_ok = False
     self.lights_comm_ok = False
-    # -1 until the one motor-side measurement for this boot succeeds.
-    self.battery_resistance_mohm = -1
-    self.battery_resistance_debug_phase = -1
-    self.battery_resistance_debug_boot_seconds = 0
-    self.battery_resistance_debug_error_count = 0
-    self.battery_resistance_debug_sample_count = 0
-    self.battery_resistance_debug_reference_sample_count = 0
-    self.battery_resistance_debug_phase_elapsed_seconds = 0
-    self.lisp_motion_loss_count = 0
-    self.lisp_thermal_loss_count = 0
     

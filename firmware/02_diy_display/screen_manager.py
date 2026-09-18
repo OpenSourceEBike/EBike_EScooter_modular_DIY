@@ -10,7 +10,7 @@ class ScreenID:
   POWEROFF  = 3
   MOTOR_BLOCKED = 4
   BATTERY_RESISTANCE = 5
-  BATTERY_RESISTANCE_DEBUG = 6
+  BATTERY_RESISTANCE_HISTORY = 6
 
 class ScreenManager:
   def __init__(self, fb, vars):
@@ -25,8 +25,8 @@ class ScreenManager:
       ScreenID.BATTERY_RESISTANCE: (
         "screens.battery_resistance", "BatteryResistanceScreen"
       ),
-      ScreenID.BATTERY_RESISTANCE_DEBUG: (
-        "screens.battery_resistance_debug", "BatteryResistanceDebugScreen"
+      ScreenID.BATTERY_RESISTANCE_HISTORY: (
+        "screens.battery_resistance", "BatteryResistanceHistoryScreen"
       ),
     }
     self._screen_factories = {
@@ -34,9 +34,10 @@ class ScreenManager:
     }
     self._screens = {}
 
-    # Start on the Ready screen; the motor remains disabled until POWER is
-    # clicked and the screen manager transitions to MAIN.
+    # Preserve the normal Ready/POWER safety gate. Battery resistance replaces
+    # MAIN only after the rider explicitly enables the motor.
     self._current_id = ScreenID.BOOT
+    vars.motor_enable_state = False
     self._current = self._get_screen(self._current_id)
     self._current.on_enter()
 
@@ -44,9 +45,6 @@ class ScreenManager:
     self._button_power_click_previous = False
     self._charging_state_previous = False
     self._charging_entry_is_auto = False
-    # Entering CHARGING alternates the next riding screen between the normal
-    # dashboard and the temporary battery-resistance diagnostic view.
-    self._next_main_is_battery_resistance_debug = False
     self._rearm_warning_suppressed_until_ms = 0
 
   def _suppress_rearm_warning(self, duration_ms=1500):
@@ -65,15 +63,10 @@ class ScreenManager:
 
   def current_is(self, screen_id):
     """Fast equality without tuples/strings."""
-    if screen_id == ScreenID.MAIN:
-      return self._current_id in (
-        ScreenID.MAIN, ScreenID.BATTERY_RESISTANCE_DEBUG)
     return self._current_id == screen_id
 
   def _next_main_screen_id(self):
-    if self._next_main_is_battery_resistance_debug:
-      return ScreenID.BATTERY_RESISTANCE_DEBUG
-    return ScreenID.MAIN
+    return ScreenID.BATTERY_RESISTANCE
 
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
@@ -116,9 +109,6 @@ class ScreenManager:
       screen_id = self._next_main_screen_id()
     if screen_id == self._current_id:
       return
-    if screen_id == ScreenID.CHARGING:
-      self._next_main_is_battery_resistance_debug = \
-        not self._next_main_is_battery_resistance_debug
     if cfg.boot_timing_debug:
       print("[screen] switch {} -> {}".format(self._current_id, screen_id))
     self._current.on_exit()
@@ -246,24 +236,25 @@ class ScreenManager:
         return
 
       # Go to Charging
-      if self.current_is(ScreenID.MAIN) and wheel_stopped and brakes_on:
+      if self.current_is(self._next_main_screen_id()) and \
+          wheel_stopped and brakes_on:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)
         return
 
-      # Charging entered manually opens the battery-resistance history.
+      # The manual charging flow opens the separate resistance-history screen.
       if self.current_is(ScreenID.CHARGING) and \
               not is_charging and \
               not self._charging_entry_is_auto:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = False
-        self.force(ScreenID.BATTERY_RESISTANCE)
+        self.force(ScreenID.BATTERY_RESISTANCE_HISTORY)
         return
 
-      # The history screen is an informational stop in the manual charging
-      # flow; the next click continues to BOOT.
-      if self.current_is(ScreenID.BATTERY_RESISTANCE):
+      # The post-charging data screen is informational; its next short click
+      # continues to the Ready screen, as in the former charging flow.
+      if self.current_is(ScreenID.BATTERY_RESISTANCE_HISTORY):
         self._suppress_rearm_warning()
         vars.motor_enable_state = False
         self.force(ScreenID.BOOT)
@@ -280,7 +271,8 @@ class ScreenManager:
       self._button_power_long_click_previous = button_power_long_click
 
       # Go to Power off when stopped, or allow a brake-assisted shutdown while rolling.
-      if self.current_is(ScreenID.MAIN) and (wheel_stopped or brakes_on):
+      if self.current_is(self._next_main_screen_id()) and \
+          (wheel_stopped or brakes_on):
         vars.motor_enable_state = False
         vars.shutdown_request = True
         self.force(ScreenID.POWEROFF)

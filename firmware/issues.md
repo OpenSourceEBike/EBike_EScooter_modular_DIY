@@ -1,13 +1,15 @@
 # Firmware Issues Review
 
-Review date: 2026-08-23.
+Review date: 2026-09-18.
 
 Scope: maintained scooter firmware in this checkout: motor, Display, lights,
 automatic power-control board, shared ESP-NOW helpers, runtime configuration,
-and the battery-resistance feature. The legacy e-bike paths are excluded.
+and the battery-resistance feature. The legacy e-bike paths are excluded. This
+revision includes a post-implementation review of the Display-local JBD BMS
+battery-resistance path.
 
-Only open findings are kept in this file. Resolved findings and accepted design
-decisions remain documented in the relevant pages under `docs/`.
+Only open findings are kept in this file. The two intentional design decisions
+below are recorded solely to prevent them being reintroduced as issues.
 
 ## Open findings
 
@@ -22,6 +24,22 @@ decisions remain documented in the relevant pages under `docs/`.
 | PWR-01 | Certain protocol gap | Medium | Relay and power configuration are not application-acknowledged. |
 | MOT-01 | Required CAN delay; target timing not measured | Medium | Synchronous post-send delays can still postpone the nominal 20 ms motor cycle. |
 | RTC-01 | Certain blocking call; duration requires target-network measurement | Medium | Asynchronous NTP synchronization still invokes a synchronous operation. |
+
+## Intentional design decisions (not issues)
+
+### BMS-02 — MOSFET state is intentionally ignored
+
+The JBD client does not expose and the BMS resistance estimator does not read
+or use charge/discharge MOSFET state. A disabled, enabled, or unavailable
+MOSFET state neither blocks nor resets a measurement. This is an intentional
+design decision, not an issue.
+
+### PWR-02 — relay is asserted before peripheral initialization
+
+The Power Board intentionally asserts the relay at the first possible point,
+before radio, I2C, and ADXL345 initialization, so the Display is powered during
+Power Board startup. A startup exception after that assertion is accepted
+behavior for this design and is not an issue.
 
 ## Lights and communications
 
@@ -57,7 +75,7 @@ payload, or reject replayed commands.
 **References:**
 
 - `common/espnow_protocol.py:18-34`
-- `01_diy_main_board/escooter/main.py:352-387`
+- `01_diy_main_board/escooter/main.py:399-430`
 - `03_diy_lights_board/main.py:91-97`
 - `04_diy_automatic_power_control/main.py:186-196`
 
@@ -81,7 +99,7 @@ password to the Display serial output.
 
 - `02_diy_display/wifi_time_sync.py:194-203`
 - `02_diy_display/wifi_time_sync.py:223-234`
-- `02_diy_display/escooter/main.py:759-815`
+- `02_diy_display/escooter/main.py:790-876`
 
 **Impact:** anyone with access to captured serial logs or a connected console
 can recover the network credential. Debug flags do not suppress the output.
@@ -149,9 +167,9 @@ on its main loop continuing in order to reach normal timeout shutdown.
 
 **References:**
 
-- `01_diy_main_board/escooter/main.py:735-753`
-- `02_diy_display/escooter/main.py:1205-1223`
-- `04_diy_automatic_power_control/main.py:357-469`
+- `01_diy_main_board/escooter/main.py:805-821`
+- `02_diy_display/escooter/main.py:1306-1319`
+- `04_diy_automatic_power_control/main.py:354-476`
 
 **Impact:** an uncaught task exception or peripheral lock-up can leave a board
 degraded or keep the power path asserted until external intervention.
@@ -173,10 +191,10 @@ frames per refresh.
 
 **References:**
 
-- `01_diy_main_board/escooter/main.py:447-604`
-- `01_diy_main_board/escooter/main.py:606-658`
-- `01_diy_main_board/motor.py:60-78`
-- `01_diy_main_board/motor.py:110-190`
+- `01_diy_main_board/escooter/main.py:494-656`
+- `01_diy_main_board/escooter/main.py:658-725`
+- `01_diy_main_board/motor.py:68-97`
+- `01_diy_main_board/motor.py:123-194`
 
 **Impact:** in dual-motor operation, cooperative scheduling can still delay an
 actuation cycle when it coincides with the limit-refresh task.
@@ -195,7 +213,7 @@ or recovery work, while ESP-NOW and BLE are deliberately paused.
 **References:**
 
 - `02_diy_display/wifi_time_sync.py:334-387`
-- `02_diy_display/escooter/main.py:757-832`
+- `02_diy_display/escooter/main.py:790-876`
 
 **Impact:** slow DNS/NTP behavior can freeze the Display longer than expected
 and delay radio recovery.
@@ -218,10 +236,11 @@ matching echo.
 
 **References:**
 
-- `02_diy_display/escooter/main.py:320-346`
-- `02_diy_display/escooter/main.py:1047-1152`
-- `04_diy_automatic_power_control/main.py:198-270`
-- `04_diy_automatic_power_control/main.py:357-448`
+- `02_diy_display/escooter/main.py:181-235`
+- `02_diy_display/escooter/main.py:346-367`
+- `02_diy_display/escooter/main.py:1142-1250`
+- `04_diy_automatic_power_control/main.py:186-263`
+- `04_diy_automatic_power_control/main.py:357-423`
 
 **Impact:** the Display cannot distinguish applied, rejected, already-present,
 or merely transmitted state, and cannot confirm that the relay physically
@@ -234,17 +253,17 @@ on a fresh matching acknowledgement.
 
 ## Validation performed
 
-- Syntax compilation succeeded for all 87 Python files in the checkout.
-- Forty-three host tests passed: battery resistance, persistence, bounded CAN
-  RX, precision telemetry, and preservation of the required CAN post-send delay.
-- Targeted tests cover a successful 25th attempt, terminal 25th failure,
-  retry recovery, mixed-sign dual-VESC currents, asynchronous dual samples, and
-  excessive timestamp skew.
-- `R 2500 moh` measures 63 px in the normal 78 px alert lane.
-- The debug screen consumes the pending result alert without displaying it or
-  delaying it until a later return to the normal dashboard.
-- `bash -n scripts/update_firmware.sh` passed.
+- Syntax compilation succeeded for all 91 Python files in the checkout.
+- Twenty-one host tests passed: BMS resistance configuration and state-machine
+  behavior, operational CAN telemetry decode, Motor Board timing, telemetry
+  helpers, and battery-resistance screen navigation.
+- Targeted BMS tests cover a known 35 mOhm step, duplicate BASIC timestamp
+  rejection, regeneration not starting a discharge event, active-protection
+  rejection, power-window/load-threshold behavior, variable sustained load,
+  and load-event expiry.
+- Motor CAN tests cover standard VESC Status 1/4/5 and rear SOC command `99`;
+  a former private precision command is ignored. Telemetry tests cover the
+  unavailable-temperature sentinel after Status-4 expiry.
 - `git diff --check` passed.
-- `ruff`, `pyflakes`, and `mpy-cross` are unavailable in this environment.
-- No ESP32-S3 UI timing/heap, CAN, radio, filesystem power-loss, or
-  target-network timing test was performed.
+- No live JBD BLE/BASIC cadence, ESP32-S3 UI timing/heap, CAN, radio,
+  filesystem power-loss, or target-network timing test was performed.

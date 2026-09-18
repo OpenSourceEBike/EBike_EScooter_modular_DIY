@@ -1,7 +1,2 @@
-timestamp,resistance_mohm
-2026-08-24T00:40:39,166
-2026-08-24T00:42:56,165
-2026-08-24T00:44:37,164
-2026-08-24T00:47:02,162
-2026-08-24T00:49:38,162
-2026-08-24T00:52:30,161
+timestamp,resistance_mohm,before_voltage_x100,before_current_x100,after_voltage_x100,after_current_x100
+2026-08-24T00:40:39,35,5381,-130,5170,-6130
