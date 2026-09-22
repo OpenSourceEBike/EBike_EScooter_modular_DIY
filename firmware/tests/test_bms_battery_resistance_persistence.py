@@ -1,7 +1,9 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
+import common.battery_resistance_persistence as persistence
 from common.battery_resistance_persistence import (
   _LEGACY_HISTORY_HEADER,
   _HISTORY_HEADER,
@@ -76,6 +78,56 @@ class BmsBatteryResistancePersistenceTests(unittest.TestCase):
         self.assertEqual(
           history.read(),
           _HISTORY_HEADER + '2026-09-18T12:00:00,34,na\n')
+
+  def test_pending_measurements_are_not_coalesced(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      state = _State(36, 2800)
+      state.battery_resistance_min_mohm = 34
+      state.battery_resistance_pending_records = [
+        (0, 34, 2600),
+        (0, 36, 2800),
+      ]
+
+      self.assertTrue(save_battery_resistance_history(state, config))
+
+      self.assertEqual(state.battery_resistance_pending_records, [])
+      self.assertFalse(state.battery_resistance_history_dirty)
+      with open(config.history_file_path, 'r') as history:
+        self.assertEqual(
+          history.read(),
+          _HISTORY_HEADER +
+          'na,34,2600\n'
+          'na,36,2800\n')
+
+  def test_failed_pending_append_remains_queued_for_retry(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      state = _State()
+      state.battery_resistance_pending_records = [(0, 999, 2735)]
+
+      self.assertFalse(save_battery_resistance_history(state, config))
+      self.assertEqual(
+        state.battery_resistance_pending_records, [(0, 999, 2735)])
+      self.assertTrue(state.battery_resistance_history_dirty)
+
+  def test_summary_retry_does_not_duplicate_an_appended_pending_row(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      state = _State()
+      state.battery_resistance_pending_records = [(0, 35, 2735)]
+
+      with patch.object(
+          persistence, '_save_summary_atomic', return_value=False):
+        self.assertFalse(save_battery_resistance_history(state, config))
+
+      self.assertEqual(state.battery_resistance_pending_records, [])
+      self.assertTrue(state.battery_resistance_history_dirty)
+      self.assertTrue(save_battery_resistance_history(state, config))
+      with open(config.history_file_path, 'r') as history:
+        self.assertEqual(
+          history.read(),
+          _HISTORY_HEADER + 'na,35,2735\n')
 
 
 if __name__ == '__main__':

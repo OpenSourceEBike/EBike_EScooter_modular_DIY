@@ -20,6 +20,24 @@ FET_TEMPERATURE_MAX_X10 = 2000
 TEMPERATURE_NOT_AVAILABLE_X10 = -2550
 
 
+def _unpack_u16_be(data, offset):
+  """Read an unsigned 16-bit big-endian value without an unpack tuple."""
+  return (data[offset] << 8) | data[offset + 1]
+
+
+def _unpack_i16_be(data, offset):
+  """Read a signed 16-bit big-endian value without an unpack tuple."""
+  value = _unpack_u16_be(data, offset)
+  return value - 0x10000 if value & 0x8000 else value
+
+
+def _unpack_i32_be(data, offset):
+  """Read a signed 32-bit big-endian value without an unpack tuple."""
+  value = ((data[offset] << 24) | (data[offset + 1] << 16) |
+           (data[offset + 2] << 8) | data[offset + 3])
+  return value - 0x100000000 if value & 0x80000000 else value
+
+
 def _sanitize_temperature_x10(value):
   if FET_TEMPERATURE_MIN_X10 <= value <= FET_TEMPERATURE_MAX_X10:
     return value
@@ -155,16 +173,17 @@ class Motor(object):
         # CAN_PACKET_STATUS_1 (cmd 9): ERPM and motor current.
         if message_id == 9 and dlc >= 6:
           now = time.ticks_ms()
-          motor_data.speed_erpm, motor_data.motor_current_x10 = \
-            struct.unpack_from(">lh", data, 0)
+          motor_data.speed_erpm = _unpack_i32_be(data, 0)
+          motor_data.motor_current_x10 = _unpack_i16_be(data, 4)
           motor_data.status_1_last_update_ms = now
           motor_data.last_can_data_ms = now
 
         # CAN_PACKET_STATUS_4 (cmd 16): temperatures and input current.
         elif message_id == 16 and dlc >= 6:
           now = time.ticks_ms()
-          (vesc_temperature_x10, motor_temperature_x10,
-           motor_data.battery_current_x10) = struct.unpack_from(">hhh", data, 0)
+          vesc_temperature_x10 = _unpack_i16_be(data, 0)
+          motor_temperature_x10 = _unpack_i16_be(data, 2)
+          motor_data.battery_current_x10 = _unpack_i16_be(data, 4)
           motor_data.vesc_temperature_x10 = _sanitize_temperature_x10(
             vesc_temperature_x10)
           motor_data.motor_temperature_x10 = _sanitize_temperature_x10(
@@ -175,15 +194,14 @@ class Motor(object):
         # CAN_PACKET_STATUS_5 (cmd 27): input voltage in 0.1 V.
         elif message_id == 27 and dlc >= 6:
           now = time.ticks_ms()
-          motor_data.battery_voltage_x10 = struct.unpack_from(">H", data, 4)[0]
+          motor_data.battery_voltage_x10 = _unpack_u16_be(data, 4)
           motor_data.status_5_last_update_ms = now
           motor_data.last_can_data_ms = now
 
         # Project-private SOC sent by the rear VESC LispBM helper.
         elif message_id == 99 and dlc >= 2:
           now = time.ticks_ms()
-          motor_data.battery_soc_x1000 = min(
-            1000, struct.unpack_from(">H", data, 0)[0])
+          motor_data.battery_soc_x1000 = min(1000, _unpack_u16_be(data, 0))
           motor_data.soc_last_update_ms = now
           motor_data.last_can_data_ms = now
 

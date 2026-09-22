@@ -220,6 +220,10 @@ new charging entries cannot schedule another sync until the display reboots.
 
 During sync, `vars.comms_paused` stops the display's ESP-NOW send/receive loop,
 the BLE BMS client is stopped, and the charging screen shows `Wifi time sync`.
+The asynchronous path does not run an explicit blocking WLAN scan. Radio reset
+waits yield to the scheduler, and DNS plus NTP use non-blocking UDP polling under
+one configured end-to-end NTP deadline before the internal/external RTCs are
+updated.
 The display rebuilds ESP-NOW and restarts BLE before resuming communications;
 a rebuild failure releases the pause and resets the display board. The final
 time-sync success or error replaces the `Charging` title for five seconds after

@@ -116,6 +116,9 @@ motor_brake_state = 0
 display_timeout_ms = time.ticks_add(time.ticks_ms(), DISPLAY_TIMEOUT_MS)
 motor_timeout_ms = time.ticks_add(time.ticks_ms(), MOTOR_TIMEOUT_MS)
 lights_debug_next_ms = time.ticks_add(time.ticks_ms(), 1000)
+# Reused on every 25 ms receive pass.  The ESP-NOW helper clears it before
+# filling latest packets, avoiding a fresh empty dictionary on an idle radio.
+messages_by_source = {}
 
 # A full collection pauses this single, time-sensitive loop.  Do not run it on
 # every iteration: let MicroPython collect automatically under allocation
@@ -164,7 +167,7 @@ while True:
   now = loop_start_ms
 
   # Check if new ESP-NOW data was received
-  messages_by_source = espnow_comms.get_latest_data_by_source()
+  espnow_comms.get_latest_data_by_source(out=messages_by_source)
   for host, msg in messages_by_source.values():
     command_id, src_id, dst_id, mask, state = msg
     if command_id == MSG_COMMAND:

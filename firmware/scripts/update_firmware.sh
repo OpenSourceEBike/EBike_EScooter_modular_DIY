@@ -70,6 +70,7 @@ while IFS=$'\t' read -r hash path; do
 done < <("${MP[@]}" fs cat ":$MANIFEST" 2>/dev/null || true)
 
 changed=0
+declare -A NEW
 for source in "${FILES[@]}"; do
   destination="${source#01_diy_main_board/}"
   destination="${destination#03_diy_lights_board/}"
@@ -77,6 +78,7 @@ for source in "${FILES[@]}"; do
   destination="${destination#02_diy_display/}"
   hash="$(sha256sum "$ROOT/$source" | awk '{print $1}')"
   printf '%s\t/%s\n' "$hash" "$destination" >> "$TMP"
+  NEW["/$destination"]=1
   if [[ "${OLD["/$destination"]:-}" != "$hash" ]]; then
     remote_dir="$(dirname "/$destination")"
     if [[ "$remote_dir" != "/" ]]; then
@@ -87,11 +89,38 @@ for source in "${FILES[@]}"; do
   fi
 done
 
-removed=0
-for obsolete in "${OBSOLETE_FILES[@]}"; do
-  if [[ -n "${OLD["$obsolete"]:-}" ]] && "${MP[@]}" fs rm ":$obsolete" 2>/dev/null; then
-    removed=$((removed + 1))
+is_safe_managed_path() {
+  local path="$1"
+  [[ "$path" =~ ^/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$ ]] || return 1
+  [[ "$path" != "/" && "$path" != *"/../"* && "$path" != *"/.." ]] || return 1
+}
+
+# Reconcile the complete previous manifest before publishing the replacement.
+# Only paths that were already tracked by this board's own manifest are
+# eligible, and every path is constrained to a simple absolute device path.
+declare -A REMOVE
+for previous in "${!OLD[@]}"; do
+  if [[ -z "${NEW["$previous"]:-}" ]]; then
+    REMOVE["$previous"]=1
   fi
+done
+for obsolete in "${OBSOLETE_FILES[@]}"; do
+  if [[ -n "${OLD["$obsolete"]:-}" ]]; then
+    REMOVE["$obsolete"]=1
+  fi
+done
+
+removed=0
+for obsolete in "${!REMOVE[@]}"; do
+  if ! is_safe_managed_path "$obsolete"; then
+    echo "Erro: caminho obsoleto inseguro no manifesto: $obsolete" >&2
+    exit 1
+  fi
+  if ! "${MP[@]}" fs rm ":$obsolete"; then
+    echo "Erro: não foi possível remover ficheiro obsoleto: $obsolete" >&2
+    exit 1
+  fi
+  removed=$((removed + 1))
 done
 
 if [[ "$changed" -eq 0 && "$removed" -eq 0 ]]; then

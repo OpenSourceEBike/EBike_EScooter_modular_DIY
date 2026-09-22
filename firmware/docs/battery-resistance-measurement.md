@@ -56,7 +56,11 @@ remain independent.
 If the BMS is absent during startup, the client makes two immediate reconnect
 attempts and then waits 30 seconds before automatically starting a new bounded
 scan sequence. Three consecutive unexpected client `tick()` failures also
-enter that recovery path.
+enter that recovery path. Every BLE connection boundary discards cached
+measurements and unread stream bytes, so neither a previous value nor a complete
+or partial previous frame can be exposed by the new connection. A JBD response
+is accepted only when its status is success, its declared length matches, and
+its checksum over status, length and data is exact.
 
 ## Persistence and validation
 
@@ -75,8 +79,20 @@ records; their temperature is `na`. A complete migration temporary file is
 recovered and published on the next persistence attempt after a reset or power
 loss during the rename.
 
+Each completed measurement is placed in a bounded pending queue and persisted
+immediately; it is not deferred until the rider requests shutdown. A failed
+filesystem transaction remains queued and is retried every five seconds, while
+explicit shutdown remains the final flush path. Consequently, several results
+in one display boot produce several history rows, and the independent Power
+Board inactivity cutoff cannot normally remove power before a result is saved.
+The queue holds up to 16 results during a persistent storage failure; once full,
+new results are rejected rather than silently coalesced or allowing unbounded
+RAM growth.
+
 Host tests cover a known 35 mOhm step, duplicate BASIC timestamps, regeneration
 rejection, active-protection rejection, power-window/load-threshold behavior,
-variable sustained-load behavior, and late-load event expiry. Hardware
+variable sustained-load behavior, late-load event expiry, connection-buffer
+discard, strict checksum/status validation, and multi-result persistence.
+Hardware
 validation still needs real BLE timing, BMS filtering behavior, temperature/SOC
 repeatability, and comparison with a calibrated external load.

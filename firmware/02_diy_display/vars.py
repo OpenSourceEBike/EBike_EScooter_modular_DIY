@@ -40,9 +40,15 @@ class Vars:
     self.battery_resistance_max_timestamp = 0
     self.battery_resistance_measurement = {}
     self.battery_resistance_history_dirty = False
+    # Completed measurements wait here until their history rows are durably
+    # appended. Normally record_battery_resistance_result() flushes the queue
+    # immediately; retaining it permits retry after a transient filesystem
+    # failure without coalescing several results into one row.
+    self.battery_resistance_pending_records = []
     # Shutdown persistence transaction state. The row flag prevents a retry
     # from appending twice after history succeeded but summary publication did
-    # not. A recovered summary is repaired at the next explicit shutdown.
+    # not. A recovered summary is repaired by startup/immediate retry, with
+    # explicit shutdown retained as the final flush path.
     self.battery_resistance_history_row_saved = False
     self.battery_resistance_summary_repair_pending = False
     self.battery_resistance_history_migration_repair_pending = False

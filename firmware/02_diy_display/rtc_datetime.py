@@ -185,6 +185,10 @@ class RTCDateTime(object):
   def internal_utc_now(self):
     return self._rtc_tuple_to_datetime8(self._rtc_internal.datetime())
 
+  def set_internal_utc(self, utc_now):
+    """Set the internal RTC from a UTC 8-tuple."""
+    self._rtc_internal.datetime(self._datetime8_to_rtc_tuple(utc_now))
+
   # ---------- Public API ----------
   def update_internal_rtc_from_external(self):
     if self._rtc_external is not None:

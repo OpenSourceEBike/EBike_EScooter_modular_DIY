@@ -39,6 +39,12 @@ class ST7565(framebuf.FrameBuffer):
     self.pages = self.height // 8
     self.buf = bytearray(self.width * self.pages)
     super().__init__(self.buf, self.width, self.height, framebuf.MONO_VLSB)
+    self._dirty = True
+    self._cmd_buf = bytearray(1)
+    self._page_views = tuple(
+      memoryview(self.buf)[page * self.width:(page + 1) * self.width]
+      for page in range(self.pages)
+    )
 
     # State (mirrors CP defaults)
     self._contrast = max(0, min(int(initial_contrast), 63))
@@ -60,13 +66,43 @@ class ST7565(framebuf.FrameBuffer):
 
   def cmd(self, c):
     self.cs(0); self.dc(0)
-    self.spi.write(bytearray([c & 0xFF]))
+    self._cmd_buf[0] = c & 0xFF
+    self.spi.write(self._cmd_buf)
     self.cs(1)
 
   def data(self, b):
     self.cs(0); self.dc(1)
     self.spi.write(b)
     self.cs(1)
+
+  # FrameBuffer mutators do not report whether pixels changed.  Marking the
+  # display dirty here lets the UI avoid an entire SPI refresh when no widget
+  # drew anything during its current pass.
+  def fill(self, *args):
+    result = super().fill(*args)
+    self._dirty = True
+    return result
+
+  def fill_rect(self, *args):
+    result = super().fill_rect(*args)
+    self._dirty = True
+    return result
+
+  def rect(self, *args):
+    result = super().rect(*args)
+    self._dirty = True
+    return result
+
+  def pixel(self, *args):
+    result = super().pixel(*args)
+    if len(args) >= 3:
+      self._dirty = True
+    return result
+
+  def blit(self, *args):
+    result = super().blit(*args)
+    self._dirty = True
+    return result
 
   def _hw_init(self):
     self.reset()
@@ -165,10 +201,15 @@ class ST7565(framebuf.FrameBuffer):
       # com_reverse=True -> use C8, i.e., normal=False
       self.set_com_scan(not bool(com_reverse))
 
-  def show(self):
+  def show(self, force=False):
     """
-    Flush the framebuffer to the LCD applying the column offset (colstart).
+    Flush the framebuffer only after a drawing operation changed it.
+
+    ``force`` exists for diagnostics and for callers that explicitly need a
+    refresh even without a framebuffer mutation.
     """
+    if not force and not self._dirty:
+      return False
     off = self._colstart & 0x7F
     hi = 0x10 | ((off >> 4) & 0x0F)
     lo = 0x00 | (off & 0x0F)
@@ -176,9 +217,9 @@ class ST7565(framebuf.FrameBuffer):
       self.cmd(0xB0 | page)  # page address
       self.cmd(hi)           # high column (with offset)
       self.cmd(lo)           # low column  (with offset)
-      start = page * self.width
-      end = start + self.width
-      self.data(self.buf[start:end])
+      self.data(self._page_views[page])
+    self._dirty = False
+    return True
 
 
 # -------- Wrapper with PWM backlight (same public API you used) -------------

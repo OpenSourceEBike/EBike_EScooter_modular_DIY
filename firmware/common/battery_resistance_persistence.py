@@ -275,20 +275,23 @@ def _recover_migrated_history(path, config):
   return True
 
 
-def _append_history(state, config):
-  if state.battery_resistance_last_mohm is None:
-    return True
+def _append_history_record(record, config):
+  try:
+    timestamp, resistance_mohm, temperature_c_x100 = record
+    resistance_mohm = int(resistance_mohm)
+  except (TypeError, ValueError):
+    return False
+  if not _valid_value(config, resistance_mohm):
+    return False
   if not _recover_migrated_history(config.history_file_path, config):
     return False
   if not _migrate_legacy_history(config.history_file_path, config):
     return False
-  temperature_c_x100 = getattr(
-    state, 'battery_resistance_last_bms_temperature_c_x100', None)
   if not isinstance(temperature_c_x100, int):
     temperature_c_x100 = 'na'
   row_values = (
-    _timestamp_to_csv(state.battery_resistance_last_timestamp),
-    state.battery_resistance_last_mohm,
+    _timestamp_to_csv(timestamp),
+    resistance_mohm,
     temperature_c_x100,
   )
   row = ','.join(str(value) for value in row_values) + '\n'
@@ -321,6 +324,16 @@ def _append_history(state, config):
   except OSError:
     return False
   return True
+
+
+def _append_history(state, config):
+  if state.battery_resistance_last_mohm is None:
+    return True
+  return _append_history_record((
+    state.battery_resistance_last_timestamp,
+    state.battery_resistance_last_mohm,
+    getattr(state, 'battery_resistance_last_bms_temperature_c_x100', None),
+  ), config)
 
 
 def _summary_lines(state):
@@ -368,6 +381,10 @@ def _save_summary_atomic(state, config):
 def save_battery_resistance_history(state, config):
   """Commit history first, then atomically publish its matching summary."""
   dirty = bool(state.battery_resistance_history_dirty)
+  pending_records = getattr(
+    state, 'battery_resistance_pending_records', None)
+  if pending_records:
+    dirty = True
   repair = bool(getattr(
     state, 'battery_resistance_summary_repair_pending', False))
   migration_repair = bool(getattr(
@@ -379,6 +396,25 @@ def save_battery_resistance_history(state, config):
     if not _recover_migrated_history(config.history_file_path, config):
       return False
     state.battery_resistance_history_migration_repair_pending = False
+
+  if pending_records is not None:
+    # Each completed result gets its own committed row. Remove a record from
+    # RAM only after its append succeeds. History is authoritative during
+    # next-boot recovery if power disappears before the matching summary is
+    # published.
+    while pending_records:
+      if not _append_history_record(pending_records[0], config):
+        return False
+      pending_records.pop(0)
+
+    if not _save_summary_atomic(state, config):
+      return False
+
+    state.battery_resistance_history_dirty = False
+    state.battery_resistance_history_row_saved = False
+    state.battery_resistance_summary_repair_pending = False
+    state.battery_resistance_history_migration_repair_pending = False
+    return True
 
   row_saved = bool(getattr(
     state, 'battery_resistance_history_row_saved', False))

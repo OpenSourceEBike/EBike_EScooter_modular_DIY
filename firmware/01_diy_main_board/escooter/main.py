@@ -485,6 +485,16 @@ def wheel_speed_to_motor_erpm(wheel_speed, motor_cfg):
   motor_rpm = (wheel_speed * 1000.0) / max(1.0, perimeter * 60.0)
   return motor_rpm * max(1, motor_cfg.poles_pair)
 
+
+def throttle_to_motor_erpm(throttle_value, max_motor_erpm):
+  """Scale the already-clamped 0..1000 throttle with small integers only."""
+  if throttle_value <= 0:
+    return 0
+  if throttle_value >= 1000:
+    return max_motor_erpm
+  return (throttle_value * max_motor_erpm) // 1000
+
+
 def _stop_motors():
   for _ in range(3):
     for motor in motors:
@@ -503,13 +513,18 @@ async def task_control_motor():
   next_wake = time.ticks_ms()
 
   while True:
-    motor_erpm_max_speed_limits = [
-      _motor_data.cfg.motor_erpm_max_speed_limit[vars.mode]
-      for _motor_data in motor_data
-    ]
+    # This task runs every 20 ms. Keep the single/dual VESC hot path free of
+    # per-pass list, generator and zip allocations.
+    rear_motor_erpm_max_speed_limit = \
+      rear_motor_data.cfg.motor_erpm_max_speed_limit[vars.mode]
+    if front_motor_data is not None:
+      front_motor_erpm_max_speed_limit = \
+        front_motor_data.cfg.motor_erpm_max_speed_limit[vars.mode]
 
     # Throttle: take max of available throttles
-    throttle_1_raw, throttle_1_value = throttle_1.value
+    throttle_1.refresh()
+    throttle_1_raw = throttle_1.raw_value
+    throttle_1_value = throttle_1.scaled_value
     if throttle_1_disabled:
       throttle_1_value = 0
     throttle_value = throttle_1_value
@@ -517,7 +532,9 @@ async def task_control_motor():
     throttle_2_raw = None
     throttle_2_value = None
     if throttle_2 is not None:
-      throttle_2_raw, throttle_2_value = throttle_2.value
+      throttle_2.refresh()
+      throttle_2_raw = throttle_2.raw_value
+      throttle_2_value = throttle_2.scaled_value
       if throttle_2_disabled:
         throttle_2_value = 0
       throttle_value = max(throttle_value, throttle_2_value)
@@ -566,9 +583,8 @@ async def task_control_motor():
         f'throttle 1={throttle_1_raw}, throttle 2={throttle_2_raw}'
       )
 
-    requested_motor_target_speed = map_range(
-      throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limits[0], clamp=True
-    )
+    requested_motor_target_speed = throttle_to_motor_erpm(
+      throttle_value, rear_motor_erpm_max_speed_limit)
 
     # Cruise control
     cruise_control_is_active = cruise_control(
@@ -577,22 +593,30 @@ async def task_control_motor():
       requested_motor_target_speed,
     )
 
-    # Target speed
-    for _motor_data, motor_erpm_max_speed_limit in zip(motor_data, motor_erpm_max_speed_limits):
+    # Target speed. Preserve the former per-motor scaling and limiting while
+    # avoiding transient collections in the 50 Hz control loop.
+    if cruise_control_is_active:
+      rear_target_speed = vars.cruise_control.target_motor_speed
+    else:
+      rear_target_speed = throttle_to_motor_erpm(
+        throttle_value, rear_motor_erpm_max_speed_limit)
+    if rear_target_speed < 500.0:
+      rear_target_speed = 0.0
+    elif rear_target_speed > rear_motor_erpm_max_speed_limit:
+      rear_target_speed = rear_motor_erpm_max_speed_limit
+    rear_motor_data.motor_target_speed = rear_target_speed
+
+    if front_motor_data is not None:
       if cruise_control_is_active:
-        _motor_data.motor_target_speed = vars.cruise_control.target_motor_speed
+        front_target_speed = vars.cruise_control.target_motor_speed
       else:
-        _motor_data.motor_target_speed = map_range(
-          throttle_value, 0.0, 1000.0, 0.0, motor_erpm_max_speed_limit, clamp=True
-        )
-
-      # Small dead-zone
-      if _motor_data.motor_target_speed < 500.0:
-        _motor_data.motor_target_speed = 0.0
-
-      # Enforce max
-      if _motor_data.motor_target_speed > motor_erpm_max_speed_limit:
-        _motor_data.motor_target_speed = motor_erpm_max_speed_limit
+        front_target_speed = throttle_to_motor_erpm(
+          throttle_value, front_motor_erpm_max_speed_limit)
+      if front_target_speed < 500.0:
+        front_target_speed = 0.0
+      elif front_target_speed > front_motor_erpm_max_speed_limit:
+        front_target_speed = front_motor_erpm_max_speed_limit
+      front_motor_data.motor_target_speed = front_target_speed
 
     # Brakes
     vars.brakes_are_active = True if brake_sensor.value else False
@@ -611,7 +635,10 @@ async def task_control_motor():
         vars.display_comm_ok = False
 
     # Consider less then 10 negative amps of motor current for regen_brakes_are_active = True
-    motor_current = sum(motor.data.motor_current_x10 for motor in motors) // 10
+    motor_current_x10 = rear_motor_data.motor_current_x10
+    if front_motor_data is not None:
+      motor_current_x10 += front_motor_data.motor_current_x10
+    motor_current = motor_current_x10 // 10
     vars.regen_braking_is_active = True if motor_current < -10 else False
 
     # Command motor(s)
@@ -630,8 +657,11 @@ async def task_control_motor():
         for motor in motors:
           motor.set_motor_speed_erpm(0)
       else:
-        has_motor_target_speed = any(
-          motor.data.motor_target_speed > 0 for motor in motors)
+        has_motor_target_speed = rear_motor_data.motor_target_speed > 0
+        if front_motor_data is not None:
+          has_motor_target_speed = (
+            has_motor_target_speed or
+            front_motor_data.motor_target_speed > 0)
         release_condition_met = (
           not has_motor_target_speed and rear_motor.data.wheel_speed == 0)
         if release_condition_met:

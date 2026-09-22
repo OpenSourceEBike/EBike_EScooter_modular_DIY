@@ -32,18 +32,38 @@ class BatteryResistanceScreen(MainScreen):
     )
     self._resistance.set_box(x1=1, y1=19, x2=62, y2=30)
     self._resistance.update("B --")
+    self._resistance_config_error_previous = None
+    self._resistance_value_previous = None
+    self._resistance_state_previous = None
+    self._resistance_samples_previous = None
+    self._resistance_required_samples_previous = None
 
   def render(self, vars):
     super().render(vars)
-    if getattr(vars, 'battery_resistance_config_error', ''):
+    config_error = getattr(vars, 'battery_resistance_config_error', '')
+    value = getattr(vars, 'battery_resistance_last_mohm', None)
+    state = getattr(vars, 'battery_resistance_state', -1)
+    samples = max(0, int(getattr(
+      vars, 'battery_resistance_state_samples', 0)))
+    required_samples = max(0, int(getattr(
+      vars, 'battery_resistance_state_samples_required', 0)))
+    if (
+      config_error == self._resistance_config_error_previous and
+      value == self._resistance_value_previous and
+      state == self._resistance_state_previous and
+      samples == self._resistance_samples_previous and
+      required_samples == self._resistance_required_samples_previous
+    ):
+      return
+
+    self._resistance_config_error_previous = config_error
+    self._resistance_value_previous = value
+    self._resistance_state_previous = state
+    self._resistance_samples_previous = samples
+    self._resistance_required_samples_previous = required_samples
+    if config_error:
       text = "B ERR"
     else:
-      value = getattr(vars, 'battery_resistance_last_mohm', None)
-      state = getattr(vars, 'battery_resistance_state', -1)
-      samples = max(0, int(getattr(
-        vars, 'battery_resistance_state_samples', 0)))
-      required_samples = max(0, int(getattr(
-        vars, 'battery_resistance_state_samples_required', 0)))
       state_index = -1
       try:
         state_index = int(state)
@@ -83,6 +103,14 @@ class BatteryResistanceHistoryScreen(BaseScreen):
     self._state = self._make_line(31, "center")
     self._minimum = self._make_line(43, "center")
     self._maximum = self._make_line(53, "center")
+    self._title_key_previous = None
+    self._current_value_previous = None
+    self._state_value_previous = None
+    self._state_seconds_previous = None
+    self._minimum_value_previous = None
+    self._minimum_timestamp_previous = None
+    self._maximum_value_previous = None
+    self._maximum_timestamp_previous = None
 
   def _make_line(self, y, align_inside):
     line = WidgetTextBox(
@@ -120,26 +148,51 @@ class BatteryResistanceHistoryScreen(BaseScreen):
 
   def render(self, vars):
     last_value = vars.battery_resistance_last_mohm
-    if getattr(vars, 'battery_resistance_config_error', ''):
-      self._title.update("BMS config err")
+    config_error = getattr(vars, 'battery_resistance_config_error', '')
+    history_dirty = bool(getattr(vars, 'battery_resistance_history_dirty', False))
+    if config_error:
+      title_key = 1
+      title = "BMS config err"
     elif last_value is None:
-      self._title.update("BMS resistance")
-    elif getattr(vars, 'battery_resistance_history_dirty', False):
-      self._title.update("THIS BOOT")
+      title_key = 2
+      title = "BMS resistance"
+    elif history_dirty:
+      title_key = 3
+      title = "THIS BOOT"
     else:
-      self._title.update("LAST SAVED")
-    self._current.update(
-      "{} mOhm".format(last_value) if last_value is not None else "na"
-    )
-    self._state.update(self._format_state(
-      getattr(vars, 'battery_resistance_state', -1),
-      getattr(vars, 'battery_resistance_state_seconds', 0),
-    ))
-    self._minimum.update(self._format_history(
-      "Min", vars.battery_resistance_min_mohm,
-      vars.battery_resistance_min_timestamp
-    ))
-    self._maximum.update(self._format_history(
-      "Max", vars.battery_resistance_max_mohm,
-      vars.battery_resistance_max_timestamp
-    ))
+      title_key = 4
+      title = "LAST SAVED"
+    if title_key != self._title_key_previous:
+      self._title_key_previous = title_key
+      self._title.update(title)
+
+    if last_value != self._current_value_previous:
+      self._current_value_previous = last_value
+      self._current.update(
+        "{} mOhm".format(last_value) if last_value is not None else "na")
+
+    state = getattr(vars, 'battery_resistance_state', -1)
+    state_seconds = getattr(vars, 'battery_resistance_state_seconds', 0)
+    if (state != self._state_value_previous or
+        state_seconds != self._state_seconds_previous):
+      self._state_value_previous = state
+      self._state_seconds_previous = state_seconds
+      self._state.update(self._format_state(state, state_seconds))
+
+    minimum_value = vars.battery_resistance_min_mohm
+    minimum_timestamp = vars.battery_resistance_min_timestamp
+    if (minimum_value != self._minimum_value_previous or
+        minimum_timestamp != self._minimum_timestamp_previous):
+      self._minimum_value_previous = minimum_value
+      self._minimum_timestamp_previous = minimum_timestamp
+      self._minimum.update(self._format_history(
+        "Min", minimum_value, minimum_timestamp))
+
+    maximum_value = vars.battery_resistance_max_mohm
+    maximum_timestamp = vars.battery_resistance_max_timestamp
+    if (maximum_value != self._maximum_value_previous or
+        maximum_timestamp != self._maximum_timestamp_previous):
+      self._maximum_value_previous = maximum_value
+      self._maximum_timestamp_previous = maximum_timestamp
+      self._maximum.update(self._format_history(
+        "Max", maximum_value, maximum_timestamp))

@@ -147,9 +147,19 @@ class ESPNowComms:
         print("ESP-NOW add_peer error for {}: {}".format(self._peer, e))
     return self._peer_added
 
-  def get_latest_data_by_source(self, max_packets=ESPNOW_RX_MAX_PACKETS):
-    """Read a bounded queue slice and keep its latest packet per source."""
-    latest_by_source = {}
+  def get_latest_data_by_source(
+      self, max_packets=ESPNOW_RX_MAX_PACKETS, out=None):
+    """Read a bounded queue slice and keep its latest packet per source.
+
+    ``out`` lets a periodic caller retain its dictionary between passes.  This
+    avoids allocating an empty dict on every no-packet receive iteration while
+    keeping the old return-value API for callers that do not provide one.
+    """
+    if out is None:
+      latest_by_source = {}
+    else:
+      latest_by_source = out
+      latest_by_source.clear()
     packet_limit = _receive_packet_limit(max_packets)
     received = 0
 

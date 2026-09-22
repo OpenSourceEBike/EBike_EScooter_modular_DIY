@@ -171,7 +171,7 @@ class JbdBmsClient:
     self._unavailable = False
     self._started = True
     self._tick_exception_count = 0
-    self._reset_state()
+    self._reset_state(clear_buf=True)
     self._scan(scan_ms)
 
   def is_available(self):
@@ -214,7 +214,7 @@ class JbdBmsClient:
         self._unavailable = False
         self._retry_count = 0
         self._retry_after_ms = 0
-        self._reset_state()
+        self._reset_state(clear_buf=True)
         self._scan(self._scan_ms)
         return
 
@@ -360,7 +360,7 @@ class JbdBmsClient:
     if self._unavailable:
       return
     old_conn = self.conn
-    self._reset_state()
+    self._reset_state(clear_buf=True)
     if old_conn is not None:
       try:
         self.ble.gap_disconnect(old_conn)
@@ -368,7 +368,7 @@ class JbdBmsClient:
         pass
     self._retry_or_unavailable(reason)
 
-  def _reset_state(self, clear_buf=False):
+  def _reset_state(self, clear_buf=True):
     self.conn = None
     self.srange = None
     self.h_n = None
@@ -379,6 +379,8 @@ class JbdBmsClient:
     self.phase = 0
     self.last_data_ms = 0
     self.last_basic_data_ms = 0
+    self._last_basic = None
+    self._last_cells_x1000 = None
     self._scan_active = False
     self._connecting = False
     self._connect_deadline_ms = 0
@@ -435,7 +437,10 @@ class JbdBmsClient:
         if n < 5:
           return None
         mv = memoryview(self._buf)[self._head:]
-      ln = (mv[2] << 8) | mv[3]
+      # JBD responses use byte 2 for status and byte 3 for the one-byte
+      # payload length. Error responses are still framed normally and are
+      # rejected later by _frame_ok().
+      ln = mv[3]
       total = 1 + 1 + 2 + ln + 2 + 1
       if total <= 0 or total > self.buf_max_bytes:
         self._head += 1
@@ -448,29 +453,25 @@ class JbdBmsClient:
       self._maybe_compact()
       if f[-1] == 0x77:
         return f
-      self._head += 1
-      self._maybe_compact()
+      # The complete declared frame has already been consumed. Resume at the
+      # current unread byte so a following valid frame keeps its 0xDD marker.
 
   def _frame_ok(self, f):
     if (not f) or (len(f) < 7) or (f[0] != 0xDD) or (f[-1] != 0x77):
       return False
+    # A read response is usable only when the BMS status byte is success and
+    # the declared one-byte payload length matches the complete frame.
+    if f[2] != 0 or len(f) != (7 + f[3]):
+      return False
     recv = (f[-3] << 8) | f[-2]
-    n = len(f)
-
-    def ok(start, end_excl):
-      if end_excl <= start:
-        return False
-      s = 0
-      for b in f[start:end_excl]:
-        s = (s + b) & 0xFFFF
-      calc = (0x10000 - s) & 0xFFFF
-      return calc == recv
-
-    for st in (0, 1, 2, 3):
-      for en in (n - 3, n - 4):
-        if ok(st, en):
-          return True
-    return False
+    checksum_sum = 0
+    # JBD response checksum covers status, length and all data bytes. Do not
+    # accept alternative ranges: doing so turns framing errors into valid
+    # pack telemetry.
+    for value in f[2:-3]:
+      checksum_sum = (checksum_sum + value) & 0xFFFF
+    calculated = (0x10000 - checksum_sum) & 0xFFFF
+    return calculated == recv
 
   def _parse_basic(self, f):
     """
@@ -605,6 +606,13 @@ class JbdBmsClient:
           self._retry_or_unavailable("BMS not found")
 
       elif e == _IRQ_PERIPHERAL_CONNECT:
+        # Never expose cached measurements or join bytes received under a
+        # previous BLE connection with the new notification stream.
+        self._buf_clear()
+        self.last_data_ms = 0
+        self.last_basic_data_ms = 0
+        self._last_basic = None
+        self._last_cells_x1000 = None
         self.conn, _, _ = d
         self._connect_deadline_ms = time.ticks_add(
           time.ticks_ms(), CONNECT_TIMEOUT_MS)

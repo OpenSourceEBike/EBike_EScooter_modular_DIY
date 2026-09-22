@@ -67,6 +67,21 @@ class EspNowReceiveBoundsTests(unittest.TestCase):
     self.assertEqual(latest_packet, (b'b', ('status', ord('2'), b'2')))
     self.assertEqual(comms._esp.packets, [(b'c', b'3')])
 
+  def test_decoded_receive_can_reuse_callers_dictionary(self):
+    module = _load_espnow_module()
+    comms = module.ESPNowComms.__new__(module.ESPNowComms)
+    comms._debug = False
+    comms._decoder = lambda message: ('status', message[0], message)
+    comms._esp = _FakeEsp([(b'a', b'1')])
+    reusable = {99: (b'old', ('status', 99, b'old'))}
+
+    latest = comms.get_latest_data_by_source(out=reusable)
+
+    self.assertIs(latest, reusable)
+    self.assertEqual(latest, {ord('1'): (b'a', ('status', ord('1'), b'1'))})
+    comms._esp = _FakeEsp([])
+    self.assertEqual(comms.get_latest_data_by_source(out=reusable), {})
+
 
 if __name__ == '__main__':
   unittest.main()

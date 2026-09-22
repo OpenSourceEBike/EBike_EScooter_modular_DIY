@@ -57,6 +57,8 @@ class WidgetTextBox:
     self.visible = True
     self._last_text = None     # resolved string (after formatter)
     self._last_valid = False
+    self._layout_generation = 0
+    self._drawn_layout_generation = -1
 
     self._text_pos = None         # absolute TEXT position (screen coords)
     self._text_pos_anchor = "topleft"
@@ -93,6 +95,7 @@ class WidgetTextBox:
       self.visible = True
       if self._last_valid and self._last_text is not None:
         # Force a redraw with the last content
+        self._drawn_layout_generation = -1
         self.update(self._last_text, valid=True)
 
   def hide(self, clear: bool = True):
@@ -164,29 +167,50 @@ class WidgetTextBox:
   # ---------- public ----------
   def set_box(self, x1, y1, x2, y2):
     self._box_coords = (int(x1), int(y1), int(x2), int(y2))
+    self._layout_generation += 1
 
   def set_box_wh(self, x, y, w, h):
     self._box_coords = (int(x), int(y), int(x)+int(w)-1, int(y)+int(h)-1)
+    self._layout_generation += 1
 
   def set_trims(self, *, left=None, right=None, top=None, bottom=None):
-    if left   is not None: self.left   = int(left)
-    if right  is not None: self.right  = int(right)
-    if top    is not None: self.top    = int(top)
-    if bottom is not None: self.bottom = int(bottom)
+    changed = False
+    if left is not None and self.left != int(left):
+      self.left = int(left); changed = True
+    if right is not None and self.right != int(right):
+      self.right = int(right); changed = True
+    if top is not None and self.top != int(top):
+      self.top = int(top); changed = True
+    if bottom is not None and self.bottom != int(bottom):
+      self.bottom = int(bottom); changed = True
+    if changed:
+      self._layout_generation += 1
 
   def set_content_offset(self, dx=None, dy=None):
-    if dx is not None: self.content_dx = int(dx)
-    if dy is not None: self.content_dy = int(dy)
+    changed = False
+    if dx is not None and self.content_dx != int(dx):
+      self.content_dx = int(dx); changed = True
+    if dy is not None and self.content_dy != int(dy):
+      self.content_dy = int(dy); changed = True
+    if changed:
+      self._layout_generation += 1
 
   def set_pattern(self, pattern=None):
-    self.pattern = pattern
+    if self.pattern != pattern:
+      self.pattern = pattern
+      self._layout_generation += 1
 
   def set_text_pos(self, x, y):
-    self._text_pos = (int(x), int(y))
-    self._text_pos_anchor = "topleft"
+    text_pos = (int(x), int(y))
+    if self._text_pos != text_pos:
+      self._text_pos = text_pos
+      self._text_pos_anchor = "topleft"
+      self._layout_generation += 1
 
   def clear_text_pos(self):
-    self._text_pos = None
+    if self._text_pos is not None:
+      self._text_pos = None
+      self._layout_generation += 1
 
   def invalidate(self):
     if self._prev_box:
@@ -194,6 +218,7 @@ class WidgetTextBox:
       if self.debug_box:
         self._box_outline(self._prev_box)
       self._prev_box = None
+    self._drawn_layout_generation = -1
 
   def set_invert(self, invert):
     invert = bool(invert)
@@ -209,14 +234,17 @@ class WidgetTextBox:
       self._last_valid = False
       if self.visible:
         self.invalidate()
-      return
+      return False
     s = self._as_text(text)
+    if (self.visible and self._last_valid and s == self._last_text and
+        self._drawn_layout_generation == self._layout_generation):
+      return False
     self._last_text = s
     self._last_valid = True
 
     if not self.visible:
       # Don't draw while hidden (keeps RAM usage minimal)
-      return
+      return False
 
     # 1) Box (visible clip)
     if self._box_coords:
@@ -225,7 +253,7 @@ class WidgetTextBox:
       base = self.pattern if self.pattern is not None else s
       bx, by, bw, bh = self._compute_box_from_pattern(base)
     if bw == 0 or bh == 0:
-      return
+      return False
 
     # 2) Clear old/current visible regions
     if self._prev_box:
@@ -307,3 +335,5 @@ class WidgetTextBox:
     if self.debug_box:
       self._box_outline((bx, by, bw, bh))
     self._prev_box = (bx, by, bw, bh)
+    self._drawn_layout_generation = self._layout_generation
+    return True

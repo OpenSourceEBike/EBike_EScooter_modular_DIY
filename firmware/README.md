@@ -56,6 +56,11 @@ When flashing or copying the repo to a board:
 - If you want to keep multiple configs in the checkout for development, keep them in the source tree on your computer, but deploy only one of them to the device root.
 
 This is the convention enforced by `common/config_runtime.py`.
+The incremental updater compares its previous per-board manifest with the new
+file set and removes tracked paths that disappeared before publishing the new
+manifest. This includes replacing an old root `config_*.py` when a different
+configuration is selected; an unsafe path or failed removal aborts the update
+without resetting the board.
 
 ## Suggested reading order
 

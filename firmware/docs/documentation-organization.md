@@ -60,9 +60,9 @@ It should cover:
 - Health and error rules.
 - The implementation order for protocol-related work.
 
-### `issues.md`
+### `ISSUES.md`
 
-Use `issues.md` for review findings and work status.
+Use `ISSUES.md` for review findings and work status.
 
 It should contain:
 
@@ -84,9 +84,9 @@ Use the architecture docs when the change affects:
 - Required board behavior.
 - Protocol rules that should remain stable.
 
-### Record in `issues.md` when the change is about a concrete finding
+### Record in `ISSUES.md` when the change is about a concrete finding
 
-Use `issues.md` when the change starts as a review finding or bug report.
+Use `ISSUES.md` when the change starts as a review finding or bug report.
 
 For each item, capture:
 
@@ -121,11 +121,11 @@ This keeps the document useful for a future agent that needs to continue the wor
 
 1. Update the most specific document first.
 2. If the decision changes the system design, update the architecture or protocol docs.
-3. If the change affects code status, update `issues.md`.
+3. If the change affects code status, update `ISSUES.md`.
 4. Keep the README as an index, not as the place where detailed decisions live.
 5. Remove duplicate explanations when a better canonical document exists.
 
-## Recommended Structure For `issues.md`
+## Recommended Structure For `ISSUES.md`
 
 Each issue should ideally follow this shape:
 
@@ -155,6 +155,6 @@ Before finishing a documentation change, check that:
 
 If a future reader asks "what is the rule?" the answer should be in `docs/protocol-contract.md` or `docs/espnow-architecture-spec.md`.
 
-If they ask "what is currently wrong or pending?" the answer should be in `issues.md`.
+If they ask "what is currently wrong or pending?" the answer should be in `ISSUES.md`.
 
 If they ask "where do I start reading?" the answer should be in `README.md`.

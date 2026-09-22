@@ -114,6 +114,8 @@ RTC_SYNC_RESULT_DISPLAY_MS = 5000
 # A BMS reconnect can include an 8 s scan plus its first BASIC response.
 # Start this timer only after the Wi-Fi/BLE radio handover has completed.
 CHARGING_RECONFIRM_TIMEOUT_MS = 20000
+BATTERY_RESISTANCE_PERSIST_RETRY_MS = 5000
+BATTERY_RESISTANCE_PENDING_MAX = 16
 _power_peer = bytes(mac_address_power_switch)
 _power_peer_added = False
 _power_tx_had_failure = False
@@ -539,6 +541,15 @@ def _battery_resistance_timestamp(vars):
 def record_battery_resistance_result(
     vars, resistance_mohm, metadata=None, bms_temperature_c_x100=None):
   timestamp = _battery_resistance_timestamp(vars)
+  pending_records = vars.battery_resistance_pending_records
+  if len(pending_records) >= BATTERY_RESISTANCE_PENDING_MAX:
+    # Try to free the bounded queue before accepting another result. A
+    # persistent filesystem failure is reported rather than growing RAM
+    # without limit for the rest of the ride.
+    save_battery_resistance_history(vars, bms_battery_resistance_config)
+    if len(pending_records) >= BATTERY_RESISTANCE_PENDING_MAX:
+      print("Battery resistance pending queue full; result rejected")
+      return False
   vars.battery_resistance_last_mohm = resistance_mohm
   vars.battery_resistance_last_timestamp = timestamp
   vars.battery_resistance_last_bms_temperature_c_x100 = (
@@ -558,11 +569,24 @@ def record_battery_resistance_result(
   if save_maximum:
     vars.battery_resistance_max_mohm = resistance_mohm
     vars.battery_resistance_max_timestamp = timestamp
-  vars.battery_resistance_history_dirty = True
+  pending_records.append((
+    timestamp,
+    resistance_mohm,
+    bms_temperature_c_x100,
+  ))
+  vars.battery_resistance_history_dirty = bool(pending_records)
   vars.battery_resistance_alert_pending = (
     resistance_mohm,
     int(bms_battery_resistance_config.alert_duration_ms),
   )
+  # Persist immediately so the independent Power Board timeout cannot remove
+  # power before this result reaches flash. Failed writes remain queued for the
+  # retry task and explicit shutdown path.
+  if (pending_records and not save_battery_resistance_history(
+      vars, bms_battery_resistance_config)):
+    print("Battery resistance immediate save failed; retry pending")
+    return False
+  return True
 
 if cfg.enable_rtc_time:
   vars.rtc = get_rtc_datetime_class()(
@@ -574,7 +598,31 @@ if cfg.enable_rtc_time:
   boot_log("RTC object initialized")
 
 if vars.battery_resistance_enabled:
-  load_battery_resistance_history(vars, bms_battery_resistance_config)
+  if load_battery_resistance_history(vars, bms_battery_resistance_config):
+    if not save_battery_resistance_history(
+        vars, bms_battery_resistance_config):
+      print("Battery resistance startup repair failed; retry pending")
+
+
+async def battery_resistance_persistence_task(vars):
+  """Retry failed result/repair transactions without waiting for shutdown."""
+  failure_reported = False
+  while True:
+    has_work = bool(
+      vars.battery_resistance_history_dirty or
+      vars.battery_resistance_pending_records or
+      vars.battery_resistance_summary_repair_pending or
+      vars.battery_resistance_history_migration_repair_pending
+    )
+    if has_work:
+      ok = save_battery_resistance_history(
+        vars, bms_battery_resistance_config)
+      if not ok and not failure_reported:
+        print("Battery resistance persistence retry failed")
+      failure_reported = not ok
+    else:
+      failure_reported = False
+    await asyncio.sleep_ms(BATTERY_RESISTANCE_PERSIST_RETRY_MS)
 
 def filter_motor_power(p):
   if p < 0:
@@ -1346,6 +1394,8 @@ async def main():
     if bms is not None:
       tasks.append(asyncio.create_task(bms_task(bms, vars)))
       tasks.append(asyncio.create_task(bms_read_task(bms, vars)))
+      tasks.append(asyncio.create_task(
+        battery_resistance_persistence_task(vars)))
     boot_log("Main tasks started")
 
     await asyncio.gather(*tasks)
