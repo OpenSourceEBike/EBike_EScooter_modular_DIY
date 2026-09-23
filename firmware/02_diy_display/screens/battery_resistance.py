@@ -1,6 +1,5 @@
 import time
 from .base import BaseScreen
-from .main import MainScreen
 from widgets.widget_text_box import WidgetTextBox
 from fonts import robotobold12 as font_small
 from fonts import robotobold18 as font_current
@@ -13,33 +12,47 @@ RESISTANCE_STATE_LABELS = (
 )
 
 
-RESISTANCE_STATE_SHORT_LABELS = (
-  "R", "S", "L", "OK",
-)
-
-
-class BatteryResistanceScreen(MainScreen):
+class BatteryResistanceScreen(BaseScreen):
   NAME = "BatteryResistance"
 
   def on_enter(self):
-    # Retain speed, SOC, lights, brakes, thermal bars and warning handling from
-    # MainScreen. The compact resistance readout replaces part of the power
-    # graphic, making this a real MAIN replacement rather than a safety mode.
-    super().on_enter()
-    self._resistance = WidgetTextBox(
+    self.clear()
+    self._title = WidgetTextBox(
       self.fb, self.fb.width, self.fb.width,
       font=font_small, align_inside="center"
     )
-    self._resistance.set_box(x1=1, y1=19, x2=62, y2=30)
-    self._resistance.update("B --")
+    self._title.set_box(x1=0, y1=0, x2=self.fb.width - 1, y2=11)
+    self._title.update("BMS resistance")
+    self._resistance = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_current, align_inside="center"
+    )
+    self._resistance.set_box(x1=0, y1=12, x2=self.fb.width - 1, y2=30)
+    self._resistance.update("-- mOhm")
+    self._state = self._make_line(31)
+    self._samples = self._make_line(42)
+    self._range = self._make_line(53)
     self._resistance_config_error_previous = None
     self._resistance_value_previous = None
     self._resistance_state_previous = None
     self._resistance_samples_previous = None
     self._resistance_required_samples_previous = None
+    self._resistance_min_previous = -1
+    self._resistance_max_previous = -1
+
+  def _make_line(self, y):
+    line = WidgetTextBox(
+      self.fb, self.fb.width, self.fb.width,
+      font=font_small, align_inside="center"
+    )
+    line.set_box(x1=0, y1=y, x2=self.fb.width - 1, y2=y + 10)
+    line.update("")
+    return line
 
   def render(self, vars):
-    super().render(vars)
+    # The current reading is visible here, so do not replay its alert later.
+    if getattr(vars, 'battery_resistance_alert_pending', None) is not None:
+      vars.battery_resistance_alert_pending = None
     config_error = getattr(vars, 'battery_resistance_config_error', '')
     value = getattr(vars, 'battery_resistance_last_mohm', None)
     state = getattr(vars, 'battery_resistance_state', -1)
@@ -47,37 +60,55 @@ class BatteryResistanceScreen(MainScreen):
       vars, 'battery_resistance_state_samples', 0)))
     required_samples = max(0, int(getattr(
       vars, 'battery_resistance_state_samples_required', 0)))
-    if (
-      config_error == self._resistance_config_error_previous and
-      value == self._resistance_value_previous and
-      state == self._resistance_state_previous and
-      samples == self._resistance_samples_previous and
-      required_samples == self._resistance_required_samples_previous
-    ):
-      return
+    config_changed = config_error != self._resistance_config_error_previous
+    if (config_changed or
+        value != self._resistance_value_previous):
+      self._resistance_config_error_previous = config_error
+      self._resistance_value_previous = value
+      if config_error:
+        self._resistance.update("CONFIG ERR")
+      else:
+        self._resistance.update(
+          "{} mOhm".format(value) if value is not None else "-- mOhm")
 
-    self._resistance_config_error_previous = config_error
-    self._resistance_value_previous = value
-    self._resistance_state_previous = state
-    self._resistance_samples_previous = samples
-    self._resistance_required_samples_previous = required_samples
-    if config_error:
-      text = "B ERR"
-    else:
-      state_index = -1
-      try:
-        state_index = int(state)
-        if state_index < 0:
-          raise ValueError
-        state_text = RESISTANCE_STATE_SHORT_LABELS[state_index]
-      except (IndexError, TypeError, ValueError):
-        state_text = "--"
-      value_text = "--" if value is None else str(int(value))
-      if required_samples and state_index != 3:
-        state_text = "{}{}/{}".format(
-          state_text, min(samples, required_samples), required_samples)
-      text = "{}m {}".format(value_text, state_text)
-    self._resistance.update(text)
+    state_changed = state != self._resistance_state_previous
+    progress_changed = (
+      samples != self._resistance_samples_previous or
+      required_samples != self._resistance_required_samples_previous)
+    if state_changed or config_changed or (state == 0 and progress_changed):
+      self._resistance_state_previous = state
+      if config_error:
+        state_text = "CONFIG ERR"
+      elif state == 0 and required_samples and samples >= required_samples:
+        state_text = "WAIT LOAD"
+      else:
+        try:
+          state_index = int(state)
+          if state_index < 0:
+            raise ValueError
+          state_text = RESISTANCE_STATE_LABELS[state_index]
+        except (IndexError, TypeError, ValueError):
+          state_text = "WAIT BMS"
+      self._state.update("STATE: {}".format(state_text))
+
+    if progress_changed or state_changed or config_changed:
+      self._resistance_samples_previous = samples
+      self._resistance_required_samples_previous = required_samples
+      progress_label = "BASELINE" if state == 0 else "SAMPLES"
+      self._samples.update(
+        "{}: {}/{}".format(progress_label,
+                           min(samples, required_samples), required_samples)
+        if required_samples and state != 3 and not config_error else "")
+
+    minimum = getattr(vars, 'battery_resistance_min_mohm', None)
+    maximum = getattr(vars, 'battery_resistance_max_mohm', None)
+    if (minimum != self._resistance_min_previous or
+        maximum != self._resistance_max_previous):
+      self._resistance_min_previous = minimum
+      self._resistance_max_previous = maximum
+      self._range.update("MIN {}  MAX {} mOhm".format(
+        "--" if minimum is None else minimum,
+        "--" if maximum is None else maximum))
 
 
 class BatteryResistanceHistoryScreen(BaseScreen):

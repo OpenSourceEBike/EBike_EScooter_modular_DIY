@@ -156,13 +156,6 @@ def _load_resistance_screen():
     def clear(self):
       pass
 
-  class FakeMainScreen(FakeBaseScreen):
-    def on_enter(self):
-      pass
-
-    def render(self, vars):
-      pass
-
   class FakeTextBox:
     instances = []
 
@@ -180,8 +173,6 @@ def _load_resistance_screen():
   screens.__path__ = []
   base = types.ModuleType('screens.base')
   base.BaseScreen = FakeBaseScreen
-  main = types.ModuleType('screens.main')
-  main.MainScreen = FakeMainScreen
   widgets = types.ModuleType('widgets')
   widgets.__path__ = []
   text_box = types.ModuleType('widgets.widget_text_box')
@@ -196,7 +187,6 @@ def _load_resistance_screen():
   with patch.dict(sys.modules, {
       'screens': screens,
       'screens.base': base,
-      'screens.main': main,
       'widgets': widgets,
       'widgets.widget_text_box': text_box,
       'fonts': fonts,
@@ -259,15 +249,43 @@ class DisplayRenderOptimizationTests(unittest.TestCase):
     )
 
     dashboard = module.BatteryResistanceScreen(types.SimpleNamespace(width=64))
+    self.assertEqual(module.BatteryResistanceScreen.__bases__,
+                     (module.BaseScreen,))
     dashboard.on_enter()
     dashboard.render(vars)
-    first_dashboard_updates = len(dashboard._resistance.updates)
+    self.assertEqual(dashboard._resistance.updates[-1], '35 mOhm')
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: SETTLE')
+    self.assertEqual(dashboard._samples.updates[-1], 'SAMPLES: 1/3')
+    self.assertEqual(dashboard._range.updates[-1], 'MIN 31  MAX 40 mOhm')
+    first_dashboard_updates = len(dashboard._samples.updates)
     dashboard.render(vars)
-    self.assertEqual(len(dashboard._resistance.updates), first_dashboard_updates)
+    self.assertEqual(len(dashboard._samples.updates), first_dashboard_updates)
     vars.battery_resistance_state_samples = 2
     dashboard.render(vars)
-    self.assertEqual(len(dashboard._resistance.updates),
+    self.assertEqual(len(dashboard._samples.updates),
                      first_dashboard_updates + 1)
+    self.assertEqual(dashboard._samples.updates[-1], 'SAMPLES: 2/3')
+    vars.battery_resistance_state = 3
+    dashboard.render(vars)
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: COMPLETE')
+    self.assertEqual(dashboard._samples.updates[-1], '')
+    vars.battery_resistance_config_error = 'invalid config'
+    dashboard.render(vars)
+    self.assertEqual(dashboard._resistance.updates[-1], 'CONFIG ERR')
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: CONFIG ERR')
+    vars.battery_resistance_config_error = ''
+    vars.battery_resistance_state = -1
+    dashboard.render(vars)
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: WAIT BMS')
+    vars.battery_resistance_state = 0
+    vars.battery_resistance_state_samples = 2
+    dashboard.render(vars)
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: REFERENCE')
+    self.assertEqual(dashboard._samples.updates[-1], 'BASELINE: 2/3')
+    vars.battery_resistance_state_samples = 3
+    dashboard.render(vars)
+    self.assertEqual(dashboard._state.updates[-1], 'STATE: WAIT LOAD')
+    self.assertEqual(dashboard._samples.updates[-1], 'BASELINE: 3/3')
 
     history = module.BatteryResistanceHistoryScreen(types.SimpleNamespace(width=64))
     history.on_enter()

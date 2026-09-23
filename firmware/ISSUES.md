@@ -1,6 +1,6 @@
 # Firmware Issues Review
 
-Review date: 2026-09-21.
+Review date: 2026-09-23.
 
 Scope: maintained scooter firmware: Motor Board, Display, Lights Board, Power
 Board, shared ESP-NOW helpers, runtime configuration, and battery resistance.
@@ -14,13 +14,14 @@ Only open findings are kept in this file.
 
 | ID | Evidence | Severity | Finding |
 | --- | --- | --- | --- |
-| SEC-02 | Password is printed in both Wi-Fi paths | Medium | Wi-Fi credentials are exposed on serial output. |
 | BMS-05 | NTC order has no configuration | Low | Logged BMS temperature is always unnamed JBD NTC 1. |
 | LT-01 | Receiver behavior | Medium | Lights ownership is selected from `mask`, not enforced by `src`. |
 | SEC-01 | Protocol architecture | High | ESP-NOW command frames are unauthenticated and replayable. |
 | SYS-01 | Critical tasks lack supervision | High | No supervisor or watchdog recovery. |
 | PWR-01 | Protocol architecture | Medium | Relay/configuration delivery has no application acknowledgement. |
 | MOT-01 | Required CAN timing delay | Medium | CAN sends can still postpone the 20 ms motor cycle. |
+| UI-01 | LCD flush error handling | Medium | Display transfer failures are silently discarded. |
+| RTC-02 | UDP time response validation | Medium | An unrelated UDP reply can set the RTC and affect scheduled lights. |
 
 ## Intentional design decisions
 
@@ -34,6 +35,13 @@ resets a measurement.
 
 The Power Board asserts the relay as early as possible, before radio, I2C, and
 ADXL345 initialization, so the Display has power during startup.
+
+### SEC-02 — Wi-Fi password in serial diagnostics
+
+The synchronous and asynchronous Wi-Fi connection paths print the password on
+the serial console. This behavior is explicitly retained for diagnostics and
+is not scheduled for correction. Access to serial output must therefore be
+treated as access to the Wi-Fi credential.
 
 ## Findings
 
@@ -67,18 +75,6 @@ main loop to reach normal timeout shutdown.
 **Recommended action:** supervise critical tasks, transition to a safe state
 on failure, and reset promptly. Feed a watchdog only after a complete critical
 cycle and verify relay state on target hardware.
-
-### SEC-02 — Wi-Fi password is printed verbatim
-
-**Status:** Open. **Severity:** Medium.
-
-Both synchronous and asynchronous Wi-Fi attempts print `repr(password)`.
-
-**References:** `02_diy_display/wifi_time_sync.py` and
-`02_diy_display/escooter/main.py`.
-
-**Recommended action:** remove password output; diagnostics may state only
-whether a non-empty credential was supplied.
 
 ### LT-01 — lights ownership is selected from mask
 
@@ -134,11 +130,51 @@ Power Board does not report actual relay state or acknowledge every request.
 **Recommended action:** report relay state, applied configuration, command ID,
 and power-off reason; base Display status on a fresh matching acknowledgement.
 
+### UI-01 — LCD transfer errors are hidden
+
+**Status:** Open. **Severity:** Medium.
+
+`ScreenManager.render()` catches every exception from `fb.show()` and silently
+continues. A persistent SPI/LCD failure can leave the displayed speed or
+warning stale while the UI task appears healthy; it also hides the cause from
+diagnostics.
+
+**References:** `02_diy_display/screen_manager.py:104-109` and
+`02_diy_display/escooter/main.py:851-868`.
+
+**Recommended action:** record a bounded error count and last error, expose
+display health, and define a safe response to repeated failures. Avoid
+unbounded logging in the 100 ms UI task.
+
+### RTC-02 — Wi-Fi time response is not tied to its request
+
+**Status:** Open. **Severity:** Medium.
+
+The asynchronous UDP helper returns the first nonempty datagram without
+checking its source. The NTP request has no unique transmit timestamp, and
+the response is accepted using only length, mode, and stratum before the RTC
+is set. A stray or forged UDP reply during synchronization can therefore
+change the clock and the automatic-light schedule. DNS replies likewise
+check the transaction ID but not the requested name.
+
+**References:** `02_diy_display/wifi_time_sync.py:53-96`,
+`02_diy_display/wifi_time_sync.py:111-194`, and
+`02_diy_display/escooter/main.py:669-697`.
+
+**Recommended action:** check UDP source IP/port, match the NTP originate
+timestamp to a per-request transmit timestamp, validate the DNS question and
+answer name, and reject implausible time jumps. Test with wrong-source and
+wrong-request packets.
+
 ## Validation performed
 
-- 53 host tests passed, covering BMS state/persistence/recovery, ESP-NOW,
+- 59 host tests passed, covering BMS state/persistence/recovery, ESP-NOW,
   CAN decoding/timing, telemetry, screen navigation, display rendering,
-  throttle refresh, and asynchronous Wi-Fi/NTP helpers.
+  throttle refresh, and asynchronous Wi-Fi/NTP helpers. The new telemetry
+  tests cover MOT-02 recovery at identical ERPM and unchanged-ERPM caching.
 - `git diff --check` passed.
 - No live ESP32-S3 heap/jitter, CAN/radio, BLE, power-loss, updater, or
   target-network timing validation was performed.
+- New findings above are based on code-path review; no physical fault
+  injection or LCD/RTC hardware test was performed. MOT-02 is resolved in the
+  current source but still needs a live CAN-loss/recovery check.

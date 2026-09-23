@@ -12,6 +12,3 @@ packets. In VESC Tool, App Settings → General → CAN Messages Rate 1:
 
 - set Status Rate 1 to 10 Hz;
 - enable Status 1, 4 and 5.
-
-Battery resistance is a Display-local diagnostic derived only from JBD
-Bluetooth BASIC pack voltage/current samples.

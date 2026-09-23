@@ -25,9 +25,22 @@ are unchanged.
 | OPT-02 | Low | The 100 ms Motor Board current-limit task calls floating-point `map_range()` eight times in dual-motor mode. | Convert only after target measurements confirm it matters; retain the present interpolation semantics or validate any fixed-point rounding at every configuration breakpoint. |
 | OPT-03 | Medium | `ui_task()` still invokes the active screen's update/render path every 100 ms. Widget/LCD dirty tracking skips most writes, but screen-level work remains profile-dependent. | Profile each screen on hardware; cache or event-drive only the dominant unchanged screen calculations, preserving warning and safety refresh cadence. |
 | OPT-04 | Measurement | The MicroPython CAN driver's `recv()` API creates the received frame object. This is outside the firmware Python layer but can contribute to automatic GC under high CAN traffic. | Measure heap delta and worst-case 20 ms jitter with one/two VESCs. Consider driver-level buffer reuse only if measurements show it is necessary and the patched port supports it. |
+| OPT-05 | Low | With EU daylight saving enabled, each Display `date_time()` call recomputes both last-Sunday transition dates using repeated `mktime()` calls. The clock text updates once per second, and the light schedule can request a second conversion in the same pass. | Cache March/October transition days by year, refreshing at a year change; compare boundary behavior before and after on host and measure the target cost before prioritizing. |
+| OPT-06 | Low | The Power Board calls `save_power_settings_to_nvs()` on every boot, even when the loaded settings are valid and unchanged; the helper writes five keys and commits. | Persist only when defaults must be installed or values actually change; verify first-boot migration and recovery from invalid NVS values. Measure boot time/flash activity before claiming a gain. |
 
-`OPT-01` through `OPT-04` are optimization work items, not functional or
+`OPT-01` through `OPT-06` are optimization work items, not functional or
 security issues; they remain separate from `ISSUES.md`.
+
+`OPT-05` references `02_diy_display/rtc_datetime.py:147-177` and
+`02_diy_display/escooter/main.py:1195-1203`. `OPT-06` references
+`04_diy_automatic_power_control/main.py:152-181` and
+`04_diy_automatic_power_control/main.py:296-324`.
+
+## Review update — 2026-09-23
+
+`OPT-05` and `OPT-06` were identified by source review; no target timing or
+flash-write measurements were taken. The current host suite passes 57 tests.
+The validation below records the earlier implemented optimization change.
 
 ## Validation
 

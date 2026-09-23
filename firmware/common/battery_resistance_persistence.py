@@ -145,6 +145,7 @@ def _apply_summary(state, summary):
 
 def load_battery_resistance_history(state, config):
   """Load and reconcile recoverable summary generations with history."""
+  _recover_rotated_history(config.history_file_path, config)
   path = config.summary_file_path
   candidates = (
     (path + '.tmp', _read_summary(path + '.tmp', config)),
@@ -160,13 +161,12 @@ def load_battery_resistance_history(state, config):
 
   history_path = None
   history = None
-  # Migration writes a complete new generation before it removes the legacy
-  # file. Treat that temporary generation as boot-recoverable, just as the
-  # summary transaction treats its .tmp file.
-  for candidate_path in (
-      config.history_file_path + '.migrate.tmp',
-      config.history_file_path,
-  ):
+  # A migration temporary may contain only a prefix if power failed during
+  # its write. The original is authoritative until it has been removed.
+  history_candidates = (config.history_file_path,)
+  if _file_size(config.history_file_path) == 0:
+    history_candidates += (config.history_file_path + '.migrate.tmp',)
+  for candidate_path in history_candidates:
     candidate = _read_history(candidate_path, config)
     if candidate is not None:
       history_path = candidate_path
@@ -262,17 +262,42 @@ def _migrate_legacy_history(path, config):
 
 
 def _recover_migrated_history(path, config):
-  """Publish a complete migration generation left by a reset or power loss."""
+  """Publish a migration only after its original has been removed."""
   temporary_path = path + '.migrate.tmp'
+  if _file_size(path) != 0:
+    return True
   if _read_history(temporary_path, config) is None:
     return True
-  if not _remove_if_present(path):
-    return False
   try:
     _fs.rename(temporary_path, path)
   except OSError:
     return False
   return True
+
+
+def _recover_rotated_history(path, config):
+  """Finish a rotation interrupted after removal of the old generation."""
+  temporary_path = path + '.rotate.tmp'
+  if _file_size(path) != 0:
+    return None
+  try:
+    with open(temporary_path, 'r') as history:
+      header = history.readline()
+      row = history.readline()
+      parts = row.strip().split(',')
+      valid = (header == _HISTORY_HEADER and row.endswith('\n') and
+               len(parts) == 3 and
+               _valid_value(config, int(parts[1])) and
+               history.readline() == '')
+  except (OSError, ValueError, IndexError):
+    return None
+  if not valid:
+    return None
+  try:
+    _fs.rename(temporary_path, path)
+  except OSError:
+    return None
+  return row
 
 
 def _append_history_record(record, config):
@@ -296,6 +321,12 @@ def _append_history_record(record, config):
   )
   row = ','.join(str(value) for value in row_values) + '\n'
   path = config.history_file_path
+  if _file_size(path) == 0 and _file_size(path + '.rotate.tmp') > 0:
+    recovered_row = _recover_rotated_history(path, config)
+    if recovered_row is None:
+      return False
+    if recovered_row == row:
+      return True
   current_size = _file_size(path)
   if current_size is None:
     return False
@@ -308,10 +339,20 @@ def _append_history_record(record, config):
   )
   if current_size and current_size + required_size > \
       config.history_file_max_bytes:
+    temporary_path = path + '.rotate.tmp'
+    try:
+      with open(temporary_path, 'w') as history:
+        history.write(_HISTORY_HEADER)
+        history.write(row)
+    except OSError:
+      return False
     if not _remove_if_present(path):
       return False
-    current_size = 0
-    tail_marker = ''
+    try:
+      _fs.rename(temporary_path, path)
+    except OSError:
+      return False
+    return True
   try:
     with open(path, 'a') as history:
       if current_size == 0:

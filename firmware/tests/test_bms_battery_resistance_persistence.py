@@ -79,6 +79,79 @@ class BmsBatteryResistancePersistenceTests(unittest.TestCase):
           history.read(),
           _HISTORY_HEADER + '2026-09-18T12:00:00,34,na\n')
 
+  def test_partial_migration_never_replaces_existing_legacy_history(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      with open(config.history_file_path, 'w') as history:
+        history.write(_LEGACY_HISTORY_HEADER)
+        history.write('2026-09-18T12:00:00,34,5381,-130,5170,-6130\n')
+        history.write('2026-09-18T12:01:00,36,5380,-131,5160,-6140\n')
+      with open(config.history_file_path + '.migrate.tmp', 'w') as temporary:
+        temporary.write(_HISTORY_HEADER)
+        temporary.write('2026-09-18T12:00:00,34,na\n')
+
+      state = _State(37)
+      state.battery_resistance_history_dirty = False
+      self.assertTrue(load_battery_resistance_history(state, config))
+      self.assertEqual(state.battery_resistance_last_mohm, 36)
+      self.assertFalse(state.battery_resistance_history_migration_repair_pending)
+      self.assertTrue(save_battery_resistance_history(_State(37), config))
+      with open(config.history_file_path) as history:
+        contents = history.read()
+      self.assertIn('2026-09-18T12:00:00,34,na\n', contents)
+      self.assertIn('2026-09-18T12:01:00,36,na\n', contents)
+      self.assertIn('na,37,2735\n', contents)
+
+  def test_rotation_write_failure_keeps_existing_history(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      self.assertTrue(save_battery_resistance_history(_State(34), config))
+      with open(config.history_file_path) as history:
+        original = history.read()
+      config.history_file_max_bytes = len(original) + 1
+      real_open = open
+
+      def fail_rotation_open(path, mode='r', *args, **kwargs):
+        if path == config.history_file_path + '.rotate.tmp' and mode == 'w':
+          raise OSError('simulated flash failure')
+        return real_open(path, mode, *args, **kwargs)
+
+      with patch('builtins.open', side_effect=fail_rotation_open):
+        self.assertFalse(save_battery_resistance_history(_State(35), config))
+      with open(config.history_file_path) as history:
+        self.assertEqual(history.read(), original)
+
+  def test_failed_rotation_publish_recovers_without_duplicate_on_retry(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      self.assertTrue(save_battery_resistance_history(_State(34), config))
+      config.history_file_max_bytes = os.path.getsize(config.history_file_path) + 1
+      state = _State(35)
+      state.battery_resistance_pending_records = [(0, 35, 2735)]
+
+      with patch.object(persistence._fs, 'rename', side_effect=OSError('reset')):
+        self.assertFalse(save_battery_resistance_history(state, config))
+      self.assertFalse(os.path.exists(config.history_file_path))
+      self.assertTrue(save_battery_resistance_history(state, config))
+      self.assertEqual(state.battery_resistance_pending_records, [])
+      with open(config.history_file_path) as history:
+        self.assertEqual(history.read(), _HISTORY_HEADER + 'na,35,2735\n')
+
+  def test_recovered_rotation_does_not_drop_next_measurement(self):
+    with tempfile.TemporaryDirectory() as directory:
+      config = self._config(directory)
+      with open(config.history_file_path + '.rotate.tmp', 'w') as temporary:
+        temporary.write(_HISTORY_HEADER + 'na,35,2735\n')
+      state = _State(36)
+      state.battery_resistance_pending_records = [(0, 36, 2800)]
+
+      self.assertTrue(load_battery_resistance_history(_State(), config))
+      self.assertTrue(save_battery_resistance_history(state, config))
+      with open(config.history_file_path) as history:
+        self.assertEqual(
+          history.read(),
+          _HISTORY_HEADER + 'na,35,2735\n' + 'na,36,2800\n')
+
   def test_pending_measurements_are_not_coalesced(self):
     with tempfile.TemporaryDirectory() as directory:
       config = self._config(directory)

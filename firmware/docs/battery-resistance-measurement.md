@@ -44,11 +44,13 @@ outside 1..500 mOhm are rejected.
 For example, 53.81 V / -1.30 A followed by 51.70 V / -61.30 A produces
 `round(1000 * 2.11 / 60) = 35 mOhm`.
 
-The main dashboard shows compact sample progress: `R0/3` through `R3/3` for
-reference, `S0/1` while the settling frame is pending, `L0/3` through `L3/3`
-for load, and `OK` after a result. The full states are `REFERENCE`,
-`SETTLE`, `LOAD`, and `COMPLETE`; elapsed seconds remain available to the
-history screen. Any BMS disconnect, stale BASIC frame, active BMS
+The battery-resistance screen shows the last result, the current estimator
+phase (`REFERENCE`, `SETTLE`, `LOAD`, or `COMPLETE`), sample progress, and
+minimum and maximum results. Once all reference samples have been collected,
+the screen shows `WAIT LOAD` with `BASELINE: 3/3` until a qualifying discharge
+step arrives. It shows `WAIT BMS` until fresh BASIC data is
+available. Elapsed seconds remain available to the history screen. Any BMS
+disconnect, stale BASIC frame, active BMS
 protection, expired load event, or Wi-Fi/NTP radio handover resets the
 in-progress estimator. Normal charging detection, motor telemetry, and traction
 remain independent.

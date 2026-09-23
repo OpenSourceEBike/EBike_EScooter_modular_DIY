@@ -11,7 +11,9 @@ from throttle import Throttle
 from common.utils import map_range
 from common.motor_telemetry import (
   aggregate_battery_status,
+  clear_stale_status_1,
   clear_stale_status_4,
+  refresh_wheel_speed,
   select_wheel_speed,
 )
 from common.espnow import espnow_init, ESPNowComms, espnow_recv_all, espnow_jittered_period_ms
@@ -307,9 +309,7 @@ async def task_motors_refresh_data():
       # Standard VESC Status 1 carries motion/current at 10 Hz.
       if not _can_timestamp_is_fresh(
           now, data.status_1_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS):
-        data.speed_erpm = 0
-        data.wheel_speed = 0
-        data.motor_current_x10 = 0
+        clear_stale_status_1(data)
 
       if not _can_timestamp_is_fresh(
           now, data.status_4_last_update_ms, CAN_STATUS_THERMAL_TIMEOUT_MS):
@@ -772,25 +772,13 @@ def _led_blink():
 async def task_various():
   period_ms = 100
   next_wake = time.ticks_ms()
-  wheel_speed_previous_motor_speed_erpm = [None] * len(motor_data)
   global mode
 
   while True:
     # Calculate each wheel independently. The front value is a Display-only
     # fallback when rear motion telemetry is stale.
-    for index, data in enumerate(motor_data):
-      if data.speed_erpm != wheel_speed_previous_motor_speed_erpm[index]:
-        wheel_speed_previous_motor_speed_erpm[index] = data.speed_erpm
-
-        # 2*pi ≈ 6.28318
-        perimeter = 6.28318 * data.cfg.wheel_radius  # meters
-        motor_rpm = data.speed_erpm / max(1, data.cfg.poles_pair)
-        data.wheel_speed = \
-          (perimeter * motor_rpm * 60.0) / 1000.0  # km/h
-
-        # Small symmetric dead-zone near zero; preserve reverse motion.
-        if abs(data.wheel_speed) < 1.0:
-          data.wheel_speed = 0.0
+    for data in motor_data:
+      refresh_wheel_speed(data)
 
     # Run Mode tick
     mode.tick()
