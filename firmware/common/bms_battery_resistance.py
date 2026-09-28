@@ -179,6 +179,8 @@ class BmsBatteryResistanceEstimator:
       'after_current_x100': after_current_x100,
       'delta_voltage_x100': delta_voltage_x100,
       'delta_current_x100': delta_current_x100,
+      'load_current_min_x100': min(sample[2] for sample in self.load_samples),
+      'load_current_max_x100': max(sample[2] for sample in self.load_samples),
     }
     self._set_state(STATE_COMPLETE, timestamp_ms)
     return resistance_mohm, metadata

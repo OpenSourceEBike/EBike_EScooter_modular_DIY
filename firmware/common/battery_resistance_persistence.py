@@ -7,7 +7,12 @@ except ImportError:
 
 
 _SUMMARY_HEADER = 'kind,resistance_mohm,timestamp'
-_HISTORY_HEADER = 'timestamp,resistance_mohm,bms_temperature_c_x100\n'
+_HISTORY_HEADER = (
+  'timestamp,resistance_mohm,before_voltage_x100,before_current_x100,'
+  'after_voltage_x100,after_current_x100,delta_voltage_x100,'
+  'delta_current_x100,bms_temperature_c_x100,load_current_min_x100,'
+  'load_current_max_x100\n')
+_SIMPLIFIED_HISTORY_HEADER = 'timestamp,resistance_mohm,bms_temperature_c_x100\n'
 _LEGACY_HISTORY_HEADER = (
   'timestamp,resistance_mohm,before_voltage_x100,before_current_x100,'
   'after_voltage_x100,after_current_x100\n')
@@ -80,6 +85,8 @@ def _read_history(path, config):
     with open(path, 'r') as history:
       header = history.readline()
       if header == _HISTORY_HEADER:
+        field_count = 11
+      elif header == _SIMPLIFIED_HISTORY_HEADER:
         field_count = 3
       elif header == _LEGACY_HISTORY_HEADER:
         field_count = 6
@@ -215,7 +222,7 @@ def _history_tail_is_complete(path, current_size):
 
 
 def _migrate_legacy_history(path, config):
-  """Rewrite the prior six-column BMS format without dropping valid rows."""
+  """Upgrade supported older CSV formats without dropping valid results."""
   current_size = _file_size(path)
   if current_size is None:
     return False
@@ -226,21 +233,28 @@ def _migrate_legacy_history(path, config):
       header = history.readline()
       if header == _HISTORY_HEADER:
         return True
-      if header != _LEGACY_HISTORY_HEADER:
+      if header not in (_LEGACY_HISTORY_HEADER,
+                        _SIMPLIFIED_HISTORY_HEADER):
         return False
+      legacy_field_count = (6 if header == _LEGACY_HISTORY_HEADER else 3)
       rows = []
       for line in history:
         if not line.endswith('\n'):
           continue
         parts = line.strip().split(',')
-        if len(parts) != 6:
+        if len(parts) != legacy_field_count:
           continue
         try:
           resistance_mohm = int(parts[1])
         except ValueError:
           continue
         if _valid_value(config, resistance_mohm):
-          rows.append((parts[0], resistance_mohm))
+          if legacy_field_count == 6:
+            values = (parts[2], parts[3], parts[4], parts[5],
+                      'na', 'na', 'na', 'na', 'na')
+          else:
+            values = ('na',) * 6 + (parts[2], 'na', 'na')
+          rows.append((parts[0], resistance_mohm) + values)
   except (OSError, ValueError):
     return False
 
@@ -248,8 +262,8 @@ def _migrate_legacy_history(path, config):
   try:
     with open(temporary_path, 'w') as migrated:
       migrated.write(_HISTORY_HEADER)
-      for timestamp, resistance_mohm in rows:
-        migrated.write('{},{},na\n'.format(timestamp, resistance_mohm))
+      for row in rows:
+        migrated.write(','.join(str(value) for value in row) + '\n')
   except OSError:
     return False
   if not _remove_if_present(path):
@@ -286,7 +300,7 @@ def _recover_rotated_history(path, config):
       row = history.readline()
       parts = row.strip().split(',')
       valid = (header == _HISTORY_HEADER and row.endswith('\n') and
-               len(parts) == 3 and
+               len(parts) == 11 and
                _valid_value(config, int(parts[1])) and
                history.readline() == '')
   except (OSError, ValueError, IndexError):
@@ -302,7 +316,17 @@ def _recover_rotated_history(path, config):
 
 def _append_history_record(record, config):
   try:
-    timestamp, resistance_mohm, temperature_c_x100 = record
+    if isinstance(record, dict):
+      values = dict(record)
+    else:
+      timestamp, resistance_mohm, temperature_c_x100 = record
+      values = {
+        'timestamp': timestamp,
+        'resistance_mohm': resistance_mohm,
+        'bms_temperature_c_x100': temperature_c_x100,
+      }
+    timestamp = values.get('timestamp', 0)
+    resistance_mohm = values.get('resistance_mohm')
     resistance_mohm = int(resistance_mohm)
   except (TypeError, ValueError):
     return False
@@ -312,13 +336,15 @@ def _append_history_record(record, config):
     return False
   if not _migrate_legacy_history(config.history_file_path, config):
     return False
-  if not isinstance(temperature_c_x100, int):
-    temperature_c_x100 = 'na'
-  row_values = (
-    _timestamp_to_csv(timestamp),
-    resistance_mohm,
-    temperature_c_x100,
-  )
+  row_values = [_timestamp_to_csv(timestamp), resistance_mohm]
+  for name in (
+      'before_voltage_x100', 'before_current_x100',
+      'after_voltage_x100', 'after_current_x100',
+      'delta_voltage_x100', 'delta_current_x100',
+      'bms_temperature_c_x100', 'load_current_min_x100',
+      'load_current_max_x100'):
+    value = values.get(name)
+    row_values.append(value if isinstance(value, int) else 'na')
   row = ','.join(str(value) for value in row_values) + '\n'
   path = config.history_file_path
   if _file_size(path) == 0 and _file_size(path + '.rotate.tmp') > 0:

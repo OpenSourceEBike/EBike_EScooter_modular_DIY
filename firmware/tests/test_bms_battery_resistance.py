@@ -36,7 +36,21 @@ class BmsBatteryResistanceTests(unittest.TestCase):
     self.assertEqual(result[0], 35)
     self.assertEqual(result[1]['delta_voltage_x100'], 211)
     self.assertEqual(result[1]['delta_current_x100'], 6000)
+    self.assertEqual(result[1]['load_current_min_x100'], -6130)
+    self.assertEqual(result[1]['load_current_max_x100'], -6130)
     self.assertEqual(self.estimator.state, STATE_COMPLETE)
+
+  def test_load_current_range_preserves_negative_jbd_values(self):
+    for timestamp in (1000, 3000, 5000):
+      self.sample(timestamp, 5381, -130)
+    for timestamp, current in ((7000, -6130), (9000, -6130),
+                               (11000, -2010), (13000, -2050),
+                               (15000, -2100)):
+      result = self.sample(timestamp, 5170 if timestamp >= 11000 else 5381,
+                           current)
+    self.assertIsNotNone(result)
+    self.assertEqual(result[1]['load_current_min_x100'], -2100)
+    self.assertEqual(result[1]['load_current_max_x100'], -2010)
 
   def test_reference_requires_three_samples_inside_plus_minus_250_w(self):
     self.assertEqual(self.estimator.state_sample_progress(), (0, 3))

@@ -569,11 +569,13 @@ def record_battery_resistance_result(
   if save_maximum:
     vars.battery_resistance_max_mohm = resistance_mohm
     vars.battery_resistance_max_timestamp = timestamp
-  pending_records.append((
-    timestamp,
-    resistance_mohm,
-    bms_temperature_c_x100,
-  ))
+  record = dict(metadata or {})
+  record.update({
+    'timestamp': timestamp,
+    'resistance_mohm': resistance_mohm,
+    'bms_temperature_c_x100': bms_temperature_c_x100,
+  })
+  pending_records.append(record)
   vars.battery_resistance_history_dirty = bool(pending_records)
   vars.battery_resistance_alert_pending = (
     resistance_mohm,
