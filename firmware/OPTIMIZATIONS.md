@@ -2,12 +2,11 @@
 
 ## Scope
 
-This change resolves the remaining high-priority optimizations from the Python
-firmware review. It is constrained to allocation and redraw pressure in the
-Motor Board's 20 ms control loop, the Lights Board's 25 ms ESP-NOW receive
-loop. Protocol payloads,
-actuation order, the established 3 ms CAN post-send delay, and safety gates
-are unchanged.
+This document records completed and open performance work in the maintained
+scooter firmware. The 2026-10-05 review covers the Motor, Display, Lights and
+Power boards, shared radio helpers, and the active JBD BMS charging path.
+Target timing and heap measurements are still required before changing
+control-loop behavior.
 
 ## Implemented optimizations
 
@@ -26,27 +25,31 @@ are unchanged.
 | OPT-04 | Measurement | The MicroPython CAN driver's `recv()` API creates the received frame object. This is outside the firmware Python layer but can contribute to automatic GC under high CAN traffic. | Measure heap delta and worst-case 20 ms jitter with one/two VESCs. Consider driver-level buffer reuse only if measurements show it is necessary and the patched port supports it. |
 | OPT-05 | Low | With EU daylight saving enabled, each Display `date_time()` call recomputes both last-Sunday transition dates using repeated `mktime()` calls. The clock text updates once per second, and the light schedule can request a second conversion in the same pass. | Cache March/October transition days by year, refreshing at a year change; compare boundary behavior before and after on host and measure the target cost before prioritizing. |
 | OPT-06 | Low | The Power Board calls `save_power_settings_to_nvs()` on every boot, even when the loaded settings are valid and unchanged; the helper writes five keys and commits. | Persist only when defaults must be installed or values actually change; verify first-boot migration and recovery from invalid NVS values. Measure boot time/flash activity before claiming a gain. |
+| OPT-07 | Medium | The Display configures the JBD client with `interleave_cells=True`, so every other BLE query requests cell voltages. The active charging path reads only BASIC pack voltage/current; no production caller reads the cell getter. | Consider BASIC-only polling for the maintained scooter profile. Compare fresh-current latency, BLE/ESP-NOW coexistence and BMS behavior on hardware before changing the query mix. |
+| OPT-08 | Medium | Motor and Display receive paths call `espnow_recv_all()`, which builds a list containing up to 32 `(host, msg)` tuples on each pass. The parsers then allocate decoded integer lists. | Add a bounded streaming receive helper that lets callers retain only the latest relevant packet. Measure heap churn and receive latency during bursts; preserve packet order and timeout behavior. |
+| OPT-09 | Low | `Mode.tick()` reads each throttle through the compatibility `value` property every 100 ms, which performs another ADC read and builds a tuple after the 20 ms motor task has already refreshed the same throttles. | Reuse a recent cached scaled value or a shared snapshot once the freshness and mode-change behavior are verified. Measure the benefit before changing input timing. |
 
-`OPT-01` through `OPT-06` are optimization work items, not functional or
-security issues; they remain separate from `ISSUES.md`.
+These are optimization work items; functional and safety findings are tracked
+in `ISSUES.md`. In particular, OPT-07 should be considered together with
+CHG-01, which concerns the correctness of charging detection.
 
-`OPT-05` references `02_diy_display/rtc_datetime.py:147-177` and
-`02_diy_display/escooter/main.py:1195-1203`. `OPT-06` references
-`04_diy_automatic_power_control/main.py:152-181` and
-`04_diy_automatic_power_control/main.py:296-324`.
+**Code references:** OPT-05: `02_diy_display/rtc_datetime.py` and
+`02_diy_display/escooter/main.py:1028-1036`; OPT-06:
+`04_diy_automatic_power_control/main.py:152-181` and `:296-324`;
+OPT-07: `02_diy_display/escooter/main.py:242-283` and
+`02_diy_display/bms_jbd.py:236-244`; OPT-08: `common/espnow.py:88-104`,
+`01_diy_main_board/escooter/main.py:398-433`, and
+`02_diy_display/escooter/main.py:1134-1168`; OPT-09:
+`01_diy_main_board/mode.py:44-67` and
+`01_diy_main_board/throttle.py:25-38`.
 
-## Review update — 2026-09-23
+## Review update — 2026-10-05
 
-`OPT-05` and `OPT-06` were identified by source review; no target timing or
-flash-write measurements were taken. The current host suite passes 57 tests.
-The validation below records the earlier implemented optimization change.
-
-## Validation
-
-- `py -3 -m unittest discover -s tests -v`: 53 tests passed.
-- `git diff --check`: passed.
-- Added host coverage for `Throttle.refresh()` and its backwards-compatible
-  tuple property and retained ESP-NOW output-dictionary identity/clearing.
+OPT-07 through OPT-09 are based on source inspection; no target radio, heap,
+ADC or timing measurements were taken. The current host suite passed 37 tests,
+and `bash -n scripts/update_firmware.sh` passed. Existing host coverage checks
+`Throttle.refresh()` and ESP-NOW receive bounds, but does not establish the
+performance benefit of these proposals.
 
 ## Boundaries
 

@@ -1,12 +1,13 @@
 # Firmware Issues Review
 
-Review date: 2026-09-23.
+Review date: 2026-10-05.
 
 Scope: maintained scooter firmware: Motor Board, Display, Lights Board, Power
 Board, shared ESP-NOW helpers, and runtime configuration.
-Legacy e-bike paths are excluded. Remediation of BMS-06, BMS-08,
-DEP-01, and RTC-01 is recorded in `firmware_fix_log_2026-09-21.md`; the
-ESP32-S3 runtime allocation/redraw work is recorded in `OPTIMIZATIONS.md`.
+Legacy e-bike paths are excluded. The review covers the current `main` branch
+after removal of the battery-resistance feature. Prior remediation of BMS-06,
+BMS-08, DEP-01, and RTC-01 is recorded in
+`firmware_fix_log_2026-09-21.md`; performance work is in `OPTIMIZATIONS.md`.
 
 Only open findings are kept in this file.
 
@@ -17,10 +18,16 @@ Only open findings are kept in this file.
 | LT-01 | Receiver behavior | Medium | Lights ownership is selected from `mask`, not enforced by `src`. |
 | SEC-01 | Protocol architecture | High | ESP-NOW command frames are unauthenticated and replayable. |
 | SYS-01 | Critical tasks lack supervision | High | No supervisor or watchdog recovery. |
+| PWR-03 | Power Board startup | High | A startup failure after relay assertion can leave the relay energized. |
+| UI-02 | Charging reconfirmation | High | A reconfirmation acknowledgement can also arm the motor in the same UI update. |
 | PWR-01 | Protocol architecture | Medium | Relay/configuration delivery has no application acknowledgement. |
+| PWR-04 | Power configuration | Medium | Runtime configuration is echoed as applied even if NVS persistence fails. |
 | MOT-01 | Required CAN timing delay | Medium | CAN sends can still postpone the 20 ms motor cycle. |
+| MOT-03 | Cruise control and CAN freshness | Medium | Cruise remains active after rear motion telemetry expires. |
+| CHG-01 | BMS sampling | Medium | One BASIC current sample can satisfy the charging hold interval. |
 | UI-01 | LCD flush error handling | Medium | Display transfer failures are silently discarded. |
 | RTC-02 | UDP time response validation | Medium | An unrelated UDP reply can set the RTC and affect scheduled lights. |
+| DEP-02 | Incremental updater | Medium | An unreadable or corrupt manifest can leave obsolete firmware files on the device. |
 
 ## Intentional design decisions
 
@@ -69,6 +76,24 @@ main loop to reach normal timeout shutdown.
 on failure, and reset promptly. Feed a watchdog only after a complete critical
 cycle and verify relay state on target hardware.
 
+### PWR-03 — startup failure leaves relay energized
+
+**Status:** Open. **Severity:** High.
+
+The Power Board sets all relay-control outputs high before radio, I2C and
+accelerometer setup. If the ADXL345 is absent or setup raises, the exception
+escapes before the loop that turns those outputs off. The normal inactivity
+timeout therefore never runs, and the board can remain powered until an
+external reset or power removal.
+
+**References:** `04_diy_automatic_power_control/main.py:31`,
+`04_diy_automatic_power_control/main.py:283-330`, and
+`04_diy_automatic_power_control/main.py:476-483`.
+
+**Recommended action:** put the startup and run loop behind a defined
+fail-safe cleanup path that deasserts the relay on unrecoverable errors; verify
+the physical relay polarity and boot-failure behavior on hardware.
+
 ### LT-01 — lights ownership is selected from mask
 
 **Status:** Open; established behavior restored. **Severity:** Medium.
@@ -96,6 +121,24 @@ coincides with the 100 ms limit-refresh task.
 **Recommended action:** measure worst-case loop latency on target hardware
 with dual VESC traffic while retaining the proven delay.
 
+### MOT-03 — cruise control is not cancelled when rear speed expires
+
+**Status:** Open. **Severity:** Medium.
+
+After one second without rear Status-1 CAN data, the telemetry task clears
+rear wheel speed to zero. The cruise state machine does not check that
+freshness flag and retains its target speed. While CAN transmit still works,
+the control loop can keep sending that target with no fresh rear speed
+feedback.
+
+**References:** `01_diy_main_board/escooter/main.py:296-329`,
+`01_diy_main_board/escooter/main.py:435-479`, and
+`01_diy_main_board/escooter/main.py:580-685`.
+
+**Recommended action:** cancel cruise and command a safe target when rear
+motion telemetry expires. Verify behavior under receive-only CAN loss and
+recovery on the target board.
+
 ### PWR-01 — relay/config delivery is not application-acknowledged
 
 **Status:** Open. **Severity:** Medium.
@@ -109,6 +152,42 @@ Power Board does not report actual relay state or acknowledge every request.
 **Recommended action:** report relay state, applied configuration, command ID,
 and power-off reason; base Display status on a fresh matching acknowledgement.
 
+### PWR-04 — applied power settings may not survive a reboot
+
+**Status:** Open. **Severity:** Medium.
+
+On a configuration change, the Power Board updates its live values and
+accelerometer, then ignores the return value from `save_power_settings_to_nvs()`
+and queues a normal configuration echo. The Display can report the echoed
+values as applied even when flash persistence failed; the next boot can load
+the older settings.
+
+**References:** `04_diy_automatic_power_control/main.py:398-424` and
+`02_diy_display/escooter/main.py:1145-1160`.
+
+**Recommended action:** distinguish volatile application from committed
+settings in the echo, retry failed persistence, and alert when the saved
+configuration differs from the live configuration.
+
+### CHG-01 — charging hold is counted across repeated reads of one BMS frame
+
+**Status:** Open. **Severity:** Medium.
+
+The Display accepts a BASIC frame for up to three seconds, republishes its
+current and timestamp every second, and checks that cached current in a 50 ms
+task. The dual-motor profile uses a 1000 ms charging hold while BASIC and cell
+queries alternate at roughly one-second intervals. One qualifying current
+frame can therefore start and finish the hold before a second BASIC frame
+arrives; one low-current frame can similarly end a charging session.
+
+**References:** `02_diy_display/escooter/main.py:245-283`,
+`02_diy_display/escooter/main.py:892-936`, and
+`config_escooter_dual_motor_iscooter_i12.py:136-137`.
+
+**Recommended action:** advance the hold only on distinct, post-stop BASIC
+timestamps, or require a configured number of fresh frames. Replay a single
+positive and single low-current frame through the charging flow.
+
 ### UI-01 — LCD transfer errors are hidden
 
 **Status:** Open. **Severity:** Medium.
@@ -118,12 +197,35 @@ continues. A persistent SPI/LCD failure can leave the displayed speed or
 warning stale while the UI task appears healthy; it also hides the cause from
 diagnostics.
 
-**References:** `02_diy_display/screen_manager.py:104-109` and
-`02_diy_display/escooter/main.py:851-868`.
+**References:** `02_diy_display/screen_manager.py:88-95` and
+`02_diy_display/escooter/main.py:692-709`.
 
 **Recommended action:** record a bounded error count and last error, expose
 display health, and define a safe response to repeated failures. Avoid
 unbounded logging in the 100 ms UI task.
+
+### UI-02 — reconfirmation acknowledgement can pass through the Ready gate
+
+**Status:** Open. **Severity:** High.
+
+The long-press callback toggles the `0x0200` state bit and leaves it set after
+release. When charging reconfirmation fails, `ScreenManager.update()` checks
+that bit's level rather than a new `power_long_click_pending` event. If the
+earlier press left the bit high, the failure is acknowledged automatically on
+the next UI update and the rider is sent to `Ready` without a new press. If a
+new long press does arrive, the failure branch switches to `Ready` but does not
+return. The same event then reaches the normal `Ready` long-press branch and
+can enable the motor and open `MAIN` in that same update. A host replay of
+those two states produced `Ready` without a new press in the first case, and
+`MAIN` with motor enabled after a single acknowledgement press in the second.
+
+**References:** `02_diy_display/escooter/main.py:584-591`,
+`02_diy_display/screen_manager.py:107-141`, and
+`02_diy_display/escooter/main.py:859-869`.
+
+**Recommended action:** require a long-press event that occurs after the
+failure is displayed, consume it, and return immediately after switching to
+`Ready`. Test both prior toggle states and a press held across the transition.
 
 ### RTC-02 — Wi-Fi time response is not tied to its request
 
@@ -145,15 +247,33 @@ timestamp to a per-request transmit timestamp, validate the DNS question and
 answer name, and reject implausible time jumps. Test with wrong-source and
 wrong-request packets.
 
-## Validation performed
+### DEP-02 — updater loses cleanup ownership when the manifest cannot be read
 
-- 59 host tests passed, covering BMS state/persistence/recovery, ESP-NOW,
-  CAN decoding/timing, telemetry, screen navigation, display rendering,
-  throttle refresh, and asynchronous Wi-Fi/NTP helpers. The new telemetry
-  tests cover MOT-02 recovery at identical ERPM and unchanged-ERPM caching.
-- `git diff --check` passed.
-- No live ESP32-S3 heap/jitter, CAN/radio, BLE, power-loss, updater, or
-  target-network timing validation was performed.
-- New findings above are based on code-path review; no physical fault
-  injection or LCD/RTC hardware test was performed. MOT-02 is resolved in the
-  current source but still needs a live CAN-loss/recovery check.
+**Status:** Open. **Severity:** Medium.
+
+The incremental updater treats any `mpremote fs cat` failure as an empty
+previous manifest. It then uploads current files and publishes a new manifest,
+but has no old paths to remove. A transient read failure or malformed manifest
+can leave deleted modules on the device permanently, including modules
+removed from the source tree; a missing first-install manifest is
+indistinguishable from this case.
+
+**References:** `scripts/update_firmware.sh:67-70`,
+`scripts/update_firmware.sh:101-131`, and
+`common/config_runtime.py:37-52`.
+
+**Recommended action:** distinguish a first install from an unreadable or
+invalid manifest. Abort on read/format failure or enumerate known managed
+paths before replacing the manifest; test the interrupted-update case.
+
+## Review and validation — 2026-10-05
+
+- Reviewed active scooter code paths on all four boards, shared communications,
+  BMS charging detection, configuration loading, and the incremental updater.
+- The current host suite passed 37 tests; `bash -n scripts/update_firmware.sh`
+  passed. These checks do not reproduce the newly documented failure cases.
+- A focused host replay confirmed both UI-02 transitions, including motor
+  enable after a single acknowledgement press; it did not exercise hardware.
+- No target-hardware CAN/BLE/radio timing, relay-fault injection, flash-failure,
+  or network spoofing test was performed. Severity reflects the code path and
+  possible effect; hardware behavior still needs confirmation.
