@@ -2,5 +2,3 @@ __pycache__/
 *.pyc
 *.pyo
 .codex
-/battery_resistance_history.csv
-/battery_resistance_summary.csv
