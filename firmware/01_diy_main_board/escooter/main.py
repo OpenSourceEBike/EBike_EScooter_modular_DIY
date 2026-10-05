@@ -43,11 +43,7 @@ LIGHTS_HEARTBEAT_MS = 250
 LIGHTS_RETRY_MS = 50
 LIGHTS_RETRY_MAX_MS = 1000
 THROTTLE_REARM_ZERO_HOLD_MS = 100
-CAN_STATUS_FAST_TIMEOUT_MS = 1000
-CAN_STATUS_THERMAL_TIMEOUT_MS = 2000
-# SOC is slow display telemetry, so retain the last valid value through a
-# transient loss of the standard VESC Status 1/4/5 frames.
-CAN_SOC_TIMEOUT_MS = 30000
+CAN_TELEMETRY_TIMEOUT_MS = 2000
 try:
   import neopixel
   import machine
@@ -121,23 +117,22 @@ def decode_display_command(msg):
     return parts
   return None
 
-def _can_timestamp_is_fresh(now, timestamp_ms,
-                            timeout_ms=CAN_STATUS_FAST_TIMEOUT_MS):
+def _can_timestamp_is_fresh(now, timestamp_ms):
   return bool(
     timestamp_ms and
-    0 <= time.ticks_diff(now, timestamp_ms) < timeout_ms
+    0 <= time.ticks_diff(now, timestamp_ms) < CAN_TELEMETRY_TIMEOUT_MS
   )
 
 def _motion_is_fresh(now, motor_data):
   return _can_timestamp_is_fresh(
-    now, motor_data.status_1_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS)
+    now, motor_data.status_1_last_update_ms)
 
 def _battery_status_is_fresh(now, motor_data):
   return (
     _can_timestamp_is_fresh(
-      now, motor_data.status_4_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS)
+      now, motor_data.status_4_last_update_ms)
     and _can_timestamp_is_fresh(
-      now, motor_data.status_5_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS)
+      now, motor_data.status_5_last_update_ms)
   )
 
 def _operational_battery_status(now, rear_data, front_data=None):
@@ -308,20 +303,20 @@ async def task_motors_refresh_data():
     for data in motor_data:
       # Standard VESC Status 1 carries motion/current at 10 Hz.
       if not _can_timestamp_is_fresh(
-          now, data.status_1_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS):
+          now, data.status_1_last_update_ms):
         clear_stale_status_1(data)
 
       if not _can_timestamp_is_fresh(
-          now, data.status_4_last_update_ms, CAN_STATUS_THERMAL_TIMEOUT_MS):
+          now, data.status_4_last_update_ms):
         clear_stale_status_4(data, TEMPERATURE_NOT_AVAILABLE_X10)
 
       if not _can_timestamp_is_fresh(
-          now, data.status_5_last_update_ms, CAN_STATUS_FAST_TIMEOUT_MS):
+          now, data.status_5_last_update_ms):
         data.battery_voltage_x10 = 0
 
       if data is rear_motor_data:
         if not _can_timestamp_is_fresh(
-            now, data.soc_last_update_ms, CAN_SOC_TIMEOUT_MS):
+            now, data.soc_last_update_ms):
           data.battery_soc_x1000 = 0
 
     next_wake = time.ticks_add(next_wake, period_ms)

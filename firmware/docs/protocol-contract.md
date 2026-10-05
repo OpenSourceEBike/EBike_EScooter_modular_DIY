@@ -132,7 +132,8 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
     temperatures/input current and pack voltage at 10 Hz. The rear-only
     LispBM helper sends SOC x1000 as command `99` once per second. Rear ERPM
     is primary and fresh front ERPM is a Display-only fallback; rear SOC
-    remains authoritative and front SOC is ignored. Normal battery status
+    remains authoritative and front SOC is ignored. All four CAN message types
+    use a 2000 ms freshness timeout. Normal battery status
     aggregates only fresh Status-4/5 branches using absolute-current-weighted
     voltage and summed signed current. Charging standstill detection requires
     a valid selected speed source, rear or front.

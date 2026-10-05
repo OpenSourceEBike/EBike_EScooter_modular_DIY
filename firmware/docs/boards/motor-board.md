@@ -39,11 +39,11 @@ In the active scooter firmware:
   deadband for 100 continuous milliseconds is required before a motor target
   can be applied.
 - VESC standard Status 1, 4 and 5 at 10 Hz provide ERPM/motor current,
-  temperatures/input current, and pack voltage respectively. Status 1 and 5
-  use a 1000 ms freshness timeout; temperatures are retained for 2000 ms.
+  temperatures/input current, and pack voltage respectively. All three CAN
+  statuses use a 2000 ms freshness timeout.
 - The rear VESC LispBM helper sends only SOC x1000 as project-private command
-  `99`, once per second. Rear SOC remains authoritative and is retained for
-  30000 ms. Front SOC is ignored.
+  `99`, once per second. Rear SOC remains authoritative and uses the same
+  2000 ms CAN freshness timeout. Front SOC is ignored.
 - Status-4 temperatures outside -50.0..200.0 C are published as unavailable
   (`-2550`). Rear ERPM is the primary speed source; fresh front ERPM is a
   Display-only fallback. Normal battery status combines fresh Status-4/5
