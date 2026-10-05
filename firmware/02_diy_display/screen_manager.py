@@ -37,6 +37,7 @@ class ScreenManager:
     self._button_power_click_previous = False
     self._charging_state_previous = False
     self._charging_entry_is_auto = False
+    self._charging_failure_ack_ready = False
     self._rearm_warning_suppressed_until_ms = 0
 
   def _suppress_rearm_warning(self, duration_ms=1500):
@@ -122,22 +123,27 @@ class ScreenManager:
       vars.power_long_click_pending = False
       self._button_power_long_click_previous = not button_power_long_click
 
-    # A failed post-sync charging check is deliberately visible as an
-    # "unknown" state. Require an explicit long-press acknowledgement before
-    # allowing the rider to leave the charging screen.
+    # Show the unknown charging state for one render before accepting an
+    # acknowledgement. Consume its button event so it cannot also pass the
+    # Ready gate and enable the motor in this or the next UI update.
     if getattr(vars, "charging_reconfirm_failed", False):
-      if button_power_long_click:
+      vars.motor_enable_state = False
+      self._button_power_click_previous = bool(vars.buttons_state & 0x0100)
+      self._button_power_long_click_previous = button_power_long_click
+      if not self.current_is(ScreenID.CHARGING):
+        self._charging_entry_is_auto = False
+        self.force(ScreenID.CHARGING)
+      if not self._charging_failure_ack_ready:
+        self._charging_failure_ack_ready = True
+        return
+      if power_long_click_pending:
         vars.charging_reconfirm_failed = False
+        self._charging_failure_ack_ready = False
         self._suppress_rearm_warning()
-        vars.motor_enable_state = False
         self._charging_entry_is_auto = False
         self.force(ScreenID.BOOT)
-      else:
-        if not self.current_is(ScreenID.CHARGING):
-          self._charging_entry_is_auto = False
-          vars.motor_enable_state = False
-          self.force(ScreenID.CHARGING)
-        return
+      return
+    self._charging_failure_ack_ready = False
 
     # Keep the display in CHARGING while the delayed Wi-Fi/NTP sync is
     # pending or active.  This also turns a button attempt to leave into the

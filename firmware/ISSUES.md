@@ -9,7 +9,7 @@ after removal of the battery-resistance feature. Prior remediation of BMS-06,
 BMS-08, DEP-01, and RTC-01 is recorded in
 `firmware_fix_log_2026-09-21.md`; performance work is in `OPTIMIZATIONS.md`.
 
-Only open findings are kept in this file.
+Open findings are listed below. Fixes from this review are recorded at the end.
 
 ## Open findings
 
@@ -18,12 +18,9 @@ Only open findings are kept in this file.
 | LT-01 | Receiver behavior | Medium | Lights ownership is selected from `mask`, not enforced by `src`. |
 | SEC-01 | Protocol architecture | High | ESP-NOW command frames are unauthenticated and replayable. |
 | SYS-01 | Critical tasks lack supervision | High | No supervisor or watchdog recovery. |
-| PWR-03 | Power Board startup | High | A startup failure after relay assertion can leave the relay energized. |
-| UI-02 | Charging reconfirmation | High | A reconfirmation acknowledgement can also arm the motor in the same UI update. |
 | PWR-01 | Protocol architecture | Medium | Relay/configuration delivery has no application acknowledgement. |
 | PWR-04 | Power configuration | Medium | Runtime configuration is echoed as applied even if NVS persistence fails. |
 | MOT-01 | Required CAN timing delay | Medium | CAN sends can still postpone the 20 ms motor cycle. |
-| MOT-03 | Cruise control and CAN freshness | Medium | Cruise remains active after rear motion telemetry expires. |
 | CHG-01 | BMS sampling | Medium | One BASIC current sample can satisfy the charging hold interval. |
 | UI-01 | LCD flush error handling | Medium | Display transfer failures are silently discarded. |
 | RTC-02 | UDP time response validation | Medium | An unrelated UDP reply can set the RTC and affect scheduled lights. |
@@ -76,24 +73,6 @@ main loop to reach normal timeout shutdown.
 on failure, and reset promptly. Feed a watchdog only after a complete critical
 cycle and verify relay state on target hardware.
 
-### PWR-03 — startup failure leaves relay energized
-
-**Status:** Open. **Severity:** High.
-
-The Power Board sets all relay-control outputs high before radio, I2C and
-accelerometer setup. If the ADXL345 is absent or setup raises, the exception
-escapes before the loop that turns those outputs off. The normal inactivity
-timeout therefore never runs, and the board can remain powered until an
-external reset or power removal.
-
-**References:** `04_diy_automatic_power_control/main.py:31`,
-`04_diy_automatic_power_control/main.py:283-330`, and
-`04_diy_automatic_power_control/main.py:476-483`.
-
-**Recommended action:** put the startup and run loop behind a defined
-fail-safe cleanup path that deasserts the relay on unrecoverable errors; verify
-the physical relay polarity and boot-failure behavior on hardware.
-
 ### LT-01 — lights ownership is selected from mask
 
 **Status:** Open; established behavior restored. **Severity:** Medium.
@@ -120,24 +99,6 @@ coincides with the 100 ms limit-refresh task.
 
 **Recommended action:** measure worst-case loop latency on target hardware
 with dual VESC traffic while retaining the proven delay.
-
-### MOT-03 — cruise control is not cancelled when rear speed expires
-
-**Status:** Open. **Severity:** Medium.
-
-After one second without rear Status-1 CAN data, the telemetry task clears
-rear wheel speed to zero. The cruise state machine does not check that
-freshness flag and retains its target speed. While CAN transmit still works,
-the control loop can keep sending that target with no fresh rear speed
-feedback.
-
-**References:** `01_diy_main_board/escooter/main.py:296-329`,
-`01_diy_main_board/escooter/main.py:435-479`, and
-`01_diy_main_board/escooter/main.py:580-685`.
-
-**Recommended action:** cancel cruise and command a safe target when rear
-motion telemetry expires. Verify behavior under receive-only CAN loss and
-recovery on the target board.
 
 ### PWR-01 — relay/config delivery is not application-acknowledged
 
@@ -204,29 +165,6 @@ diagnostics.
 display health, and define a safe response to repeated failures. Avoid
 unbounded logging in the 100 ms UI task.
 
-### UI-02 — reconfirmation acknowledgement can pass through the Ready gate
-
-**Status:** Open. **Severity:** High.
-
-The long-press callback toggles the `0x0200` state bit and leaves it set after
-release. When charging reconfirmation fails, `ScreenManager.update()` checks
-that bit's level rather than a new `power_long_click_pending` event. If the
-earlier press left the bit high, the failure is acknowledged automatically on
-the next UI update and the rider is sent to `Ready` without a new press. If a
-new long press does arrive, the failure branch switches to `Ready` but does not
-return. The same event then reaches the normal `Ready` long-press branch and
-can enable the motor and open `MAIN` in that same update. A host replay of
-those two states produced `Ready` without a new press in the first case, and
-`MAIN` with motor enabled after a single acknowledgement press in the second.
-
-**References:** `02_diy_display/escooter/main.py:584-591`,
-`02_diy_display/screen_manager.py:107-141`, and
-`02_diy_display/escooter/main.py:859-869`.
-
-**Recommended action:** require a long-press event that occurs after the
-failure is displayed, consume it, and return immediately after switching to
-`Ready`. Test both prior toggle states and a press held across the transition.
-
 ### RTC-02 — Wi-Fi time response is not tied to its request
 
 **Status:** Open. **Severity:** Medium.
@@ -277,3 +215,11 @@ paths before replacing the manifest; test the interrupted-update case.
 - No target-hardware CAN/BLE/radio timing, relay-fault injection, flash-failure,
   or network spoofing test was performed. Severity reflects the code path and
   possible effect; hardware behavior still needs confirmation.
+
+## Resolved in code — 2026-10-05
+
+| ID | Change | Remaining hardware check |
+| --- | --- | --- |
+| UI-02 | Charging reconfirmation now waits until the failure screen has been shown, consumes only a subsequent long-press event, and returns before normal Ready input processing. | Confirm button timing on the Display. |
+| PWR-03 | Relay outputs are deasserted if startup fails or the run loop exits, including on an exception. | Confirm physical relay polarity and fault behavior on the Power Board. |
+| MOT-03 | Cruise clears its target when rear Status-1 telemetry becomes stale, and requires a fresh long-press edge after telemetry returns. | Confirm receive-only CAN loss and recovery on the Motor Board. |

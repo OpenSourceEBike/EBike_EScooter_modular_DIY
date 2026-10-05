@@ -432,9 +432,21 @@ async def task_espnow_receive_process_data():
     remaining = time.ticks_diff(next_wake, time.ticks_ms())
     await asyncio.sleep_ms(remaining if remaining > 0 else 0)
 
-def cruise_control(vars, wheel_speed, requested_motor_target_speed):
+def cruise_control(vars, wheel_speed, requested_motor_target_speed,
+                   rear_motion_fresh):
   button_long_press_state = vars.buttons_state & 0x0200
   button_press_state = vars.buttons_state & 0x0100
+
+  # A cruise target needs fresh rear Status-1 feedback. Reset the button
+  # baseline too, so telemetry recovery cannot re-arm an old long press.
+  if not rear_motion_fresh:
+    vars.cruise_control.state = 0
+    vars.cruise_control.target_motor_speed = 0.0
+    vars.cruise_control.manual_cancel_ready = False
+    vars.cruise_control.button_pressed = False
+    vars.cruise_control.button_long_press_previous_state = button_long_press_state
+    vars.cruise_control.button_press_previous_state = button_press_state
+    return False
 
   # Init
   if vars.cruise_control.state == 0:
@@ -591,6 +603,7 @@ async def task_control_motor():
       vars,
       rear_motor.data.wheel_speed,
       requested_motor_target_speed,
+      _motion_is_fresh(time.ticks_ms(), rear_motor_data),
     )
 
     # Target speed. Preserve the former per-motor scaling and limiting while
