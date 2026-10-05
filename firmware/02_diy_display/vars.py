@@ -23,45 +23,11 @@ class Vars:
     self.battery_soc_x1000 = -1 # -1 means value is invalid
     self.bms_battery_voltage_x100 = None
     self.bms_battery_current_x100 = None
-    self.bms_temperature_c_x100 = None
     # Timestamp of the BASIC BMS frame that supplied the current above.  This
     # lets charging detection reject a regeneration sample captured before the
     # scooter came to a stop.
     self.bms_battery_current_last_update_ms = 0
     self.battery_is_charging = False
-    # Passive battery DC-resistance history. Timestamps are local RTC epoch
-    # seconds, or zero when no valid RTC is available.
-    self.battery_resistance_last_mohm = None
-    self.battery_resistance_last_timestamp = 0
-    self.battery_resistance_last_bms_temperature_c_x100 = None
-    self.battery_resistance_min_mohm = None
-    self.battery_resistance_min_timestamp = 0
-    self.battery_resistance_max_mohm = None
-    self.battery_resistance_max_timestamp = 0
-    self.battery_resistance_measurement = {}
-    self.battery_resistance_history_dirty = False
-    # Completed measurements wait here until their history rows are durably
-    # appended. Normally record_battery_resistance_result() flushes the queue
-    # immediately; retaining it permits retry after a transient filesystem
-    # failure without coalescing several results into one row.
-    self.battery_resistance_pending_records = []
-    # Shutdown persistence transaction state. The row flag prevents a retry
-    # from appending twice after history succeeded but summary publication did
-    # not. A recovered summary is repaired by startup/immediate retry, with
-    # explicit shutdown retained as the final flush path.
-    self.battery_resistance_history_row_saved = False
-    self.battery_resistance_summary_repair_pending = False
-    self.battery_resistance_history_migration_repair_pending = False
-    # One-shot (resistance_mohm, duration_ms) consumed by MainScreen.
-    self.battery_resistance_alert_pending = None
-    self.battery_resistance_enabled = True
-    self.battery_resistance_config_error = ''
-    # BMS estimator phases: reference, settle, load, complete.
-    self.battery_resistance_state = -1
-    self.battery_resistance_state_seconds = 0
-    self.battery_resistance_state_samples = 0
-    self.battery_resistance_state_samples_required = 0
-    self.battery_resistance_rejection_reason = ''
     self.motor_power_percent = 0
     self.motor_current_x10 = 0
     self.wheel_speed_x10 = 0

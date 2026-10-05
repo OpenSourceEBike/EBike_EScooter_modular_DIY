@@ -156,11 +156,6 @@ Display fallback. Battery status aggregates only the fresh branches. VESC
 status families have independent timestamps; receiving one family does not
 refresh the others.
 
-Battery resistance is not part of this ESP-NOW status. The Display derives its
-own passive BMS diagnostic from unique, fresh JBD BASIC voltage/current frames;
-it resets the in-progress estimate when BLE is stale or the radio is handed to
-Wi-Fi/NTP. Motor telemetry and traction remain independent.
-
 Power-switch to sender config echo/status:
 
 ```text
@@ -254,13 +249,7 @@ latest command separately for each sender (display and motor board).
 | Display → power-switch board | Motion/power configuration: threshold, rate, AC mode, timeout and wait period | Only when values change; on send failure, retry every 2000 ms | Processed approximately every 20 ms; valid values are persisted by the power-switch board. |
 | Power-switch board → display or motor board | Echo/status of validated power configuration | After a configuration command: 10 frames, 250 ms apart (about 2.25 s total) | Processed by the display communications loop. There is no separate receive-expiry timer for this configuration echo. |
 | Lights board → other boards | — | Does not send ESP-NOW frames | Receives and applies commands only. |
-| JBD BMS → display | BLE pack voltage/current for charging detection and passive resistance diagnostic | Basic/cell queries currently alternate at about 1 Hz | Only unique, fresh BASIC frames enter the resistance estimator; BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with two immediate retries followed by a 30 s automatic rescan backoff. |
-
-The JBD BMS is the sole battery-resistance source. The Display accepts three
-reference BASIC frames inside -250 W to +250 W, then a discharge of at least
-750 W, discards one settling frame and averages three load frames at or below
--750 W. This is effective BMS-side DC resistance, not
-instantaneous cell impedance.
+| JBD BMS → display | BLE pack voltage/current for charging detection | Basic/cell queries currently alternate at about 1 Hz | BLE scan uses a 200 ms interval and 30 ms window (about 15% duty cycle), with two immediate retries followed by a 30 s automatic rescan backoff. |
 
 Each shared ESP-NOW receive pass reads at most 32 queued packets. Remaining
 packets are deferred to the next cooperative pass; packet order is retained.
@@ -288,16 +277,12 @@ ignored. The power button's click and long-press callbacks are latched until
 the UI task consumes them. The Display starts on `Ready` with motor enable
 inactive. A long press is required to leave `Ready`: with brakes active at
 confirmed zero speed it opens manual `CHARGING`; otherwise it enables the
-motor and opens the battery-resistance dashboard in place of `MAIN` when the
-optional JBD feature is enabled. A non-BMS profile keeps `MAIN`. This
-replacement inherits the normal dashboard timeout, lights, charging and
-shutdown behaviour. The lights input is a maintained switch; its state
+motor and opens `MAIN`. The lights input is a maintained switch; its state
 is combined with the automatic schedule, with manual ON override as the
 default and `auto_lights_schedule_authoritative = True` available for a
 schedule-authoritative deployment.
 
-A long press on the enabled battery-resistance dashboard opens the ordinary
-`MAIN` dashboard. From `MAIN`, long press powers off only when fresh wheel
+From `MAIN`, long press powers off only when fresh wheel
 telemetry confirms zero speed; braking while moving is not sufficient.
 
 This avoids conflicting writes from multiple firmware modules.

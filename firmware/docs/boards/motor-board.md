@@ -48,9 +48,6 @@ In the active scooter firmware:
   (`-2550`). Rear ERPM is the primary speed source; fresh front ERPM is a
   Display-only fallback. Normal battery status combines fresh Status-4/5
   branches using absolute-current-weighted voltage and summed signed current.
-- Battery resistance is no longer a Motor Board/VESC responsibility. The
-  board relays normal VESC Status 1/4/5 telemetry; the Display
-  estimates passive DC resistance from its local JBD Bluetooth BASIC samples.
 - The 20 ms actuation loop sends one target command per VESC and preserves the
   required 3 ms post-send CAN delay. Motor/battery limit refresh runs at 100 ms,
   CAN receive drains at most 32 already-queued frames every 20 ms without

@@ -35,18 +35,6 @@ import uasyncio as asyncio
 import machine
 import esp32
 from common.utils import map_range
-from common.config_bms_battery_resistance import (
-  bms_battery_resistance_config,
-  validate_bms_battery_resistance_config,
-)
-from common.bms_battery_resistance import (
-  BmsBatteryResistanceEstimator,
-  bms_resistance_rejection_reason,
-)
-from common.battery_resistance_persistence import (
-  load_battery_resistance_history,
-  save_battery_resistance_history,
-)
 from common.lights_bits import FRONT_LOW_BIT, REAR_TAIL_BIT, REAR_BRAKE_BIT, IO_BITS_MASK
 import vars as Vars
 from common.espnow_protocol import (
@@ -77,17 +65,6 @@ from common.espnow import (
 )
 
 vars = Vars.Vars()
-_bms_resistance_config_error = validate_bms_battery_resistance_config(
-  bms_battery_resistance_config)
-vars.battery_resistance_enabled = bool(
-  cfg.has_jbd_bms and _bms_resistance_config_error is None)
-vars.battery_resistance_config_error = _bms_resistance_config_error or (
-  '' if cfg.has_jbd_bms else 'JBD BMS disabled')
-if not vars.battery_resistance_enabled:
-  print("BMS battery resistance disabled:",
-        vars.battery_resistance_config_error)
-bms_resistance_estimator = BmsBatteryResistanceEstimator(
-  bms_battery_resistance_config)
 boot_log("Vars initialized")
 
 my_mac_address = cfg.mac_address_display
@@ -114,8 +91,6 @@ RTC_SYNC_RESULT_DISPLAY_MS = 5000
 # A BMS reconnect can include an 8 s scan plus its first BASIC response.
 # Start this timer only after the Wi-Fi/BLE radio handover has completed.
 CHARGING_RECONFIRM_TIMEOUT_MS = 20000
-BATTERY_RESISTANCE_PERSIST_RETRY_MS = 5000
-BATTERY_RESISTANCE_PENDING_MAX = 16
 _power_peer = bytes(mac_address_power_switch)
 _power_peer_added = False
 _power_tx_had_failure = False
@@ -157,7 +132,6 @@ def _display_lights_state():
   if (
     not (
       screen_manager.current_is(ScreenID.MAIN) or
-      screen_manager.current_is(ScreenID.BATTERY_RESISTANCE) or
       screen_manager.current_is(ScreenID.MOTOR_BLOCKED)
     ) or
     not vars.motor_enable_state
@@ -292,60 +266,18 @@ if cfg.has_jbd_bms:
   async def bms_read_task(bms, vars):
     period_ms = 1000
     next_wake = time.ticks_ms()
-    last_basic_timestamp_ms = 0
     while True:
       if bms.is_connected() and bms.is_basic_fresh(3000):
         voltage_x100 = bms.get_battery_voltage_x100()
         current_x100 = bms.get_current_a_x100()
-        temps_c_x100 = bms.get_temps_c_x100()
-        try:
-          bms_temperature_c_x100 = int(temps_c_x100[0])
-        except (IndexError, TypeError, ValueError):
-          bms_temperature_c_x100 = None
         basic_timestamp_ms = bms.last_basic_data_ms
         vars.bms_battery_current_x100 = current_x100
         vars.bms_battery_voltage_x100 = voltage_x100
-        vars.bms_temperature_c_x100 = bms_temperature_c_x100
         vars.bms_battery_current_last_update_ms = basic_timestamp_ms
-        if (basic_timestamp_ms != last_basic_timestamp_ms and
-            voltage_x100 is not None and current_x100 is not None):
-          last_basic_timestamp_ms = basic_timestamp_ms
-          if vars.battery_resistance_enabled and not vars.comms_paused:
-            try:
-              rejection_reason = bms_resistance_rejection_reason(
-                bms.get_protections())
-            except Exception:
-              rejection_reason = 'BMS protection state unavailable'
-            vars.battery_resistance_rejection_reason = rejection_reason
-            if rejection_reason:
-              bms_resistance_estimator.reset(basic_timestamp_ms)
-              result = None
-            else:
-              result = bms_resistance_estimator.update(
-                basic_timestamp_ms, voltage_x100, current_x100)
-            vars.battery_resistance_state = bms_resistance_estimator.state
-            elapsed_ms = time.ticks_diff(
-              basic_timestamp_ms, bms_resistance_estimator.state_started_ms)
-            vars.battery_resistance_state_seconds = max(0, elapsed_ms // 1000)
-            (vars.battery_resistance_state_samples,
-             vars.battery_resistance_state_samples_required) = (
-               bms_resistance_estimator.state_sample_progress())
-            if result is not None:
-              resistance_mohm, metadata = result
-              record_battery_resistance_result(
-                vars, resistance_mohm, metadata, bms_temperature_c_x100)
       else:
         vars.bms_battery_current_x100 = None
         vars.bms_battery_voltage_x100 = None
-        vars.bms_temperature_c_x100 = None
         vars.bms_battery_current_last_update_ms = 0
-        last_basic_timestamp_ms = 0
-        bms_resistance_estimator.reset()
-        vars.battery_resistance_state = -1
-        vars.battery_resistance_state_seconds = 0
-        vars.battery_resistance_state_samples = 0
-        vars.battery_resistance_state_samples_required = 0
-        vars.battery_resistance_rejection_reason = ''
       next_wake = time.ticks_add(next_wake, period_ms)
       remaining = time.ticks_diff(next_wake, time.ticks_ms())
       await asyncio.sleep_ms(remaining if remaining > 0 else 0)
@@ -419,11 +351,6 @@ def _rebuild_espnow_stack():
   vars.wheel_speed_fallback_active = False
   vars.rear_battery_telemetry_valid = False
   vars.front_battery_telemetry_valid = False
-  vars.battery_resistance_state = -1
-  vars.battery_resistance_state_seconds = 0
-  vars.battery_resistance_state_samples = 0
-  vars.battery_resistance_state_samples_required = 0
-  bms_resistance_estimator.reset(now)
   vars.lights_board_comm_ok = False
   vars.power_switch_board_comm_ok = False
   vars.motor_board_tx_last_ok_ms = time.ticks_add(now, -MOTOR_BOARD_TX_COMM_TIMEOUT_MS)
@@ -529,67 +456,6 @@ def save_rtc_ntp_sync_valid(value):
     return False
   return True
 
-def _battery_resistance_timestamp(vars):
-  if not getattr(vars, 'rtc_time_valid', False) or vars.rtc is None:
-    return 0
-  try:
-    dt = vars.rtc.date_time()
-    return time.mktime((dt[0], dt[1], dt[2], dt[3], dt[4], dt[5], 0, 0))
-  except Exception:
-    return 0
-
-def record_battery_resistance_result(
-    vars, resistance_mohm, metadata=None, bms_temperature_c_x100=None):
-  timestamp = _battery_resistance_timestamp(vars)
-  pending_records = vars.battery_resistance_pending_records
-  if len(pending_records) >= BATTERY_RESISTANCE_PENDING_MAX:
-    # Try to free the bounded queue before accepting another result. A
-    # persistent filesystem failure is reported rather than growing RAM
-    # without limit for the rest of the ride.
-    save_battery_resistance_history(vars, bms_battery_resistance_config)
-    if len(pending_records) >= BATTERY_RESISTANCE_PENDING_MAX:
-      print("Battery resistance pending queue full; result rejected")
-      return False
-  vars.battery_resistance_last_mohm = resistance_mohm
-  vars.battery_resistance_last_timestamp = timestamp
-  vars.battery_resistance_last_bms_temperature_c_x100 = (
-    bms_temperature_c_x100)
-  vars.battery_resistance_measurement = dict(metadata or {})
-  save_minimum = (
-    vars.battery_resistance_min_mohm is None or
-    resistance_mohm < vars.battery_resistance_min_mohm
-  )
-  save_maximum = (
-    vars.battery_resistance_max_mohm is None or
-    resistance_mohm > vars.battery_resistance_max_mohm
-  )
-  if save_minimum:
-    vars.battery_resistance_min_mohm = resistance_mohm
-    vars.battery_resistance_min_timestamp = timestamp
-  if save_maximum:
-    vars.battery_resistance_max_mohm = resistance_mohm
-    vars.battery_resistance_max_timestamp = timestamp
-  record = dict(metadata or {})
-  record.update({
-    'timestamp': timestamp,
-    'resistance_mohm': resistance_mohm,
-    'bms_temperature_c_x100': bms_temperature_c_x100,
-  })
-  pending_records.append(record)
-  vars.battery_resistance_history_dirty = bool(pending_records)
-  vars.battery_resistance_alert_pending = (
-    resistance_mohm,
-    int(bms_battery_resistance_config.alert_duration_ms),
-  )
-  # Persist immediately so the independent Power Board timeout cannot remove
-  # power before this result reaches flash. Failed writes remain queued for the
-  # retry task and explicit shutdown path.
-  if (pending_records and not save_battery_resistance_history(
-      vars, bms_battery_resistance_config)):
-    print("Battery resistance immediate save failed; retry pending")
-    return False
-  return True
-
 if cfg.enable_rtc_time:
   vars.rtc = get_rtc_datetime_class()(
     rtc_scl_pin=cfg.rtc_scl_pin,
@@ -598,33 +464,6 @@ if cfg.enable_rtc_time:
     debug=cfg.rtc_debug,
   )
   boot_log("RTC object initialized")
-
-if vars.battery_resistance_enabled:
-  if load_battery_resistance_history(vars, bms_battery_resistance_config):
-    if not save_battery_resistance_history(
-        vars, bms_battery_resistance_config):
-      print("Battery resistance startup repair failed; retry pending")
-
-
-async def battery_resistance_persistence_task(vars):
-  """Retry failed result/repair transactions without waiting for shutdown."""
-  failure_reported = False
-  while True:
-    has_work = bool(
-      vars.battery_resistance_history_dirty or
-      vars.battery_resistance_pending_records or
-      vars.battery_resistance_summary_repair_pending or
-      vars.battery_resistance_history_migration_repair_pending
-    )
-    if has_work:
-      ok = save_battery_resistance_history(
-        vars, bms_battery_resistance_config)
-      if not ok and not failure_reported:
-        print("Battery resistance persistence retry failed")
-      failure_reported = not ok
-    else:
-      failure_reported = False
-    await asyncio.sleep_ms(BATTERY_RESISTANCE_PERSIST_RETRY_MS)
 
 def filter_motor_power(p):
   if p < 0:
@@ -971,7 +810,6 @@ async def preload_screens_task(delay_ms=0):
   for screen_id, label in (
     (ScreenID.MAIN, "MAIN"),
     (ScreenID.CHARGING, "CHARGING"),
-    (ScreenID.BATTERY_RESISTANCE, "BATTERY_RESISTANCE"),
     (ScreenID.POWEROFF, "POWEROFF"),
     (ScreenID.MOTOR_BLOCKED, "MOTOR_BLOCKED"),
   ):
@@ -1113,12 +951,7 @@ async def main_task(vars):
       vars.charging_reconfirm_pending = False
       vars.charging_reconfirm_started_ms = 0
 
-    # BATTERY_RESISTANCE is the scooter's active dashboard replacement for
-    # MAIN and must inherit the same inactivity safety policy.
-    in_main_screen = (
-      screen_manager.current_is(ScreenID.MAIN) or
-      screen_manager.current_is(ScreenID.BATTERY_RESISTANCE)
-    )
+    in_main_screen = screen_manager.current_is(ScreenID.MAIN)
     in_charging_screen = screen_manager.current_is(ScreenID.CHARGING)
 
     if was_in_charging_screen and not in_charging_screen:
@@ -1205,9 +1038,6 @@ async def main_task(vars):
 
     # Shutdown
     if vars.shutdown_request:
-      if not save_battery_resistance_history(
-          vars, bms_battery_resistance_config):
-        print("Battery resistance history save failed")
       vars.turn_off_relay = True
       vars.motor_enable_state = False
       vars.lights_board_pins_state = 0
@@ -1396,8 +1226,6 @@ async def main():
     if bms is not None:
       tasks.append(asyncio.create_task(bms_task(bms, vars)))
       tasks.append(asyncio.create_task(bms_read_task(bms, vars)))
-      tasks.append(asyncio.create_task(
-        battery_resistance_persistence_task(vars)))
     boot_log("Main tasks started")
 
     await asyncio.gather(*tasks)

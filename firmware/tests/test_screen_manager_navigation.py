@@ -60,7 +60,7 @@ def _load_screen_manager():
   return module
 
 
-class ResistanceMainNavigationTests(unittest.TestCase):
+class MainNavigationTests(unittest.TestCase):
   def state(self):
     return SimpleNamespace(
       buttons_state=0,
@@ -78,10 +78,9 @@ class ResistanceMainNavigationTests(unittest.TestCase):
       brakes_are_active=False,
       motor_enable_state=False,
       shutdown_request=False,
-      battery_resistance_enabled=True,
     )
 
-  def test_resistance_replaces_main_after_ready_gate(self):
+  def test_main_after_ready_gate_and_stopped_power_off(self):
     module = _load_screen_manager()
     state = self.state()
     manager = module.ScreenManager(object(), state)
@@ -97,40 +96,27 @@ class ResistanceMainNavigationTests(unittest.TestCase):
     self.assertEqual(manager.get_current_id(), module.ScreenID.BOOT)
     self.assertFalse(state.motor_enable_state)
 
-    # A long press arms the motor, but MAIN is replaced by the resistance
-    # dashboard.
+    # A long press arms the motor and opens the riding dashboard.
     state.buttons_state = 0x0200
     state.power_long_click_pending = True
     manager.update(state)
     self.assertEqual(
-      manager.get_current_id(), module.ScreenID.BATTERY_RESISTANCE)
+      manager.get_current_id(), module.ScreenID.MAIN)
     self.assertTrue(state.motor_enable_state)
-
-    # Any internal request for MAIN resolves to the same replacement.
-    manager.force(module.ScreenID.MAIN)
-    self.assertEqual(
-      manager.get_current_id(), module.ScreenID.BATTERY_RESISTANCE)
-
-    # Long press from the resistance dashboard explicitly opens MAIN.
-    state.buttons_state = 0x0300
-    state.power_long_click_pending = True
-    manager.update(state)
-    self.assertEqual(manager.get_current_id(), module.ScreenID.MAIN)
-    self.assertTrue(state.motor_enable_state)
-    self.assertFalse(state.shutdown_request)
 
     # The normal dashboard keeps the stopped-only power-off gesture.
+    state.buttons_state = 0x0300
     state.power_long_click_pending = True
     manager.update(state)
     self.assertEqual(manager.get_current_id(), module.ScreenID.POWEROFF)
     self.assertFalse(state.motor_enable_state)
     self.assertTrue(state.shutdown_request)
 
-  def test_braking_while_moving_opens_main_but_does_not_power_off(self):
+  def test_braking_while_moving_does_not_power_off(self):
     module = _load_screen_manager()
     state = self.state()
     manager = module.ScreenManager(object(), state)
-    manager.force(module.ScreenID.BATTERY_RESISTANCE)
+    manager.force(module.ScreenID.MAIN)
     state.wheel_speed_x10 = 120
     state.brakes_are_active = True
     state.buttons_state = 0x0300
@@ -142,18 +128,11 @@ class ResistanceMainNavigationTests(unittest.TestCase):
       manager.get_current_id(), module.ScreenID.MAIN)
     self.assertFalse(state.shutdown_request)
 
-    # A second long press is now evaluated on MAIN and still cannot power off
-    # while the wheel is moving, even with the brakes held.
-    state.power_long_click_pending = True
-    manager.update(state)
-    self.assertEqual(manager.get_current_id(), module.ScreenID.MAIN)
-    self.assertFalse(state.shutdown_request)
-
-  def test_stale_zero_speed_opens_main_but_does_not_power_off(self):
+  def test_stale_zero_speed_does_not_power_off(self):
     module = _load_screen_manager()
     state = self.state()
     manager = module.ScreenManager(object(), state)
-    manager.force(module.ScreenID.BATTERY_RESISTANCE)
+    manager.force(module.ScreenID.MAIN)
     state.wheel_speed_telemetry_valid = False
     state.brakes_are_active = True
     state.buttons_state = 0x0300
@@ -164,24 +143,6 @@ class ResistanceMainNavigationTests(unittest.TestCase):
     self.assertEqual(
       manager.get_current_id(), module.ScreenID.MAIN)
     self.assertFalse(state.shutdown_request)
-
-    # A stale zero speed is equally insufficient after entering MAIN.
-    state.power_long_click_pending = True
-    manager.update(state)
-    self.assertEqual(manager.get_current_id(), module.ScreenID.MAIN)
-    self.assertFalse(state.shutdown_request)
-
-  def test_non_bms_profile_keeps_normal_main_dashboard(self):
-    module = _load_screen_manager()
-    state = self.state()
-    state.battery_resistance_enabled = False
-    manager = module.ScreenManager(object(), state)
-    state.buttons_state = 0x0200
-    state.power_long_click_pending = True
-
-    manager.update(state)
-
-    self.assertEqual(manager.get_current_id(), module.ScreenID.MAIN)
 
   def test_ready_long_press_with_brakes_enters_manual_charging(self):
     module = _load_screen_manager()
@@ -196,19 +157,13 @@ class ResistanceMainNavigationTests(unittest.TestCase):
     self.assertEqual(manager.get_current_id(), module.ScreenID.CHARGING)
     self.assertFalse(state.motor_enable_state)
 
-  def test_manual_charging_still_opens_history_then_ready(self):
+  def test_manual_charging_returns_to_ready(self):
     module = _load_screen_manager()
     state = self.state()
     manager = module.ScreenManager(object(), state)
     manager.force(module.ScreenID.CHARGING)
     manager._charging_entry_is_auto = False
     state.buttons_state = 0x0100
-    state.power_click_pending = True
-    manager.update(state)
-    self.assertEqual(
-      manager.get_current_id(), module.ScreenID.BATTERY_RESISTANCE_HISTORY)
-
-    state.buttons_state = 0
     state.power_click_pending = True
     manager.update(state)
     self.assertEqual(manager.get_current_id(), module.ScreenID.BOOT)

@@ -2,10 +2,10 @@
 
 ## Scope
 
-This change resolves the three high-priority optimizations from the Python
+This change resolves the remaining high-priority optimizations from the Python
 firmware review. It is constrained to allocation and redraw pressure in the
 Motor Board's 20 ms control loop, the Lights Board's 25 ms ESP-NOW receive
-loop, and the Display's battery-resistance screens. Protocol payloads,
+loop. Protocol payloads,
 actuation order, the established 3 ms CAN post-send delay, and safety gates
 are unchanged.
 
@@ -15,7 +15,6 @@ are unchanged.
 | --- | --- | --- |
 | Motor Board | Replaced per-pass list/generator/`zip` work with explicit rear/front scalar paths. `Throttle.refresh()` updates cached scalar values; the compatibility `value` property remains for other callers. ADC and throttle-to-ERPM scaling use bounded integer arithmetic; CAN Status 1/4/5 and SOC are decoded directly from the received buffer rather than through `struct.unpack_from()` tuples. | At 50 Hz, transient MicroPython objects create regular garbage-collection pressure and timing jitter. The rear/front path preserves each VESC's separate speed limit and prior clamping/dead-zone behavior. |
 | Lights Board | The ESP-NOW helper now accepts an output dictionary. Lights allocates it once and clears/refills it per 25 ms receive pass. | An idle receive loop formerly allocated a new dictionary on every iteration. The returned mapping and latest-per-source behavior remain identical. |
-| Display resistance views | Dashboard and history widgets cache their input values and call string formatting/widget update only when those values change. Existing LCD/widget dirty tracking then avoids an SPI flush for an unchanged frame. | The UI runs frequently while resistance state normally changes only once per second or per sample. Avoiding duplicate formatting and redraw requests reduces heap churn and bus traffic. |
 
 ## Open optimization opportunities
 
@@ -47,8 +46,7 @@ The validation below records the earlier implemented optimization change.
 - `py -3 -m unittest discover -s tests -v`: 53 tests passed.
 - `git diff --check`: passed.
 - Added host coverage for `Throttle.refresh()` and its backwards-compatible
-  tuple property, retained ESP-NOW output-dictionary identity/clearing, and
-  unchanged resistance dashboard/history renders.
+  tuple property and retained ESP-NOW output-dictionary identity/clearing.
 
 ## Boundaries
 
@@ -60,6 +58,4 @@ allocations and redraw work controlled by this firmware.
 
 - Measure Motor Board 20 ms worst-case/jitter and heap behavior with one and
   two VESCs under representative CAN traffic.
-- Measure Display frame time, heap headroom, and SPI traffic with the
-  resistance dashboard and history open.
 - Confirm Lights Board ESP-NOW behavior under radio bursts on target hardware.

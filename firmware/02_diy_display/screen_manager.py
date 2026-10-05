@@ -9,8 +9,6 @@ class ScreenID:
   CHARGING  = 2
   POWEROFF  = 3
   MOTOR_BLOCKED = 4
-  BATTERY_RESISTANCE = 5
-  BATTERY_RESISTANCE_HISTORY = 6
 
 class ScreenManager:
   def __init__(self, fb, vars):
@@ -23,20 +21,13 @@ class ScreenManager:
       ScreenID.CHARGING: ("screens.charging", "ChargingScreen"),
       ScreenID.POWEROFF: ("screens.poweroff", "PowerOffScreen"),
       ScreenID.MOTOR_BLOCKED: ("screens.motor_blocked", "MotorBlockedScreen"),
-      ScreenID.BATTERY_RESISTANCE: (
-        "screens.battery_resistance", "BatteryResistanceScreen"
-      ),
-      ScreenID.BATTERY_RESISTANCE_HISTORY: (
-        "screens.battery_resistance", "BatteryResistanceHistoryScreen"
-      ),
     }
     self._screen_factories = {
       ScreenID.BOOT: BootScreen,
     }
     self._screens = {}
 
-    # Preserve the normal Ready/POWER safety gate. Battery resistance replaces
-    # MAIN only after the rider explicitly enables the motor.
+    # Preserve the normal Ready/POWER safety gate.
     self._current_id = ScreenID.BOOT
     vars.motor_enable_state = False
     self._current = self._get_screen(self._current_id)
@@ -65,13 +56,6 @@ class ScreenManager:
   def current_is(self, screen_id):
     """Fast equality without tuples/strings."""
     return self._current_id == screen_id
-
-  def _next_main_screen_id(self):
-    # A non-BMS profile deliberately disables the estimator. Keep its normal
-    # dashboard instead of presenting that intentional configuration as B ERR.
-    if getattr(self._vars, 'battery_resistance_enabled', True):
-      return ScreenID.BATTERY_RESISTANCE
-    return ScreenID.MAIN
 
   def _get_screen(self, screen_id):
     screen = self._screens.get(screen_id)
@@ -108,10 +92,8 @@ class ScreenManager:
     except Exception:
       pass
 
-  def force(self, screen_id, allow_main=False):
+  def force(self, screen_id):
     """Switch to a screen by numeric ID (no strings!)."""
-    if screen_id == ScreenID.MAIN and not allow_main:
-      screen_id = self._next_main_screen_id()
     if screen_id == self._current_id:
       return
     if cfg.boot_timing_debug:
@@ -234,25 +216,18 @@ class ScreenManager:
       self._button_power_click_previous = button_power_click
 
       # Go to Charging
-      if self.current_is(self._next_main_screen_id()) and \
+      if self.current_is(ScreenID.MAIN) and \
           wheel_stopped and brakes_on:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = False
         self.force(ScreenID.CHARGING)
         return
 
-      # The manual charging flow opens the separate resistance-history screen.
+      # A short click leaves manual charging when charging is inactive.
       if self.current_is(ScreenID.CHARGING) and \
               not is_charging and \
               not self._charging_entry_is_auto:
         self._charging_entry_is_auto = False
-        vars.motor_enable_state = False
-        self.force(ScreenID.BATTERY_RESISTANCE_HISTORY)
-        return
-
-      # The post-charging data screen is informational; its next short click
-      # continues to the Ready screen, as in the former charging flow.
-      if self.current_is(ScreenID.BATTERY_RESISTANCE_HISTORY):
         self._suppress_rearm_warning()
         vars.motor_enable_state = False
         self.force(ScreenID.BOOT)
@@ -280,13 +255,6 @@ class ScreenManager:
         self._charging_entry_is_auto = False
         vars.motor_enable_state = True
         self.force(ScreenID.MAIN)
-        return
-
-      # The resistance dashboard is the normal post-Ready view. Its long
-      # press deliberately exposes the ordinary MAIN dashboard; this is a UI
-      # transition, not a shutdown, so it is safe while moving.
-      if self.current_is(ScreenID.BATTERY_RESISTANCE):
-        self.force(ScreenID.MAIN, allow_main=True)
         return
 
       # A brake input is not proof of a stationary scooter. Do not remove

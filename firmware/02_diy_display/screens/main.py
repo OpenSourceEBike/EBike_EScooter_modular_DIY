@@ -1,7 +1,6 @@
 # screens/main.py
 import time
 import common.config_runtime as cfg
-from common.battery_resistance import format_battery_resistance_alert
 from .base import BaseScreen
 from widgets.widget_battery_soc import BatterySOCWidget
 from widgets.widget_motor_power import MotorPowerWidget
@@ -157,15 +156,6 @@ class MainScreen(BaseScreen):
     in_startup_grace = time.ticks_diff(now, getattr(cfg, "system_boot_ms", 0)) < boot_comm_grace_ms
     comms_paused = bool(getattr(vars, "comms_paused", False))
     suppress_remote_warnings = in_startup_grace or comms_paused
-    resistance_alert = getattr(
-      vars, "battery_resistance_alert_pending", None)
-    if resistance_alert is not None:
-      vars.battery_resistance_alert_pending = None
-      resistance_mohm, duration_ms = resistance_alert
-      self._enqueue_warning(
-        format_battery_resistance_alert(resistance_mohm),
-        duration_ms=duration_ms,
-      )
     # Motor power
     if self._motor_power_previous != vars.motor_power_percent:
       self._motor_power_previous = vars.motor_power_percent

@@ -21,8 +21,6 @@ Typical display features include:
 - showing light state
 - showing comms or fault messages
 - handling power on and power off requests
-- presenting, timestamping, and persisting the battery-resistance result
-  estimated locally from JBD BMS Bluetooth BASIC frames
 
 ## Communication responsibilities
 
@@ -31,8 +29,6 @@ In the active scooter firmware:
 - the display sends motor, rider-light, and power-switch commands directly
 - the display receives motor status and tracks each remote link separately
 - the display owns the optional BLE BMS connection and `battery_is_charging`
-- the JBD BMS is the only source used for the passive battery-resistance
-  estimator
 - the display schedules one charging NTP sync per boot; after it starts, later
   charging-state changes cannot schedule another one
 
@@ -44,12 +40,6 @@ In the active scooter firmware:
 - During NTP sync, `comms_paused` stops all display ESP-NOW traffic until the
   stack has been rebuilt. The BLE BMS client is also stopped and restarted so
   it does not contend with Wi-Fi during synchronization.
-- The resistance flow accepts only unique fresh BMS BASIC timestamps. It
-  captures three reference samples inside -250 W to +250 W, waits through one
-  settling frame after a 750 W discharge event, then averages three load
-  samples at or below -750 W. A completed result is held
-  until a reference-power sample returns, avoiding repeated alerts during one
-  load event.
 
 ## Code areas
 

@@ -106,16 +106,6 @@ that latch only after 100 continuous milliseconds inside the throttle-zero
 deadband. Charging state is detected locally by the display from its BLE BMS
 connection and is not sent by the motor board.
 
-### Battery-resistance result
-
-Battery resistance is Display-local and derived only from fresh JBD Bluetooth
-BASIC voltage/current samples. It is neither sent by a VESC nor part of the
-Motor Board ESP-NOW status. The BMS estimator requires three reference samples
-inside -250 W to +250 W, a discharge of at least 750 W, one discarded settling
-sample, and three load samples at or below -750 W. Its
-result is effective DC resistance at the BMS measurement point; it does not
-control traction or charging protection.
-
 Power-switch to sender config echo/status:
 
 ```text
@@ -146,9 +136,6 @@ MSG_STATUS src=BOARD_POWER_SWITCH dst health=0 motion_threshold motion_rate_hz m
     aggregates only fresh Status-4/5 branches using absolute-current-weighted
     voltage and summed signed current. Charging standstill detection requires
     a valid selected speed source, rear or front.
-12. The optional JBD BMS remains Display-local. Its fresh BASIC frames also
-    feed the passive BMS resistance diagnostic; stale, duplicate, charging or
-    regenerating frames cannot produce a resistance result.
 
 Motor-status `health` bits are bit 0 motor-to-lights TX healthy, bit 4 rear
 speed valid, bit 5 front speed valid, bit 6 rear standard battery telemetry
@@ -166,12 +153,8 @@ The maintained power button uses the shared `thisButton` driver:
 - Power click and long-press events are latched until the UI task consumes them.
 - The Display always starts in `Ready` with the motor disabled. A long press
   is required to leave it: with brakes active at confirmed zero speed it opens
-  manual `CHARGING`; otherwise it enables the motor. When the JBD resistance
-  feature is enabled, that action opens its dashboard in place of `MAIN`; a
-  deliberately non-BMS profile opens the normal `MAIN` dashboard instead.
-  Both follow the same timeout, lights, charging and shutdown rules.
-- Long press on the enabled battery-resistance dashboard opens the ordinary
-  `MAIN` dashboard without changing motor enable. From `MAIN`, long press
+  manual `CHARGING`; otherwise it enables the motor and opens `MAIN`.
+- From `MAIN`, long press
   requests power-off only after fresh wheel telemetry confirms zero speed.
   Applying the brakes while moving is not a shutdown condition.
 

@@ -3,8 +3,8 @@
 Review date: 2026-09-23.
 
 Scope: maintained scooter firmware: Motor Board, Display, Lights Board, Power
-Board, shared ESP-NOW helpers, runtime configuration, and battery resistance.
-Legacy e-bike paths are excluded. Remediation of BMS-06, BMS-07, BMS-08,
+Board, shared ESP-NOW helpers, and runtime configuration.
+Legacy e-bike paths are excluded. Remediation of BMS-06, BMS-08,
 DEP-01, and RTC-01 is recorded in `firmware_fix_log_2026-09-21.md`; the
 ESP32-S3 runtime allocation/redraw work is recorded in `OPTIMIZATIONS.md`.
 
@@ -14,7 +14,6 @@ Only open findings are kept in this file.
 
 | ID | Evidence | Severity | Finding |
 | --- | --- | --- | --- |
-| BMS-05 | NTC order has no configuration | Low | Logged BMS temperature is always unnamed JBD NTC 1. |
 | LT-01 | Receiver behavior | Medium | Lights ownership is selected from `mask`, not enforced by `src`. |
 | SEC-01 | Protocol architecture | High | ESP-NOW command frames are unauthenticated and replayable. |
 | SYS-01 | Critical tasks lack supervision | High | No supervisor or watchdog recovery. |
@@ -24,12 +23,6 @@ Only open findings are kept in this file.
 | RTC-02 | UDP time response validation | Medium | An unrelated UDP reply can set the RTC and affect scheduled lights. |
 
 ## Intentional design decisions
-
-### BMS-02 — MOSFET state is intentionally ignored
-
-The JBD client and resistance estimator do not use charge/discharge MOSFET
-state. A disabled, enabled, or unavailable MOSFET state neither blocks nor
-resets a measurement.
 
 ### PWR-02 — relay is asserted before peripheral initialization
 
@@ -88,20 +81,6 @@ ownership.
 
 **Recommended action:** retain this behavior unless hardware integration tests
 validate a source-enforced replacement.
-
-### BMS-05 — logged BMS temperature has no selected-sensor contract
-
-**Status:** Open. **Severity:** Low.
-
-The parser exposes ordered unnamed NTC readings, but persistence stores index
-zero as `bms_temperature_c_x100`.
-
-**References:** `02_diy_display/bms_jbd.py`,
-`02_diy_display/escooter/main.py`, and
-`common/battery_resistance_persistence.py`.
-
-**Recommended action:** add a validated `bms_temperature_sensor_index` and
-document the physical probe for each BMS; store `na` when unavailable.
 
 ### MOT-01 — required CAN delays can postpone the 20 ms cycle
 
