@@ -2,7 +2,7 @@
 
 Set CAN baud rate to 125K, as configured by the maintained scooter profiles.
 
-Install `battery_precision_telemetry.lisp` only on the rear VESC (CAN ID `0`).
+Install `battery_soc_can.lisp` only on the rear VESC (CAN ID `0`).
 It sends the rear VESC battery SOC as project-private command `99`, once per
 second. It does not reset the VESC motor-command timeout.
 
