@@ -57,20 +57,32 @@ class MotorTelemetryTests(unittest.TestCase):
 
   def test_dual_battery_status_uses_both_fresh_branches(self):
     self.assertEqual(
-      aggregate_battery_status(800, 150, True, 760, 100, True),
-      (784, 250),
+      aggregate_battery_status(800, True, 150, True, 100, True),
+      (800, 250),
     )
 
-  def test_front_battery_is_a_fallback_when_rear_is_stale(self):
+  def test_front_current_remains_available_without_rear_voltage(self):
     self.assertEqual(
-      aggregate_battery_status(0, 0, False, 760, 100, True),
-      (760, 100),
+      aggregate_battery_status(800, False, 150, False, 100, True),
+      (0, 100),
     )
 
   def test_battery_status_is_zero_only_when_both_sources_are_stale(self):
     self.assertEqual(
-      aggregate_battery_status(800, 150, False, 760, 100, False),
+      aggregate_battery_status(800, False, 150, False, 100, False),
       (0, 0),
+    )
+
+  def test_rear_voltage_is_independent_of_current_freshness(self):
+    self.assertEqual(
+      aggregate_battery_status(800, True, 150, False, 100, False),
+      (800, 0),
+    )
+
+  def test_currents_are_summed_without_voltage_and_preserve_regen_sign(self):
+    self.assertEqual(
+      aggregate_battery_status(800, False, -150, True, -100, True),
+      (0, -250),
     )
 
   def test_stale_status_4_keeps_temperatures_unavailable(self):

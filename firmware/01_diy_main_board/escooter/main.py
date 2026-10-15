@@ -44,6 +44,7 @@ LIGHTS_RETRY_MS = 50
 LIGHTS_RETRY_MAX_MS = 1000
 THROTTLE_REARM_ZERO_HOLD_MS = 100
 CAN_TELEMETRY_TIMEOUT_MS = 2000
+CAN_SOC_TIMEOUT_MS = 10000
 try:
   import neopixel
   import machine
@@ -117,10 +118,10 @@ def decode_display_command(msg):
     return parts
   return None
 
-def _can_timestamp_is_fresh(now, timestamp_ms):
+def _can_timestamp_is_fresh(now, timestamp_ms, timeout_ms=CAN_TELEMETRY_TIMEOUT_MS):
   return bool(
     timestamp_ms and
-    0 <= time.ticks_diff(now, timestamp_ms) < CAN_TELEMETRY_TIMEOUT_MS
+    0 <= time.ticks_diff(now, timestamp_ms) < timeout_ms
   )
 
 def _motion_is_fresh(now, motor_data):
@@ -138,24 +139,23 @@ def _battery_status_is_fresh(now, motor_data):
 def _operational_battery_status(now, rear_data, front_data=None):
   """Return aggregate display telemetry plus per-VESC freshness.
 
-  This is only the operational Display view, where one healthy branch is
-  preferable to publishing a false whole-system zero.
+  Voltage comes only from rear Status 5. Each input current uses its own
+  Status 4 freshness, independently of voltage availability.
   """
   rear_fresh = _battery_status_is_fresh(now, rear_data)
   front_fresh = bool(
     front_data is not None and _battery_status_is_fresh(now, front_data))
 
-  front_voltage_x10 = int(front_data.battery_voltage_x10) \
-    if front_data is not None else 0
   front_current_x10 = int(front_data.battery_current_x10) \
     if front_data is not None else 0
   voltage_x10, total_current_x10 = aggregate_battery_status(
     int(rear_data.battery_voltage_x10),
+    _can_timestamp_is_fresh(now, rear_data.status_5_last_update_ms),
     int(rear_data.battery_current_x10),
-    rear_fresh,
-    front_voltage_x10,
+    _can_timestamp_is_fresh(now, rear_data.status_4_last_update_ms),
     front_current_x10,
-    front_fresh,
+    bool(front_data is not None and _can_timestamp_is_fresh(
+      now, front_data.status_4_last_update_ms)),
   )
 
   return (voltage_x10, total_current_x10, rear_fresh, front_fresh)
@@ -316,7 +316,7 @@ async def task_motors_refresh_data():
 
       if data is rear_motor_data:
         if not _can_timestamp_is_fresh(
-            now, data.soc_last_update_ms):
+            now, data.soc_last_update_ms, CAN_SOC_TIMEOUT_MS):
           data.battery_soc_x1000 = 0
 
     next_wake = time.ticks_add(next_wake, period_ms)

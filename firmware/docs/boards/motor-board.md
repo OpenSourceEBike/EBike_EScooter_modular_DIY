@@ -42,12 +42,13 @@ In the active scooter firmware:
   temperatures/input current, and pack voltage respectively. All three CAN
   statuses use a 2000 ms freshness timeout.
 - The rear VESC LispBM helper sends only SOC x1000 as project-private command
-  `99`, once per second. Rear SOC remains authoritative and uses the same
-  2000 ms CAN freshness timeout. Front SOC is ignored.
+  `99`, once per second. Rear SOC remains authoritative and uses a
+  10000 ms freshness timeout. Front SOC is ignored.
 - Status-4 temperatures outside -50.0..200.0 C are published as unavailable
   (`-2550`). Rear ERPM is the primary speed source; fresh front ERPM is a
-  Display-only fallback. Normal battery status combines fresh Status-4/5
-  branches using absolute-current-weighted voltage and summed signed current.
+  Display-only fallback. Battery voltage comes only from fresh rear Status 5;
+  signed input currents are summed from each VESC's fresh Status 4 independently.
+  Standard CAN status retains the 2000 ms freshness timeout.
 - The 20 ms actuation loop sends one target command per VESC and preserves the
   required 3 ms post-send CAN delay. Motor/battery limit refresh runs at 100 ms,
   CAN receive drains at most 32 already-queued frames every 20 ms without

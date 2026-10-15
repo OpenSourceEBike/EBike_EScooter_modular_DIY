@@ -41,36 +41,14 @@ def clear_stale_status_4(data, temperature_unavailable_x10):
   data.motor_temperature_x10 = temperature_unavailable_x10
 
 
-def aggregate_battery_status(rear_voltage_x10, rear_current_x10, rear_fresh,
-                             front_voltage_x10=0, front_current_x10=0,
-                             front_fresh=False):
-  """Aggregate only fresh branches for the operational Display status."""
+def aggregate_battery_status(rear_voltage_x10, rear_voltage_fresh,
+                             rear_current_x10, rear_current_fresh,
+                             front_current_x10=0, front_current_fresh=False):
+  """Use rear-only voltage and sum each fresh signed input current."""
+  voltage_x10 = rear_voltage_x10 if rear_voltage_fresh else 0
   total_current_x10 = 0
-  voltage_sum_x10 = 0
-  voltage_count = 0
-  voltage_weight_x10 = 0
-  weighted_voltage_numerator = 0
-
-  if rear_fresh:
+  if rear_current_fresh:
     total_current_x10 += rear_current_x10
-    voltage_sum_x10 += rear_voltage_x10
-    voltage_count += 1
-    weight = abs(rear_current_x10)
-    voltage_weight_x10 += weight
-    weighted_voltage_numerator += rear_voltage_x10 * weight
-
-  if front_fresh:
+  if front_current_fresh:
     total_current_x10 += front_current_x10
-    voltage_sum_x10 += front_voltage_x10
-    voltage_count += 1
-    weight = abs(front_current_x10)
-    voltage_weight_x10 += weight
-    weighted_voltage_numerator += front_voltage_x10 * weight
-
-  if voltage_count == 0:
-    voltage_x10 = 0
-  elif voltage_weight_x10:
-    voltage_x10 = weighted_voltage_numerator // voltage_weight_x10
-  else:
-    voltage_x10 = voltage_sum_x10 // voltage_count
   return voltage_x10, total_current_x10
